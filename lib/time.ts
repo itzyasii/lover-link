@@ -12,8 +12,7 @@ export function formatLastSeen(lastSeenAtIso: string, now = new Date()) {
   if (diffSec < 60) return "Last online just now";
   if (min < 60) return `Last online ${min} minute${min === 1 ? "" : "s"} ago`;
   if (hr < 24) return `Last online ${hr} hour${hr === 1 ? "" : "s"} ago`;
-  if (day < 7) return `Last online ${day} day${day === 1 ? "" : "s"} ago`;
+  if (day >= 1 && day < 365) return `Last online ${day} day${day === 1 ? "" : "s"} ago`;
 
   return `Last seen ${last.toLocaleString()}`;
 }
-

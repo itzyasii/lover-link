@@ -44,6 +44,31 @@ type CallContextValue = {
 
 const Ctx = createContext<CallContextValue | null>(null);
 
+function mediaErrorMessage(err: unknown, media: "audio" | "video") {
+  const secureHint = !window.isSecureContext
+    ? " Use https or http://localhost so the browser can ask for permissions."
+    : "";
+
+  const base = media === "audio" ? "Microphone" : "Mic/camera";
+
+  const name =
+    err instanceof DOMException ? err.name : typeof (err as any)?.name === "string" ? String((err as any).name) : "";
+
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return `${base} permission was denied.${secureHint}`;
+  }
+  if (name === "NotFoundError") {
+    return media === "audio"
+      ? "No microphone was found."
+      : "No camera or microphone was found.";
+  }
+  if (name === "NotReadableError") {
+    return `${base} is already in use by another app.`;
+  }
+
+  return `Could not access ${base.toLowerCase()}.${secureHint}`;
+}
+
 export function useCall() {
   const v = useContext(Ctx);
   if (!v) throw new Error("useCall must be used within CallProvider");
@@ -144,8 +169,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           cleanup();
         }
       });
-    } catch {
-      toast({ title: "Call failed", message: "Mic/camera permission was denied." });
+    } catch (err) {
+      toast({ title: "Call failed", message: mediaErrorMessage(err, media) });
       cleanup();
     }
   };
@@ -178,9 +203,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         localStream: stream,
         remoteStream: remoteStreamRef.current ?? new MediaStream(),
       });
-    } catch {
+    } catch (err) {
       s.emit("call:end", { to: from, callId, reason: "media_denied" });
-      toast({ title: "Cannot answer", message: "Mic/camera permission was denied." });
+      toast({ title: "Cannot answer", message: mediaErrorMessage(err, media) });
       cleanup();
     }
   };

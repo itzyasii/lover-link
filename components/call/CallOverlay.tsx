@@ -84,13 +84,15 @@ export function CallOverlay() {
                 {micEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
                 {micEnabled ? "Mute" : "Unmute"}
               </button>
-              <button
-                className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-black/5 px-4 py-2 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-black/10"
-                onClick={toggleCam}
-              >
-                {camEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-                {camEnabled ? "Camera off" : "Camera on"}
-              </button>
+              {state.media === "video" ? (
+                <button
+                  className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-black/5 px-4 py-2 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-black/10"
+                  onClick={toggleCam}
+                >
+                  {camEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+                  {camEnabled ? "Camera off" : "Camera on"}
+                </button>
+              ) : null}
               <button
                 className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-[color:var(--rose-600)] px-4 py-2 text-sm font-semibold text-white hover:bg-[color:var(--rose-700)]"
                 onClick={() => void hangup()}
