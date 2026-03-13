@@ -618,7 +618,7 @@ export default function ChatPage() {
         <div className="absolute right-[-8%] top-[18%] h-64 w-64 rounded-full bg-[color:var(--rose-600)]/10 blur-3xl" />
         <div className="absolute bottom-[-10%] left-[24%] h-72 w-72 rounded-full bg-white/35 blur-3xl" />
       </div>
-      <div className="relative flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--wine-900)]/8 bg-white/64 px-4 pb-4 pt-3 backdrop-blur-xl sm:px-5">
+      <div className="relative flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--wine-900)]/8 bg-white/64 px-2 pb-2 pt-1 backdrop-blur-xl sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
           <img
             src="/avatars/default-love.svg"
@@ -626,15 +626,15 @@ export default function ChatPage() {
             className="h-11 w-11 rounded-[18px] border border-white/70 bg-white/75 p-1 shadow-[0_10px_24px_rgba(126,35,75,0.12)]"
           />
           <div className="min-w-0">
-            <div className="truncate font-[family-name:var(--font-serif)] text-[1.35rem] text-[color:var(--wine-900)]">
+            <div className="truncate font-[family-name:var(--font-serif)] text-[1.25rem] text-[color:var(--wine-900)]">
               {otherDisplayName}
-              <span className="ml-2 inline-flex rounded-full bg-[color:var(--rose-600)]/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-[color:var(--rose-700)]">
+              <span className="ml-2 inline-flex rounded-full bg-[color:var(--rose-600)]/10 px-2 py-0.5 text-[7px] font-semibold uppercase tracking-[0.16em] text-[color:var(--rose-700)]">
                 DM
               </span>
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-[color:var(--wine-900)]/62">
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[9px] text-[color:var(--wine-900)]/62">
               <span
-                className={`inline-flex h-2 w-2 rounded-full ${
+                className={`inline-flex h-1.5 w-1.5 rounded-full ${
                   presence?.isOnline
                     ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]"
                     : "bg-[color:var(--wine-900)]/18"
@@ -663,19 +663,19 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
-            className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[color:var(--wine-900)]/8 bg-white/72 px-3.5 py-2 text-[13px] font-semibold text-[color:var(--wine-900)] shadow-sm transition hover:bg-white"
+            className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[color:var(--wine-900)]/8 bg-white/72 px-3 py-2 text-[12px] font-semibold text-[color:var(--wine-900)] shadow-sm transition hover:bg-white"
             onClick={() => {
               if (otherUserId) void startCall(otherUserId, "audio");
             }}
             title="Audio call"
             type="button"
           >
-            <Phone className="h-3.5 w-3.5" /> Call
+            <Phone className="h-3 w-3" /> Call
           </button>
           <button
-            className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-[color:var(--rose-600)] px-3.5 py-2 text-[13px] font-semibold text-white shadow-[0_10px_24px_rgba(198,43,105,0.25)] transition hover:bg-[color:var(--rose-700)]"
+            className="focus-ring inline-flex items-center gap-1 rounded-full bg-[color:var(--rose-600)] px-3 py-2 text-[12px] font-semibold text-white shadow-[0_10px_24px_rgba(198,43,105,0.25)] transition hover:bg-[color:var(--rose-700)]"
             onClick={() => {
               if (otherUserId) void startCall(otherUserId, "video");
             }}
@@ -687,13 +687,13 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1 px-2.5 pb-2.5 pt-3 sm:px-3 sm:pb-3">
-        <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[26px] border border-white/65 bg-white/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_14px_38px_rgba(98,19,57,0.07)] backdrop-blur-xl">
+      <div className="relative min-h-0 flex-1 sm:px-3 sm:pb-3">
+        <div className="relative flex h-full min-h-0 flex-col overflow-hidden border border-white/65 bg-white/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_14px_38px_rgba(98,19,57,0.07)] backdrop-blur-xl">
           <div className="pointer-events-none absolute inset-0 opacity-70">
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.24),transparent_24%,transparent_76%,rgba(255,255,255,0.22))]" />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,216,230,0.38),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(198,43,105,0.08),transparent_28%)]" />
           </div>
-          <div className="relative mt-0.5 min-h-0 flex-1 space-y-2.5 overflow-x-hidden overflow-y-auto px-2.5 py-3 sm:px-3">
+          <div className="relative mt-0.5 min-h-0 flex-1 space-y-2.5 overflow-x-hidden overflow-y-auto px-1.5 py-2 sm:px-3">
             {messages.map((m) => {
               if (m.type === "event") {
                 const label =

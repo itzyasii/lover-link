@@ -13,18 +13,16 @@ type Chat = {
   id: string;
   type: "dm";
   members: { id: string; email?: string; username?: string }[];
-  lastMessage?:
-    | {
-        id: string;
-        type: "text" | "share" | "event";
-        text: string | null;
-        itemKind: "file" | "image" | "video" | "audio" | null;
-        eventKind: "call_started" | "call_ended" | null;
-        eventMedia: "audio" | "video" | null;
-        from: string;
-        createdAt: string;
-      }
-    | null;
+  lastMessage?: {
+    id: string;
+    type: "text" | "share" | "event";
+    text: string | null;
+    itemKind: "file" | "image" | "video" | "audio" | null;
+    eventKind: "call_started" | "call_ended" | null;
+    eventMedia: "audio" | "video" | null;
+    from: string;
+    createdAt: string;
+  } | null;
   updatedAt: string;
 };
 
@@ -46,7 +44,8 @@ function formatLastMessagePreview(
   const prefix = meId && m.from === meId ? "You: " : "";
   if (m.type === "event") {
     const media = m.eventMedia === "video" ? "video" : "audio";
-    const label = m.eventKind === "call_started" ? "Call started" : "Call ended";
+    const label =
+      m.eventKind === "call_started" ? "Call started" : "Call ended";
     return `${prefix}${label} (${media})`;
   }
   if (m.type === "share") {
@@ -77,12 +76,15 @@ export default function ChatsPage() {
   const otherMembers = useMemo(
     () =>
       chats
-        .map((chat) => chat.members.find((member) => member.id !== me?.id) ?? null)
+        .map(
+          (chat) => chat.members.find((member) => member.id !== me?.id) ?? null,
+        )
         .filter(Boolean) as NonNullable<Chat["members"][number]>[],
     [chats, me?.id],
   );
   const presenceIds = useMemo(
-    () => Array.from(new Set(otherMembers.map((member) => member.id))).join(","),
+    () =>
+      Array.from(new Set(otherMembers.map((member) => member.id))).join(","),
     [otherMembers],
   );
   const presenceQ = useQuery({
@@ -136,14 +138,16 @@ export default function ChatsPage() {
         <div className="mt-6 grid gap-2">
           {chats.map((c) => {
             const otherMember = c.members.find((m) => m.id !== me?.id) ?? null;
-            const presence = otherMember ? presenceByUserId.get(otherMember.id) : null;
+            const presence = otherMember
+              ? presenceByUserId.get(otherMember.id)
+              : null;
             const name = otherMember?.username ?? otherMember?.email ?? "Chat";
 
             return (
               <Link
                 key={c.id}
                 href={`/app/chat/${c.id}`}
-                className="focus-ring flex items-center justify-between rounded-2xl bg-white/55 px-4 py-4 hover:bg-white/70"
+                className="focus-ring flex items-center justify-between rounded-2xl bg-white/55 px-2 py-2 hover:bg-white/70"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="relative shrink-0">
@@ -169,39 +173,47 @@ export default function ChatsPage() {
                       </span>
                     </div>
                     <div className="mt-0.5 flex min-w-0 items-center justify-between gap-3 text-xs text-black/55">
-                    {(() => {
-                      const t = typingByChatId[c.id];
-                      const active = t && Date.now() - t.at < 6500;
-                      const otherTyping = active && t?.from && t.from !== me?.id;
-                      if (otherTyping) {
-                        return (
-                          <div className="flex min-w-0 items-center justify-between gap-3">
-                            <div className="inline-flex min-w-0 items-center gap-2 truncate font-semibold text-[color:var(--rose-700)]">
-                              Typing
-                              <span className="typing-dots" aria-hidden="true">
-                                <span />
-                                <span />
-                                <span />
-                              </span>
+                      {(() => {
+                        const t = typingByChatId[c.id];
+                        const active = t && Date.now() - t.at < 6500;
+                        const otherTyping =
+                          active && t?.from && t.from !== me?.id;
+                        if (otherTyping) {
+                          return (
+                            <div className="flex min-w-0 items-center justify-between gap-3">
+                              <div className="inline-flex min-w-0 items-center gap-2 truncate font-semibold text-[color:var(--rose-700)]">
+                                Typing
+                                <span
+                                  className="typing-dots"
+                                  aria-hidden="true"
+                                >
+                                  <span />
+                                  <span />
+                                  <span />
+                                </span>
+                              </div>
+                              <div className="shrink-0 tabular-nums text-black/35" />
                             </div>
-                            <div className="shrink-0 tabular-nums text-black/35" />
-                          </div>
+                          );
+                        }
+                        return (
+                          <>
+                            <div className="min-w-0 truncate">
+                              {formatLastMessagePreview(
+                                c.lastMessage ?? null,
+                                me?.id,
+                              )}
+                            </div>
+                            <div className="shrink-0 tabular-nums">
+                              {formatChatTime(
+                                (c.lastMessage?.createdAt as
+                                  | string
+                                  | undefined) ?? c.updatedAt,
+                              )}
+                            </div>
+                          </>
                         );
-                      }
-                      return (
-                        <>
-                          <div className="min-w-0 truncate">
-                            {formatLastMessagePreview(c.lastMessage ?? null, me?.id)}
-                          </div>
-                          <div className="shrink-0 tabular-nums">
-                            {formatChatTime(
-                              (c.lastMessage?.createdAt as string | undefined) ??
-                                c.updatedAt,
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()}
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -216,13 +228,14 @@ export default function ChatsPage() {
 }
 
 function ChatAvatar({ name }: { name: string }) {
-  const initials = name
-    .trim()
-    .split(/[\s._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("") || "?";
+  const initials =
+    name
+      .trim()
+      .split(/[\s._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || "?";
 
   return (
     <div className="grid h-11 w-11 place-items-center rounded-2xl border border-white/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(255,229,238,0.88))] text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--rose-700)] shadow-sm">
