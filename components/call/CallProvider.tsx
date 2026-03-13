@@ -9,6 +9,20 @@ import { resolveUserLabel } from "@/lib/users";
 
 type IceServer = { urls: string[] | string; username?: string; credential?: string };
 
+function inferMediaFromOffer(offer: RTCSessionDescriptionInit): "audio" | "video" {
+  const sdp = typeof offer?.sdp === "string" ? offer.sdp : "";
+  // If we didn't add a video track, the offer SDP typically has no m=video section.
+  return /\r?\nm=video\s/.test(sdp) ? "video" : "audio";
+}
+
+type CallOfferAck = { ok: boolean; callId?: string };
+type CallSimpleAck = { ok: boolean };
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  if (typeof v !== "object" || v == null) return null;
+  return v as Record<string, unknown>;
+}
+
 type CallState =
   | { kind: "idle" }
   | {
@@ -26,6 +40,7 @@ type CallState =
       peerLabel: string;
       callId: string;
       media: "audio" | "video";
+      connectedAt: string;
       localStream: MediaStream;
       remoteStream: MediaStream;
     };
@@ -51,8 +66,12 @@ function mediaErrorMessage(err: unknown, media: "audio" | "video") {
 
   const base = media === "audio" ? "Microphone" : "Mic/camera";
 
-  const name =
-    err instanceof DOMException ? err.name : typeof (err as any)?.name === "string" ? String((err as any).name) : "";
+  const name = (() => {
+    if (err instanceof DOMException) return err.name;
+    const r = asRecord(err);
+    const n = r?.name;
+    return typeof n === "string" ? n : "";
+  })();
 
   if (name === "NotAllowedError" || name === "SecurityError") {
     return `${base} permission was denied.${secureHint}`;
@@ -160,10 +179,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const pc = await ensurePC(toUserId, callId);
       for (const track of stream.getTracks()) pc.addTrack(track, stream);
 
-      const offer = await pc.createOffer();
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: media === "video",
+      });
       await pc.setLocalDescription(offer);
 
-      s.emit("call:offer", { to: toUserId, callId, media, offer }, (ack: any) => {
+      s.emit("call:offer", { to: toUserId, callId, offer, media }, (ack?: CallOfferAck) => {
         if (!ack?.ok) {
           toast({ title: "Call failed", message: "Could not reach the other side." });
           cleanup();
@@ -190,7 +212,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      s.emit("call:answer", { to: from, callId, answer }, (ack: any) => {
+      s.emit("call:answer", { to: from, callId, answer }, (ack?: CallSimpleAck) => {
         if (!ack?.ok) cleanup();
       });
 
@@ -200,6 +222,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         peerLabel: state.fromLabel,
         callId,
         media,
+        connectedAt: new Date().toISOString(),
         localStream: stream,
         remoteStream: remoteStreamRef.current ?? new MediaStream(),
       });
@@ -251,27 +274,38 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const s = getSocket();
     socketRef.current = s;
 
-    const onOffer = async (p: any) => {
+    const onOffer = async (p: unknown) => {
       if (state.kind !== "idle") return;
-      const from = String(p.from);
+      const r = asRecord(p);
+      if (!r) return;
+      const from = r.from == null ? "" : String(r.from);
+      if (!from) return;
       const fromLabel = (await resolveUserLabel(from)) ?? from;
+      const offer = r.offer as RTCSessionDescriptionInit;
+      const inferred = inferMediaFromOffer(offer);
+      const media = r.media === "audio" || r.media === "video" ? r.media : inferred;
+      const callId = typeof r.callId === "string" ? r.callId : "";
+      if (!callId) return;
       setState({
         kind: "incoming",
         from,
         fromLabel,
-        callId: p.callId,
-        media: p.media === "audio" ? "audio" : "video",
-        offer: p.offer,
+        callId,
+        media,
+        offer,
       });
       toast({ title: "Incoming call", message: `From ${fromLabel}` });
     };
 
-    const onAnswer = async (p: any) => {
+    const onAnswer = async (p: unknown) => {
       if (state.kind !== "outgoing") return;
-      if (p.callId !== state.callId) return;
+      const r = asRecord(p);
+      if (!r) return;
+      const callId = typeof r.callId === "string" ? r.callId : "";
+      if (!callId || callId !== state.callId) return;
       const pc = pcRef.current;
       if (!pc) return;
-      await pc.setRemoteDescription(p.answer);
+      await pc.setRemoteDescription(r.answer as RTCSessionDescriptionInit);
       const local = localStreamRef.current;
       setState({
         kind: "inCall",
@@ -279,39 +313,48 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         peerLabel: state.toLabel,
         callId: state.callId,
         media: state.media,
+        connectedAt: new Date().toISOString(),
         localStream: local ?? new MediaStream(),
         remoteStream: remoteStreamRef.current ?? new MediaStream(),
       });
     };
 
-    const onIce = async (p: any) => {
+    const onIce = async (p: unknown) => {
+      const r = asRecord(p);
+      if (!r) return;
       const pc = pcRef.current;
       if (!pc) {
-        if (p?.candidate) pendingIce.current.push(p.candidate);
+        if (r.candidate) pendingIce.current.push(r.candidate as RTCIceCandidateInit);
         return;
       }
       try {
-        await pc.addIceCandidate(p.candidate);
+        await pc.addIceCandidate(r.candidate as RTCIceCandidateInit);
       } catch {
         // ignore
       }
     };
 
-    const onEnd = (p: any) => {
+    const onEnd = (p: unknown) => {
       if (state.kind === "idle") return;
-      if (p.callId && state.callId && p.callId !== state.callId) return;
+      const r = asRecord(p);
+      const callId = typeof r?.callId === "string" ? r.callId : "";
+      if (callId && callId !== state.callId) return;
       cleanup();
     };
 
-    const onMissed = (p: any) => {
+    const onMissed = (p: unknown) => {
+      const r = asRecord(p);
+      if (!r) return;
       if (state.kind === "idle") {
-        const from = String(p.from);
+        const from = r.from == null ? "" : String(r.from);
+        if (!from) return;
         void resolveUserLabel(from).then((label) => {
           toast({ title: "Missed call", message: `From ${label ?? from}` });
         });
         return;
       }
-      if (p.callId && p.callId === (state as any).callId) cleanup();
+      const callId = typeof r.callId === "string" ? r.callId : "";
+      if (callId && callId === state.callId) cleanup();
     };
 
     s.on("call:offer", onOffer);

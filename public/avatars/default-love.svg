@@ -1,0 +1,28 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="18" y1="10" x2="110" y2="122" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD7E7"/>
+      <stop offset="0.55" stop-color="#FFF1F7"/>
+      <stop offset="1" stop-color="#F7D1E4"/>
+    </linearGradient>
+    <linearGradient id="heart" x1="36" y1="28" x2="92" y2="98" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C62B69"/>
+      <stop offset="1" stop-color="#A81F56"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="0.7" />
+    </filter>
+  </defs>
+
+  <circle cx="64" cy="64" r="60" fill="url(#bg)" />
+  <circle cx="64" cy="64" r="60" fill="none" stroke="rgba(198,43,105,0.20)" stroke-width="3"/>
+
+  <!-- sparkle -->
+  <path d="M95 34l2.6 6.3L104 43l-6.4 2.6L95 52l-2.6-6.4L86 43l6.4-2.7L95 34z" fill="rgba(198,43,105,0.28)"/>
+
+  <!-- double-heart -->
+  <g filter="url(#soft)">
+    <path d="M64 98c-20-13.5-34-26.5-34-42.7C30 44.4 38.7 36 49.5 36c6.6 0 12.4 3.2 15.8 8.2C68.7 39.2 74.5 36 81.1 36 91.9 36 101 44.4 101 55.3 101 71.5 86.7 84.5 66.7 98c-0.9 0.6-2.1 0.6-2.7 0z" fill="url(#heart)"/>
+    <path d="M41 56.2c0-7.2 5.9-13.1 13.1-13.1 3.7 0 7.1 1.6 9.4 4.2-0.8 2.2-1.2 4.6-1.2 7.2 0 10.9 7.2 21.2 20.7 31.7-5.5 4.1-11.4 8.1-17.6 12.2C50.2 86.1 41 74.1 41 60.7v-4.5z" fill="rgba(255,255,255,0.20)"/>
+  </g>
+</svg>

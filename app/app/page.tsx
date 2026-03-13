@@ -10,8 +10,57 @@ type Chat = {
   id: string;
   type: "dm";
   members: { id: string; email?: string; username?: string }[];
+  lastMessage?:
+    | {
+        id: string;
+        type: "text" | "share" | "event";
+        text: string | null;
+        itemKind: "file" | "image" | "video" | "audio" | null;
+        eventKind: "call_started" | "call_ended" | null;
+        eventMedia: "audio" | "video" | null;
+        from: string;
+        createdAt: string;
+      }
+    | null;
   updatedAt: string;
 };
+
+function formatChatTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function formatLastMessagePreview(
+  m: Chat["lastMessage"],
+  meId?: string | null,
+) {
+  if (!m) return "No messages yet";
+  const prefix = meId && m.from === meId ? "You: " : "";
+  if (m.type === "event") {
+    const media = m.eventMedia === "video" ? "video" : "audio";
+    const label = m.eventKind === "call_started" ? "Call started" : "Call ended";
+    return `${prefix}${label} (${media})`;
+  }
+  if (m.type === "share") {
+    const kind = m.itemKind ?? "file";
+    const label =
+      kind === "image"
+        ? "photo"
+        : kind === "video"
+          ? "video"
+          : kind === "audio"
+            ? "voice note"
+            : "file";
+    return `${prefix}Sent a ${label}`;
+  }
+  const t = (m.text ?? "").trim();
+  return prefix + (t || "â€¦");
+}
 
 export default function ChatsPage() {
   const me = useAuthStore((s) => s.user);
@@ -55,14 +104,29 @@ export default function ChatsPage() {
               href={`/app/chat/${c.id}`}
               className="focus-ring flex items-center justify-between rounded-2xl bg-white/55 px-4 py-4 hover:bg-white/70"
             >
-              <div>
-                <div className="text-sm font-semibold text-[color:var(--wine-900)]">
-                  {c.members?.find((m) => m.id !== me?.id)?.username ??
-                    c.members?.find((m) => m.id !== me?.id)?.email ??
-                    "Chat"}
-                </div>
-                <div className="text-xs text-black/55">
-                  Updated {new Date(c.updatedAt).toLocaleString()}
+              <div className="flex min-w-0 items-center gap-3">
+                <img
+                  src="/avatars/default-love.svg"
+                  alt=""
+                  className="h-11 w-11 rounded-2xl bg-white/70 p-1 shadow-sm"
+                />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-[color:var(--wine-900)]">
+                    {c.members?.find((m) => m.id !== me?.id)?.username ??
+                      c.members?.find((m) => m.id !== me?.id)?.email ??
+                      "Chat"}
+                  </div>
+                  <div className="mt-0.5 flex min-w-0 items-center justify-between gap-3 text-xs text-black/55">
+                    <div className="min-w-0 truncate">
+                      {formatLastMessagePreview(c.lastMessage ?? null, me?.id)}
+                    </div>
+                    <div className="shrink-0 tabular-nums">
+                      {formatChatTime(
+                        (c.lastMessage?.createdAt as string | undefined) ??
+                          c.updatedAt,
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
               <ChevronRight className="h-4 w-4 text-black/40" />

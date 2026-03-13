@@ -31,6 +31,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
+        suppressHydrationWarning
         className={`${fontSans.variable} ${fontSerif.variable} ${fontScript.variable} antialiased`}
       >
         <Providers>{children}</Providers>
