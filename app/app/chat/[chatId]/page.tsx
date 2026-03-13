@@ -444,12 +444,6 @@ export default function ChatPage() {
       if (ack?.ok) return;
       if (typingAckFailedOnce.current) return;
       typingAckFailedOnce.current = true;
-      toast({
-        title: "Typing unavailable",
-        message:
-          "Could not send typing indicator. Check connection or reopen the chat.",
-        tone: "error",
-      });
     });
   };
 
@@ -478,11 +472,6 @@ export default function ChatPage() {
     const timeoutId = window.setTimeout(() => {
       if (settled) return;
       settled = true;
-      toast({
-        title: "Reaction timed out",
-        message: "No response from server. Check your socket connection.",
-        tone: "error",
-      });
       setMessages((prev) =>
         prev.map((x) =>
           x.id === messageId
@@ -505,13 +494,6 @@ export default function ChatPage() {
         window.clearTimeout(timeoutId);
 
         if (!ack?.ok) {
-          toast({
-            title: "Reaction failed",
-            message: ack?.error
-              ? `Server rejected this reaction (${ack.error}).`
-              : "Server rejected this reaction.",
-            tone: "error",
-          });
           setMessages((prev) =>
             prev.map((x) =>
               x.id === messageId
