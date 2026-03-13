@@ -61,11 +61,14 @@ export default function FriendsPage() {
                   key={u.id}
                   className="flex items-center justify-between rounded-2xl bg-white/70 px-4 py-3"
                 >
-                  <div>
-                    <div className="text-sm font-semibold text-[color:var(--wine-900)]">
-                      {u.username}
+                  <div className="flex min-w-0 items-center gap-3">
+                    <FriendAvatar user={u} />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-[color:var(--wine-900)]">
+                        {u.username}
+                      </div>
+                      <div className="truncate text-xs text-black/55">{u.email}</div>
                     </div>
-                    <div className="text-xs text-black/55">{u.email}</div>
                   </div>
                   {u.id === me?.id ? (
                     <span className="text-xs text-black/40">You</span>
@@ -100,8 +103,11 @@ export default function FriendsPage() {
               key={u.id}
               className="flex items-center justify-between rounded-2xl bg-white/70 px-4 py-3"
             >
-              <div className="text-sm font-semibold text-[color:var(--wine-900)]">
-                {u.username}
+              <div className="flex min-w-0 items-center gap-3">
+                <FriendAvatar user={u} />
+                <div className="truncate text-sm font-semibold text-[color:var(--wine-900)]">
+                  {u.username}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -143,8 +149,11 @@ export default function FriendsPage() {
               key={u.id}
               className="flex items-center justify-between rounded-2xl bg-white/70 px-4 py-3"
             >
-              <div className="text-sm font-semibold text-[color:var(--wine-900)]">
-                {u.username}
+              <div className="flex min-w-0 items-center gap-3">
+                <FriendAvatar user={u} />
+                <div className="truncate text-sm font-semibold text-[color:var(--wine-900)]">
+                  {u.username}
+                </div>
               </div>
               <button
                 className="focus-ring rounded-xl bg-black/5 px-3 py-2 text-xs font-semibold text-[color:var(--wine-900)] hover:bg-black/10"
@@ -181,3 +190,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+function FriendAvatar({ user }: { user: User }) {
+  const label = (user.username || user.email || "?").trim();
+  const initials = label
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "?";
+
+  return (
+    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-white/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(255,229,238,0.88))] text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--rose-700)] shadow-sm">
+      {initials}
+    </div>
+  );
+}
