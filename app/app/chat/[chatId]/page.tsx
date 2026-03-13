@@ -25,6 +25,7 @@ import {
 import { API_BASE_URL } from "@/lib/env";
 import { useCall } from "@/components/call/CallProvider";
 import { formatLastSeen } from "@/lib/time";
+import { RomanticImageAttachment, RomanticVideoAttachment } from "@/components/chat/MediaAttachments";
 
 type Chat = {
   id: string;
@@ -41,6 +42,12 @@ type ShareItem = {
   size?: number;
   meta?: Record<string, unknown>;
 } & Record<string, unknown>;
+
+type ReactionUser = {
+  id: string;
+  username?: string;
+  email?: string;
+};
 
 type Msg = {
   id: string;
@@ -59,23 +66,35 @@ type Msg = {
       }
     | null;
   receipts: { userId: string; deliveredAt?: string; readAt?: string }[];
-  reactions?: { emoji: string; userId: string; createdAt: string }[];
+  reactions?: { emoji: string; userId: string; createdAt: string; user?: ReactionUser }[];
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;
 };
 
 const QUICK_REACTIONS = [
-  "\uD83D\uDC4D", // 👍
-  "\u2764\uFE0F", // ❤️
-  "\uD83D\uDE02", // 😂
-  "\uD83D\uDE2E", // 😮
-  "\uD83D\uDE22", // 😢
-  "\uD83D\uDE21", // 😡
-  "\uD83D\uDC4E", // 👎
+  "\uD83D\uDC4D",
+  "\u2764\uFE0F",
+  "\uD83D\uDE02",
+  "\uD83D\uDE2E",
+  "\uD83D\uDE22",
+  "\uD83D\uDE21",
+  "\uD83D\uDC4E",
 ] as const;
 
-type ReactionAck = { ok: boolean; action?: "added" | "removed" };
+type ReactionAck = {
+  ok: boolean;
+  action?: "added" | "removed";
+  user?: ReactionUser;
+};
+
+type ReactionGroup = {
+  emoji: string;
+  count: number;
+  me: boolean;
+  userIds: string[];
+  userLabels: string[];
+};
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (typeof v !== "object" || v == null) return null;
@@ -85,10 +104,9 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 function normalizeReactions(reactions: unknown): Msg["reactions"] {
   if (!Array.isArray(reactions)) return [];
   return reactions
-    .map((r) => {
-      const rec = asRecord(r);
-      const emoji =
-        typeof rec?.emoji === "string" ? rec.emoji : null;
+    .map((reaction) => {
+      const rec = asRecord(reaction);
+      const emoji = typeof rec?.emoji === "string" ? rec.emoji : null;
       const userIdRaw = rec?.userId;
       const userId = userIdRaw == null ? null : String(userIdRaw);
       const createdAtRaw = rec?.createdAt;
@@ -100,14 +118,21 @@ function normalizeReactions(reactions: unknown): Msg["reactions"] {
             : createdAtRaw == null
               ? null
               : String(createdAtRaw);
+      const userRec = asRecord(rec?.user);
       if (!emoji || !userId) return null;
       return {
         emoji,
         userId,
         createdAt: createdAt ?? new Date().toISOString(),
+        user: {
+          id: typeof userRec?.id === "string" ? userRec.id : userId,
+          username:
+            typeof userRec?.username === "string" ? userRec.username : undefined,
+          email: typeof userRec?.email === "string" ? userRec.email : undefined,
+        },
       };
     })
-    .filter(Boolean) as { emoji: string; userId: string; createdAt: string }[];
+    .filter(Boolean) as Msg["reactions"];
 }
 
 function normalizeEvent(e: unknown): Msg["event"] {
@@ -128,20 +153,29 @@ function applyReactionActionLocal(
   emoji: string,
   action: "added" | "removed",
   at: string,
+  user?: ReactionUser,
 ): Msg {
   const reactions = msg.reactions ?? [];
   if (action === "added") {
-    if (reactions.some((r) => r.emoji === emoji && r.userId === userId))
-      return msg;
+    if (reactions.some((reaction) => reaction.emoji === emoji && reaction.userId === userId)) {
+      return {
+        ...msg,
+        reactions: reactions.map((reaction) =>
+          reaction.emoji === emoji && reaction.userId === userId
+            ? { ...reaction, user: reaction.user ?? user }
+            : reaction,
+        ),
+      };
+    }
     return {
       ...msg,
-      reactions: [...reactions, { emoji, userId, createdAt: at }],
+      reactions: [...reactions, { emoji, userId, createdAt: at, user }],
     };
   }
   return {
     ...msg,
     reactions: reactions.filter(
-      (r) => !(r.emoji === emoji && r.userId === userId),
+      (reaction) => !(reaction.emoji === emoji && reaction.userId === userId),
     ),
   };
 }
@@ -201,7 +235,15 @@ export default function ChatPage() {
 
     // optimistic toggle
     setMessages((prev) =>
-      prev.map((x) => (x.id === messageId ? toggleReactionLocal(x, me.id, emoji) : x)),
+      prev.map((x) =>
+        x.id === messageId
+          ? toggleReactionLocal(x, me.id, emoji, {
+              id: me.id,
+              username: me.username,
+              email: me.email,
+            })
+          : x,
+      ),
     );
 
     let settled = false;
@@ -214,7 +256,15 @@ export default function ChatPage() {
         tone: "error",
       });
       setMessages((prev) =>
-        prev.map((x) => (x.id === messageId ? toggleReactionLocal(x, me.id, emoji) : x)),
+        prev.map((x) =>
+          x.id === messageId
+            ? toggleReactionLocal(x, me.id, emoji, {
+                id: me.id,
+                username: me.username,
+                email: me.email,
+              })
+            : x,
+        ),
       );
     }, 2500);
 
@@ -230,14 +280,26 @@ export default function ChatPage() {
           tone: "error",
         });
         setMessages((prev) =>
-          prev.map((x) => (x.id === messageId ? toggleReactionLocal(x, me.id, emoji) : x)),
+          prev.map((x) =>
+            x.id === messageId
+              ? toggleReactionLocal(x, me.id, emoji, {
+                  id: me.id,
+                  username: me.username,
+                  email: me.email,
+                })
+              : x,
+          ),
         );
         return;
       }
 
       if (ack.action) {
         setMessages((prev) =>
-          prev.map((x) => (x.id === messageId ? applyReactionActionLocal(x, me.id, emoji, ack.action!, at) : x)),
+          prev.map((x) =>
+            x.id === messageId
+              ? applyReactionActionLocal(x, me.id, emoji, ack.action!, at, ack.user)
+              : x,
+          ),
         );
       }
     });
@@ -267,6 +329,48 @@ export default function ChatPage() {
     return ids.find((id) => id !== me.id) ?? null;
   }, [resolvedChat, me]);
 
+  const reactionUserDirectory = useMemo(() => {
+    const users = new Map<string, ReactionUser>();
+    for (const member of resolvedChat?.members ?? []) {
+      users.set(member.id, {
+        id: member.id,
+        username: member.username,
+        email: member.email,
+      });
+    }
+    if (me?.id) {
+      users.set(me.id, {
+        id: me.id,
+        username: me.username,
+        email: me.email,
+      });
+    }
+    return users;
+  }, [resolvedChat, me]);
+
+  const reactionUserLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const [id, user] of reactionUserDirectory) {
+      labels.set(
+        id,
+        id === me?.id
+          ? "You"
+          : user.username?.trim() || user.email?.trim() || "Unknown",
+      );
+    }
+    for (const message of messages) {
+      for (const reaction of message.reactions ?? []) {
+        const label =
+          reaction.userId === me?.id
+            ? "You"
+            : reaction.user?.username?.trim() || reaction.user?.email?.trim() || labels.get(reaction.userId);
+        if (label) labels.set(reaction.userId, label);
+      }
+    }
+    if (me?.id && !labels.has(me.id)) labels.set(me.id, "You");
+    return labels;
+  }, [messages, reactionUserDirectory, me]);
+
   const presenceQ = useQuery({
     queryKey: ["presence", otherUserId],
     enabled: Boolean(otherUserId),
@@ -283,6 +387,15 @@ export default function ChatPage() {
   });
 
   const presence = presenceQ.data?.presence?.[0];
+  const otherMember = resolvedChat?.members.find((member) => member.id !== me?.id) ?? null;
+  const otherDisplayName = otherMember?.username?.trim() || otherMember?.email?.trim() || "Chat";
+  const conversationStatus = typingFrom
+    ? "Typing..."
+    : presence?.isOnline
+      ? "Online now"
+      : presence?.lastSeenAt
+        ? formatLastSeen(presence.lastSeenAt)
+        : "Private conversation";
 
   useEffect(() => {
     if (!chatId) return;
@@ -358,6 +471,7 @@ export default function ChatPage() {
                 ...x,
                 text: null,
                 item: null,
+                reactions: [],
                 deletedAt: new Date().toISOString(),
               }
             : x,
@@ -413,12 +527,26 @@ export default function ChatPage() {
       const action: "added" | "removed" | undefined =
         r.action === "added" || r.action === "removed" ? r.action : undefined;
       const at: string = typeof r.at === "string" ? r.at : new Date().toISOString();
+      const userRec = asRecord(r.user);
+      const user = userId
+        ? {
+            id: typeof userRec?.id === "string" ? userRec.id : userId,
+            username:
+              typeof userRec?.username === "string"
+                ? userRec.username
+                : reactionUserDirectory.get(userId)?.username,
+            email:
+              typeof userRec?.email === "string"
+                ? userRec.email
+                : reactionUserDirectory.get(userId)?.email,
+          }
+        : undefined;
       if (!messageId || !emoji || !userId || !action) return;
 
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== messageId) return m;
-          return applyReactionActionLocal(m, userId, emoji, action, at);
+          return applyReactionActionLocal(m, userId, emoji, action, at, user);
         }),
       );
     };
@@ -440,26 +568,37 @@ export default function ChatPage() {
       s.off("chat:receipt", onReceipt);
       s.off("chat:reaction", onReaction);
     };
-  }, [chatId, me?.id]);
+  }, [chatId, me?.id, reactionUserDirectory]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-black/10 pb-4">
-        <div className="flex min-w-0 items-center gap-3">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[32px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,252,253,0.96),rgba(255,238,245,0.9))] shadow-[0_24px_80px_rgba(102,24,61,0.12)]">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute left-[-6%] top-[-8%] h-56 w-56 rounded-full bg-[color:var(--peach-200)]/45 blur-3xl" />
+        <div className="absolute right-[-8%] top-[18%] h-64 w-64 rounded-full bg-[color:var(--rose-600)]/10 blur-3xl" />
+        <div className="absolute bottom-[-10%] left-[24%] h-72 w-72 rounded-full bg-white/35 blur-3xl" />
+      </div>
+      <div className="relative flex flex-wrap items-center justify-between gap-4 border-b border-[color:var(--wine-900)]/8 bg-white/64 px-5 pb-5 pt-4 backdrop-blur-xl sm:px-6">
+        <div className="flex min-w-0 items-center gap-4">
           <img
             src="/avatars/default-love.svg"
             alt=""
-            className="h-11 w-11 rounded-2xl bg-white/70 p-1 shadow-sm"
+            className="h-14 w-14 rounded-[22px] border border-white/70 bg-white/75 p-1.5 shadow-[0_12px_30px_rgba(126,35,75,0.14)]"
           />
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-[color:var(--wine-900)]">
-              {resolvedChat?.members.find((m) => m.id !== me?.id)?.username ?? "Chat"}
+            <div className="truncate font-[family-name:var(--font-serif)] text-2xl text-[color:var(--wine-900)]">
+              {otherDisplayName}
+              <span className="ml-2 inline-flex rounded-full bg-[color:var(--rose-600)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--rose-700)]">DM</span>
             </div>
-            <div className="text-xs text-black/55">
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[color:var(--wine-900)]/62">
+              <span
+                className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                  presence?.isOnline ? "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.14)]" : "bg-[color:var(--wine-900)]/18"
+                }`}
+              />
               {typingFrom ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="typing-dots" aria-label="Typing" title="Typing">
@@ -467,10 +606,10 @@ export default function ChatPage() {
                     <span />
                     <span />
                   </span>
-                  <span className="sr-only">Typing</span>
+                  <span>{otherDisplayName} is typing</span>
                 </span>
               ) : presence?.isOnline ? (
-                "Online"
+                conversationStatus
               ) : presence?.lastSeenAt ? (
                 formatLastSeen(presence.lastSeenAt)
               ) : (
@@ -479,19 +618,19 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
-            className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-black/5 px-3 py-2 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-black/10"
+            className="focus-ring inline-flex items-center gap-2 rounded-full border border-[color:var(--wine-900)]/8 bg-white/72 px-4 py-2.5 text-sm font-semibold text-[color:var(--wine-900)] shadow-sm transition hover:bg-white"
             onClick={() => {
               if (otherUserId) void startCall(otherUserId, "audio");
             }}
             title="Audio call"
             type="button"
           >
-            <Phone className="h-4 w-4" /> Audio
+            <Phone className="h-4 w-4" /> Call
           </button>
           <button
-            className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-black/5 px-3 py-2 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-black/10"
+            className="focus-ring inline-flex items-center gap-2 rounded-full bg-[color:var(--rose-600)] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(198,43,105,0.25)] transition hover:bg-[color:var(--rose-700)]"
             onClick={() => {
               if (otherUserId) void startCall(otherUserId, "video");
             }}
@@ -503,7 +642,13 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+      <div className="relative min-h-0 flex-1 px-3 pb-3 pt-4 sm:px-4 sm:pb-4">
+        <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[30px] border border-white/65 bg-white/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_16px_48px_rgba(98,19,57,0.08)] backdrop-blur-xl">
+          <div className="pointer-events-none absolute inset-0 opacity-70">
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.24),transparent_24%,transparent_76%,rgba(255,255,255,0.22))]" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,216,230,0.38),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(198,43,105,0.08),transparent_28%)]" />
+          </div>
+          <div className="relative mt-0.5 min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-4">
         {messages.map((m) => {
           if (m.type === "event") {
             const label =
@@ -514,11 +659,11 @@ export default function ChatPage() {
                   : "Event";
             const duration =
               typeof m.event?.durationMs === "number" && m.event.durationMs > 0
-                ? ` • ${formatElapsed(m.event.durationMs)}`
+                ? ` · ${formatElapsed(m.event.durationMs)}`
                 : "";
             return (
-              <div key={m.id} className="flex justify-center py-1">
-                <div className="rounded-full bg-white/70 px-3 py-1 text-[11px] font-semibold text-black/65 shadow-sm">
+              <div key={m.id} className="flex justify-center py-1.5">
+                <div className="rounded-full border border-white/70 bg-white/82 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[color:var(--wine-900)]/58 shadow-sm">
                   {label}
                   <span className="tabular-nums">{duration}</span>
                 </div>
@@ -528,22 +673,32 @@ export default function ChatPage() {
 
           const mine = m.from === me?.id;
           const reactions = m.reactions ?? [];
+          const reactionGroups = groupReactions(reactions, me?.id ?? "", reactionUserLabels);
+          const reactionSummary = reactionGroups
+            .map((reaction) => reaction.emoji + " " + formatReactionUsers(reaction.userLabels))
+            .join(" · ");
           const reactionsOpen = openReactionFor === m.id;
           return (
             <div
               key={m.id}
-              className={`flex ${mine ? "justify-end" : "justify-start"}`}
+              className={`flex w-full ${mine ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`group flex max-w-[78%] items-end gap-2 ${mine ? "flex-row-reverse" : ""}`}
+                className={`group relative flex w-full min-w-0 max-w-[min(100%,46rem)] items-end gap-2 sm:max-w-[min(100%,52rem)] ${mine ? "flex-row-reverse self-end" : "self-start"}`}
               >
                 <div
-                  className={`rounded-3xl px-4 py-3 text-sm ${
+                  className={`relative min-w-0 overflow-hidden rounded-[28px] border px-4 py-3.5 text-sm shadow-[0_18px_34px_rgba(116,34,70,0.08)] ${
                     mine
-                      ? "bg-[color:var(--peach-200)] text-[color:var(--wine-900)]"
-                      : "bg-white/70 text-black/80"
+                      ? "border-[color:var(--rose-600)]/22 bg-[linear-gradient(165deg,rgba(255,225,236,0.98),rgba(255,206,226,0.94))] text-[color:var(--wine-900)]"
+                      : "border-[color:var(--wine-900)]/8 bg-[linear-gradient(165deg,rgba(255,255,255,0.98),rgba(248,241,255,0.9))] text-[color:var(--wine-900)]"
                   }`}
                 >
+                  {!mine ? (
+                    <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[color:var(--rose-700)]/78">
+                      {otherDisplayName}
+                    </div>
+                  ) : null}
+
                   {m.deletedAt ? (
                     <span className="italic text-black/50">
                       Message deleted
@@ -602,33 +757,40 @@ export default function ChatPage() {
                   ) : m.type === "share" && (m.item?.url || m.item?.legacyUrl) ? (
                     <Attachment item={m.item} />
                   ) : (
-                    m.text
+                    <div className="whitespace-pre-wrap break-words leading-6">{m.text}</div>
                   )}
 
-                  {reactions.length ? (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {groupReactions(reactions, me?.id ?? "").map((r) => (
-                        <button
-                          key={r.emoji}
-                          type="button"
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] ${
-                            r.me
-                              ? "bg-[color:var(--rose-600)]/15 text-[color:var(--rose-800)]"
-                              : "bg-black/5 text-black/70"
-                          }`}
-                          onClick={() => emitReaction(m.id, r.emoji)}
-                          title="Toggle reaction"
-                        >
-                          <span className="text-base leading-none">
-                            {r.emoji}
-                          </span>
-                          <span className="tabular-nums">{r.count}</span>
-                        </button>
-                      ))}
+                  {reactionGroups.length ? (
+                    <div className="mt-2.5 max-w-full rounded-[20px] bg-white/40 px-2.5 py-2 ring-1 ring-white/40">
+                      <div className="flex max-w-full flex-wrap gap-1.5 overflow-hidden">
+                        {reactionGroups.map((r) => (
+                          <button
+                            key={r.emoji}
+                            type="button"
+                            className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium shadow-sm transition ${
+                              r.me
+                                ? "border-[color:var(--rose-600)]/18 bg-[color:var(--rose-600)]/12 text-[color:var(--rose-800)]"
+                                : "border-black/5 bg-white/72 text-black/70"
+                            }`}
+                            onClick={() => emitReaction(m.id, r.emoji)}
+                            title={formatReactionUsers(r.userLabels)}
+                            aria-label={formatReactionUsers(r.userLabels)}
+                          >
+                            <span className="text-sm leading-none">{r.emoji}</span>
+                            <span className="tabular-nums">{r.count}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div
+                        className="mt-1.5 max-w-full truncate text-[10px] leading-4 text-black/55"
+                        title={reactionSummary}
+                      >
+                        {reactionSummary}
+                      </div>
                     </div>
                   ) : null}
 
-                  <div className="mt-1 text-[10px] text-black/45">
+                  <div className="mt-2.5 flex items-center gap-2 text-[10px] text-[color:var(--wine-900)]/42">
                     {new Date(m.createdAt).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -642,10 +804,10 @@ export default function ChatPage() {
                 </div>
 
                 {!m.deletedAt && editingId !== m.id ? (
-                  <div className="relative flex flex-col items-center gap-1">
+                  <div className="relative flex shrink-0 flex-col items-center gap-2">
                     <button
                       type="button"
-                      className="focus-ring grid h-9 w-9 place-items-center rounded-2xl bg-white/70 text-black/60 shadow-sm"
+                      className="focus-ring grid h-10 w-10 place-items-center rounded-2xl border border-white/70 bg-white/82 text-[color:var(--wine-900)]/64 shadow-sm transition hover:bg-white"
                       onClick={() =>
                         setOpenReactionFor((cur) => (cur === m.id ? null : m.id))
                       }
@@ -656,7 +818,7 @@ export default function ChatPage() {
                     </button>
 
                     <div
-                      className={`absolute top-11 z-10 items-center gap-1 rounded-2xl bg-white/80 p-1 shadow-sm backdrop-blur ${
+                      className={`absolute top-12 z-10 max-w-[220px] flex-wrap items-center gap-1 rounded-[20px] border border-white/70 bg-white/92 p-1.5 shadow-[0_16px_38px_rgba(95,22,56,0.18)] backdrop-blur ${
                         reactionsOpen ? "flex" : "hidden"
                       } ${mine ? "right-0" : "left-0"}`}
                     >
@@ -664,7 +826,7 @@ export default function ChatPage() {
                         <button
                           key={e}
                           type="button"
-                          className="grid h-7 w-7 place-items-center rounded-xl hover:bg-black/5"
+                          className="grid h-8 w-8 place-items-center rounded-2xl transition hover:bg-[color:var(--rose-600)]/10"
                           onClick={() => emitReaction(m.id, e)}
                           aria-label={`React ${e}`}
                         >
@@ -674,10 +836,10 @@ export default function ChatPage() {
                     </div>
 
                     {mine ? (
-                      <div className="flex items-center gap-1 rounded-2xl bg-white/70 p-1 shadow-sm md:opacity-0 md:pointer-events-none md:transition md:group-hover:opacity-100 md:group-hover:pointer-events-auto">
+                      <div className="flex items-center gap-1 rounded-[20px] border border-white/70 bg-white/82 p-1 shadow-sm md:opacity-0 md:pointer-events-none md:transition md:group-hover:opacity-100 md:group-hover:pointer-events-auto">
                         {m.type === "text" ? (
                           <button
-                            className="focus-ring grid h-8 w-8 place-items-center rounded-2xl text-black/60 hover:bg-black/5"
+                            className="focus-ring grid h-8 w-8 place-items-center rounded-2xl text-[color:var(--wine-900)]/62 hover:bg-black/5"
                             onClick={() => {
                               setEditingId(m.id);
                               setEditDraft(m.text ?? "");
@@ -689,7 +851,7 @@ export default function ChatPage() {
                           </button>
                         ) : null}
                         <button
-                          className="focus-ring grid h-8 w-8 place-items-center rounded-2xl text-black/60 hover:bg-black/5"
+                          className="focus-ring grid h-8 w-8 place-items-center rounded-2xl text-[color:var(--wine-900)]/62 hover:bg-black/5"
                           onClick={async () => {
                             await apiFetch(
                               `/api/chats/${chatId}/messages/${m.id}`,
@@ -702,6 +864,7 @@ export default function ChatPage() {
                                       ...x,
                                       text: null,
                                       item: null,
+                                      reactions: [],
                                       deletedAt: new Date().toISOString(),
                                     }
                                   : x,
@@ -723,76 +886,86 @@ export default function ChatPage() {
         })}
         {typingFrom ? (
           <div className="flex justify-start">
-            <div className="inline-flex items-center gap-2 rounded-3xl bg-white/70 px-4 py-3 text-sm text-black/70">
+            <div className="inline-flex items-center gap-3 rounded-[24px] border border-white/70 bg-white/85 px-4 py-3 text-sm text-[color:var(--wine-900)]/70 shadow-sm">
               <span className="typing-dots" aria-label="Typing" title="Typing">
                 <span />
                 <span />
                 <span />
               </span>
-              <span className="sr-only">Typing</span>
+              <span>{otherDisplayName} is typing</span>
             </div>
           </div>
         ) : null}
         <div ref={bottomRef} />
       </div>
 
-      <form
-        className="mt-4 flex items-center gap-2 border-t border-black/10 pt-4"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (!otherUserId || !text.trim()) return;
-          const s = ensureSocket();
-          const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-          s.emit("chat:message", {
-            to: otherUserId,
-            text: text.trim(),
-            clientMessageId,
-          });
-          setText("");
-          emitTyping(false);
-        }}
-      >
-        <label className="focus-ring inline-flex cursor-pointer items-center justify-center rounded-2xl bg-black/5 p-3 hover:bg-black/10">
-          <Paperclip className="h-4 w-4 text-black/60" />
-          <input
-            className="hidden"
-            type="file"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (!file || !otherUserId) return;
-              const up = await uploadFile(file);
+          <form
+            className="relative border-t border-[color:var(--wine-900)]/8 bg-white/68 px-3 pb-3 pt-3 backdrop-blur-xl sm:px-4 sm:pb-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!otherUserId || !text.trim()) return;
               const s = ensureSocket();
               const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-              s.emit("share:item", {
+              s.emit("chat:message", {
                 to: otherUserId,
-                item: up.item,
+                text: text.trim(),
                 clientMessageId,
               });
-            }}
-          />
-        </label>
-        <input
-          className="focus-ring flex-1 rounded-2xl border border-black/10 bg-white/70 px-4 py-3 text-sm"
-          placeholder="Write something sweet…"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            emitTyping(true);
-            if (typingTimer.current) window.clearTimeout(typingTimer.current);
-            typingTimer.current = window.setTimeout(() => {
+              setText("");
               emitTyping(false);
-            }, 1200);
-          }}
-          onBlur={() => emitTyping(false)}
-        />
-        <button
-          className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-[color:var(--rose-600)] px-4 py-3 text-sm font-semibold text-white hover:bg-[color:var(--rose-700)]"
-          type="submit"
-        >
-          <Send className="h-4 w-4" /> Send
-        </button>
-      </form>
+            }}
+          >
+            <div className="flex items-end gap-2 rounded-[28px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,245,249,0.88))] p-2 shadow-[0_16px_34px_rgba(111,27,64,0.1)]">
+              <label className="focus-ring inline-flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-[20px] bg-[color:var(--rose-600)]/10 text-[color:var(--rose-700)] transition hover:bg-[color:var(--rose-600)]/16">
+                <Paperclip className="h-4 w-4" />
+                <input
+                  className="hidden"
+                  type="file"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file || !otherUserId) return;
+                    const up = await uploadFile(file);
+                    const s = ensureSocket();
+                    const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+                    s.emit("share:item", {
+                      to: otherUserId,
+                      item: up.item,
+                      clientMessageId,
+                    });
+                  }}
+                />
+              </label>
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--wine-900)]/38">
+                  Send a message
+                </div>
+                <input
+                  className="focus-ring w-full rounded-[20px] border border-transparent bg-transparent px-3 py-2.5 text-sm text-[color:var(--wine-900)] placeholder:text-[color:var(--wine-900)]/34"
+                  placeholder="Write something sweet..."
+                  value={text}
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    emitTyping(true);
+                    if (typingTimer.current) window.clearTimeout(typingTimer.current);
+                    typingTimer.current = window.setTimeout(() => {
+                      emitTyping(false);
+                    }, 1200);
+                  }}
+                  onBlur={() => emitTyping(false)}
+                />
+              </div>
+              <button
+                className="focus-ring inline-flex h-12 shrink-0 items-center gap-2 rounded-[20px] bg-[linear-gradient(135deg,var(--rose-600),#e05a97)] px-4 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(198,43,105,0.22)] transition hover:brightness-105"
+                type="submit"
+              >
+                <Send className="h-4 w-4" />
+                <span className="hidden sm:inline">Send</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }
@@ -850,23 +1023,7 @@ function Attachment({ item }: { item: ShareItem }) {
     return <ImageAttachment url={url} name={name} size={size} />;
 
   if (effectiveKind === "video") {
-    return (
-      <div className="grid gap-2">
-        <video
-          src={url}
-          controls
-          className="max-h-[520px] w-full rounded-2xl bg-black/10"
-        />
-        <a
-          className="text-[10px] underline text-black/55"
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-        >
-          {name}
-        </a>
-      </div>
-    );
+    return <VideoAttachment url={url} name={name} size={size} />;
   }
 
   if (effectiveKind === "audio") {
@@ -921,62 +1078,19 @@ function ImageAttachment({
   name: string;
   size?: number;
 }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        className="block w-full text-left"
-        onClick={() => setOpen(true)}
-      >
-        <div className="overflow-hidden rounded-2xl bg-black/5">
-          <img
-            src={url}
-            alt={name}
-            className="max-h-[520px] w-full object-contain"
-            loading="lazy"
-          />
-        </div>
-        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-black/55">
-          <span className="truncate">{name}</span>
-          {size ? (
-            <span className="shrink-0 tabular-nums">{formatBytes(size)}</span>
-          ) : null}
-        </div>
-      </button>
+  return <RomanticImageAttachment url={url} name={name} size={size} />;
+}
 
-      {open ? (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
-          onClick={() => setOpen(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="w-full max-w-4xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-end pb-2">
-              <button
-                type="button"
-                className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-white/90 px-3 py-2 text-xs font-semibold text-black/70 hover:bg-white"
-                onClick={() => setOpen(false)}
-              >
-                <X className="h-4 w-4" /> Close
-              </button>
-            </div>
-            <div className="overflow-hidden rounded-3xl bg-black">
-              <img
-                src={url}
-                alt={name}
-                className="max-h-[80vh] w-full object-contain"
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </>
-  );
+function VideoAttachment({
+  url,
+  name,
+  size,
+}: {
+  url: string;
+  name: string;
+  size?: number;
+}) {
+  return <RomanticVideoAttachment url={url} name={name} size={size} />;
 }
 
 function receiptStatus(m: Msg, otherUserId: string | null) {
@@ -1003,26 +1117,51 @@ function ReceiptMark({
 }
 
 function groupReactions(
-  reactions: { emoji: string; userId: string }[],
+  reactions: NonNullable<Msg["reactions"]>,
   meId: string,
-) {
-  const byEmoji = new Map<
-    string,
-    { emoji: string; count: number; me: boolean }
-  >();
-  for (const r of reactions) {
-    const prev = byEmoji.get(r.emoji);
+  labels: Map<string, string>,
+): ReactionGroup[] {
+  const byEmoji = new Map<string, ReactionGroup>();
+  for (const reaction of reactions) {
+    const label =
+      reaction.userId === meId
+        ? "You"
+        : reaction.user?.username?.trim() || reaction.user?.email?.trim() || labels.get(reaction.userId) || "Unknown";
+    const prev = byEmoji.get(reaction.emoji);
     if (!prev) {
-      byEmoji.set(r.emoji, { emoji: r.emoji, count: 1, me: r.userId === meId });
-    } else {
-      prev.count += 1;
-      if (r.userId === meId) prev.me = true;
+      byEmoji.set(reaction.emoji, {
+        emoji: reaction.emoji,
+        count: 1,
+        me: reaction.userId === meId,
+        userIds: [reaction.userId],
+        userLabels: [label],
+      });
+      continue;
     }
+    prev.count += 1;
+    if (reaction.userId === meId) prev.me = true;
+    if (!prev.userIds.includes(reaction.userId)) prev.userIds.push(reaction.userId);
+    if (!prev.userLabels.includes(label)) prev.userLabels.push(label);
   }
   return [...byEmoji.values()].sort((a, b) => b.count - a.count);
 }
 
-function toggleReactionLocal(msg: Msg, meId: string, emoji: string): Msg {
+function formatReactionUsers(userLabels: string[]) {
+  const unique = Array.from(new Set(userLabels.filter(Boolean))).sort((a, b) => {
+    if (a === "You") return -1;
+    if (b === "You") return 1;
+    return a.localeCompare(b);
+  });
+  if (unique.length <= 2) return unique.join(", ");
+  return `${unique[0]}, ${unique[1]} +${unique.length - 2}`;
+}
+
+function toggleReactionLocal(
+  msg: Msg,
+  meId: string,
+  emoji: string,
+  user?: ReactionUser,
+): Msg {
   const reactions = msg.reactions ?? [];
   const exists = reactions.some((r) => r.emoji === emoji && r.userId === meId);
   return exists
@@ -1036,7 +1175,7 @@ function toggleReactionLocal(msg: Msg, meId: string, emoji: string): Msg {
         ...msg,
         reactions: [
           ...reactions,
-          { emoji, userId: meId, createdAt: new Date().toISOString() },
+          { emoji, userId: meId, createdAt: new Date().toISOString(), user },
         ],
       };
 }
