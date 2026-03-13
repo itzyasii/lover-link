@@ -91,7 +91,9 @@ export function RomanticImageAttachment({
                 <div className="text-[11px] uppercase tracking-[0.35em] text-white/65">
                   Love note
                 </div>
-                <div className="mt-1 text-sm font-semibold">Open the full photo</div>
+                <div className="mt-1 text-sm font-semibold">
+                  Open the full photo
+                </div>
               </div>
               <div className="rounded-full border border-white/20 bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">
                 Tap to expand
@@ -100,7 +102,9 @@ export function RomanticImageAttachment({
           </div>
         </div>
         <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-black/55">
-          <span className="truncate font-medium text-[color:var(--wine-900)]">{name}</span>
+          <span className="truncate font-medium text-[color:var(--wine-900)]">
+            {name}
+          </span>
           {size ? (
             <span className="rounded-full bg-white/70 px-2.5 py-1 tabular-nums text-[color:var(--wine-900)] shadow-sm">
               {formatBytes(size)}
@@ -125,7 +129,7 @@ export function RomanticImageAttachment({
               <div className="relative flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4 text-white sm:px-6">
                 <div className="min-w-0">
                   <div className="text-[11px] uppercase tracking-[0.36em] text-white/55">
-                    Memory viewer
+                    Media viewer
                   </div>
                   <div className="truncate text-lg font-semibold">{name}</div>
                 </div>
@@ -147,45 +151,20 @@ export function RomanticImageAttachment({
                   </a>
                   <button
                     type="button"
-                    className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-semibold text-[color:var(--wine-900)] hover:bg-[color:var(--peach-50)]"
+                    className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-semibold text-[color:var(--wine-900)] hover:cursor-pointer"
                     onClick={() => setOpen(false)}
                   >
                     <X className="h-4 w-4" /> Close
                   </button>
                 </div>
               </div>
-              <div className="relative grid gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-                <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.10),rgba(255,255,255,0.03))] p-3 shadow-inner shadow-black/20">
+              <div className="relative flex items-center justify-center p-4 sm:p-6">
+                <div className="relative flex items-center justify-center overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.10),rgba(255,255,255,0.03))] p-3 shadow-inner shadow-black/20">
                   <img
                     src={url}
                     alt={name}
-                    className="max-h-[78vh] w-full rounded-[24px] object-contain"
+                    className="block h-auto max-h-[78vh] max-w-full rounded-[24px] object-contain"
                   />
-                </div>
-                <div className="flex flex-col justify-between gap-4 rounded-[30px] border border-white/10 bg-white/10 p-5 text-white/82">
-                  <div className="space-y-4">
-                    <div>
-                      <div className="text-[11px] uppercase tracking-[0.3em] text-white/50">
-                        Shared in chat
-                      </div>
-                      <div className="mt-2 text-sm leading-6 text-white/78">
-                        A richer, dedicated viewer with room for the image, the filename, and quick actions without burying everything in a plain dark modal.
-                      </div>
-                    </div>
-                    <div className="grid gap-3 text-sm">
-                      <div className="rounded-2xl bg-black/15 px-4 py-3">
-                        <div className="text-[11px] uppercase tracking-[0.25em] text-white/45">Filename</div>
-                        <div className="mt-1 break-all font-medium text-white">{name}</div>
-                      </div>
-                      <div className="rounded-2xl bg-black/15 px-4 py-3">
-                        <div className="text-[11px] uppercase tracking-[0.25em] text-white/45">Size</div>
-                        <div className="mt-1 font-medium text-white">{size ? formatBytes(size) : "Unknown"}</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="rounded-[24px] border border-white/10 bg-white/8 p-4 text-xs leading-5 text-white/62">
-                    Press <span className="font-semibold text-white">Esc</span> or click outside the viewer to close.
-                  </div>
                 </div>
               </div>
             </div>
@@ -294,7 +273,8 @@ export function RomanticVideoAttachment({
     await frame.requestFullscreen?.();
   };
 
-  const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const progressPercent =
+    duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
 
   return (
     <div className="overflow-hidden rounded-[30px] border border-white/60 bg-[linear-gradient(155deg,rgba(255,248,250,0.98),rgba(255,229,237,0.84))] shadow-[0_22px_60px_rgba(136,33,73,0.18)]">
@@ -337,7 +317,11 @@ export function RomanticVideoAttachment({
             className="focus-ring absolute left-1/2 top-1/2 z-10 grid h-[4.5rem] w-[4.5rem] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-white/16 text-white shadow-[0_14px_45px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:scale-[1.03] hover:bg-white/24"
             aria-label={isPlaying ? "Pause video" : "Play video"}
           >
-            {isPlaying ? <Pause className="h-8 w-8" /> : <Play className="ml-1 h-8 w-8" />}
+            {isPlaying ? (
+              <Pause className="h-8 w-8" />
+            ) : (
+              <Play className="ml-1 h-8 w-8" />
+            )}
           </button>
         </div>
       </div>
@@ -346,7 +330,9 @@ export function RomanticVideoAttachment({
         <div className="rounded-[24px] bg-[color:var(--wine-900)] px-4 py-4 text-white shadow-[0_15px_40px_rgba(76,10,36,0.18)]">
           <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.28em] text-white/58">
             <span>Playback</span>
-            <span>{formatMediaTime(currentTime)} / {formatMediaTime(duration)}</span>
+            <span>
+              {formatMediaTime(currentTime)} / {formatMediaTime(duration)}
+            </span>
           </div>
           <div className="mt-3 h-2 rounded-full bg-white/15">
             <div
@@ -373,7 +359,11 @@ export function RomanticVideoAttachment({
               onClick={togglePlayback}
               className="focus-ring inline-flex items-center gap-2 rounded-full bg-[color:var(--rose-600)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[color:var(--rose-700)]"
             >
-              {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              {isPlaying ? (
+                <Pause className="h-4 w-4" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
               {isPlaying ? "Pause" : "Play"}
             </button>
             <button
@@ -381,7 +371,11 @@ export function RomanticVideoAttachment({
               onClick={toggleMute}
               className="focus-ring inline-flex items-center gap-2 rounded-full bg-[color:var(--rose-600)]/10 px-3 py-2 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-[color:var(--rose-600)]/15"
             >
-              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+              {isMuted ? (
+                <VolumeX className="h-4 w-4" />
+              ) : (
+                <Volume2 className="h-4 w-4" />
+              )}
               {isMuted ? "Muted" : "Volume"}
             </button>
             <input
@@ -407,7 +401,7 @@ export function RomanticVideoAttachment({
             <button
               type="button"
               onClick={() => void openFullscreen()}
-              className="focus-ring inline-flex items-center gap-2 rounded-full bg-[color:var(--wine-900)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--wine-800)]"
+              className="focus-ring inline-flex items-center gap-2 rounded-full bg-[color:var(--wine-900)] px-3 py-2 text-xs font-semibold text-white hover:cursor-pointer"
             >
               <Maximize2 className="h-4 w-4" /> Cinema mode
             </button>
