@@ -23,7 +23,17 @@ function initials(label: string) {
 }
 
 export function CallOverlay() {
-  const { state, accept, decline, hangup, toggleMic, toggleCam, micEnabled, camEnabled } = useCall();
+  const {
+    state,
+    accept,
+    decline,
+    hangup,
+    toggleMic,
+    toggleCam,
+    micEnabled,
+    camEnabled,
+    networkQuality,
+  } = useCall();
 
   const localRef = useRef<HTMLVideoElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
@@ -72,21 +82,30 @@ export function CallOverlay() {
             {state.kind === "incoming" ? (
               <div className="mt-1 text-sm text-black/65">
                 {state.media === "video" ? "Video" : "Audio"} call from{" "}
-                <span className="font-semibold text-[color:var(--wine-900)]">{state.fromLabel}</span>
+                <span className="font-semibold text-[color:var(--wine-900)]">
+                  {state.fromLabel}
+                </span>
               </div>
             ) : null}
             {state.kind === "outgoing" ? (
               <div className="mt-1 text-sm text-black/65">
                 {state.media === "video" ? "Video" : "Audio"} call to{" "}
-                <span className="font-semibold text-[color:var(--wine-900)]">{state.toLabel}</span>
+                <span className="font-semibold text-[color:var(--wine-900)]">
+                  {state.toLabel}
+                </span>
               </div>
             ) : null}
             {state.kind === "inCall" ? (
               <div className="mt-1 text-sm text-black/65">
-                With <span className="font-semibold text-[color:var(--wine-900)]">{state.peerLabel}</span>
+                With{" "}
+                <span className="font-semibold text-[color:var(--wine-900)]">
+                  {state.peerLabel}
+                </span>
                 <span className="mx-2 text-black/30">•</span>
                 <span className="tabular-nums">
-                  {connectedAtMs == null ? "0:00" : formatElapsed(now - connectedAtMs)}
+                  {connectedAtMs == null
+                    ? "0:00"
+                    : formatElapsed(now - connectedAtMs)}
                 </span>
               </div>
             ) : null}
@@ -107,8 +126,26 @@ export function CallOverlay() {
             ) : null}
             {state.kind === "inCall" ? (
               <span className="inline-flex items-center gap-2 rounded-full bg-white/60 px-3 py-1 text-xs font-semibold text-black/70">
-                {state.media === "video" ? <Video className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
+                {state.media === "video" ? (
+                  <Video className="h-4 w-4" />
+                ) : (
+                  <Phone className="h-4 w-4" />
+                )}
                 {state.media === "video" ? "Video" : "Audio"}
+              </span>
+            ) : null}
+            {state.kind === "inCall" ? (
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/60 px-3 py-1 text-xs font-semibold text-black/70">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    networkQuality.profile === "high"
+                      ? "bg-emerald-500"
+                      : networkQuality.profile === "medium"
+                        ? "bg-amber-500"
+                        : "bg-rose-500"
+                  }`}
+                />
+                {networkQuality.label}
               </span>
             ) : null}
           </div>
@@ -117,9 +154,12 @@ export function CallOverlay() {
         {state.kind === "incoming" ? (
           <div className="mt-6 grid gap-5 md:grid-cols-2">
             <div className="rounded-3xl bg-white/60 p-5">
-              <div className="text-sm font-semibold text-[color:var(--wine-900)]">Answer on this device</div>
+              <div className="text-sm font-semibold text-[color:var(--wine-900)]">
+                Answer on this device
+              </div>
               <div className="mt-1 text-xs text-black/55">
-                Make sure your mic{state.media === "video" ? " and camera" : ""} are enabled.
+                Make sure your mic{state.media === "video" ? " and camera" : ""}{" "}
+                are enabled.
               </div>
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <button
@@ -144,8 +184,12 @@ export function CallOverlay() {
                 <div className="grid h-24 w-24 place-items-center rounded-full bg-white/70 text-2xl font-semibold text-[color:var(--wine-900)] shadow-sm">
                   {initials(state.fromLabel)}
                 </div>
-                <div className="mt-3 text-sm font-semibold text-[color:var(--wine-900)]">{state.fromLabel}</div>
-                <div className="mt-1 text-xs text-black/55 capitalize">{state.media} call</div>
+                <div className="mt-3 text-sm font-semibold text-[color:var(--wine-900)]">
+                  {state.fromLabel}
+                </div>
+                <div className="mt-1 text-xs text-black/55 capitalize">
+                  {state.media} call
+                </div>
               </div>
             </div>
           </div>
@@ -159,14 +203,22 @@ export function CallOverlay() {
                   <span className="absolute inset-0 rounded-full ring-2 ring-[color:var(--rose-600)]/25 animate-pulse" />
                   <span className="relative">{initials(state.toLabel)}</span>
                 </div>
-                <div className="mt-3 text-sm font-semibold text-[color:var(--wine-900)]">{state.toLabel}</div>
-                <div className="mt-1 text-xs text-black/55 capitalize">{state.media} call</div>
+                <div className="mt-3 text-sm font-semibold text-[color:var(--wine-900)]">
+                  {state.toLabel}
+                </div>
+                <div className="mt-1 text-xs text-black/55 capitalize">
+                  {state.media} call
+                </div>
               </div>
             </div>
 
             <div className="rounded-3xl bg-white/60 p-5">
-              <div className="text-sm font-semibold text-[color:var(--wine-900)]">Trying to connect</div>
-              <div className="mt-1 text-xs text-black/55">If this takes too long, they might be offline or busy.</div>
+              <div className="text-sm font-semibold text-[color:var(--wine-900)]">
+                Trying to connect
+              </div>
+              <div className="mt-1 text-xs text-black/55">
+                If this takes too long, they might be offline or busy.
+              </div>
               <div className="mt-5">
                 <button
                   className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-[color:var(--rose-600)] px-4 py-2 text-sm font-semibold text-white hover:bg-[color:var(--rose-700)]"
@@ -184,9 +236,20 @@ export function CallOverlay() {
           <div className="mt-5 grid gap-4">
             {state.media === "video" ? (
               <div className="relative overflow-hidden rounded-3xl bg-black/10">
-                <video ref={remoteRef} autoPlay playsInline className="aspect-video w-full bg-black/20 object-cover" />
+                <video
+                  ref={remoteRef}
+                  autoPlay
+                  playsInline
+                  className="aspect-video w-full bg-black/20 object-cover"
+                />
                 <div className="absolute bottom-3 right-3 w-[34%] max-w-[240px] overflow-hidden rounded-2xl border border-white/30 bg-black/20 shadow-sm">
-                  <video ref={localRef} autoPlay muted playsInline className="aspect-video w-full object-cover" />
+                  <video
+                    ref={localRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="aspect-video w-full object-cover"
+                  />
                 </div>
               </div>
             ) : (
@@ -197,19 +260,38 @@ export function CallOverlay() {
                     {initials(state.peerLabel)}
                   </div>
                 </div>
-                <div className="mt-4 text-sm font-semibold text-[color:var(--wine-900)]">{state.peerLabel}</div>
-                <div className="mt-1 text-xs text-black/55">Audio connected</div>
+                <div className="mt-4 text-sm font-semibold text-[color:var(--wine-900)]">
+                  {state.peerLabel}
+                </div>
+                <div className="mt-1 text-xs text-black/55">
+                  Audio connected
+                </div>
               </div>
             )}
 
             <div className="flex flex-wrap items-center justify-center gap-2">
+              {state.media === "video" ? (
+                <div className="w-full text-center text-xs text-black/55">
+                  Video adapts automatically to bandwidth.
+                  {networkQuality.bitrateKbps != null
+                    ? ` ${networkQuality.bitrateKbps} kbps`
+                    : ""}
+                  {networkQuality.rttMs != null
+                    ? ` · ${networkQuality.rttMs} ms RTT`
+                    : ""}
+                </div>
+              ) : null}
               <button
                 className="focus-ring inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
                 onClick={toggleMic}
                 type="button"
                 title={micEnabled ? "Mute microphone" : "Unmute microphone"}
               >
-                {micEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+                {micEnabled ? (
+                  <Mic className="h-5 w-5" />
+                ) : (
+                  <MicOff className="h-5 w-5" />
+                )}
               </button>
               {state.media === "video" ? (
                 <button
@@ -218,7 +300,11 @@ export function CallOverlay() {
                   type="button"
                   title={camEnabled ? "Turn camera off" : "Turn camera on"}
                 >
-                  {camEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
+                  {camEnabled ? (
+                    <Video className="h-5 w-5" />
+                  ) : (
+                    <VideoOff className="h-5 w-5" />
+                  )}
                 </button>
               ) : null}
               <button

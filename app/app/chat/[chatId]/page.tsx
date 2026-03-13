@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, uploadFile } from "@/lib/api";
@@ -13,11 +13,14 @@ import {
   Download,
   File as FileIcon,
   FileText,
+  LoaderCircle,
+  Mic,
   Paperclip,
   Pencil,
   Phone,
   Send,
   SmilePlus,
+  Square,
   Trash2,
   Video,
   X,
@@ -66,7 +69,12 @@ type Msg = {
     by: string;
     durationMs?: number;
   } | null;
-  receipts: { userId: string; deliveredAt?: string; readAt?: string }[];
+  receipts: {
+    userId: string;
+    deliveredAt?: string;
+    readAt?: string;
+    listenedAt?: string;
+  }[];
   reactions?: {
     emoji: string;
     userId: string;
@@ -205,6 +213,18 @@ function formatElapsed(ms: number) {
   return `${minutes}:${ss}`;
 }
 
+function detectVoiceMimeType() {
+  if (typeof window === "undefined" || typeof MediaRecorder === "undefined")
+    return "";
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
+}
+
 export default function ChatPage() {
   const { chatId } = useParams<{ chatId: string }>();
   const me = useAuthStore((s) => s.user);
@@ -218,11 +238,204 @@ export default function ChatPage() {
   const typingTimer = useRef<number | null>(null);
   const typingAckFailedOnce = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const recordingTimerRef = useRef<number | null>(null);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceDurationMs, setVoiceDurationMs] = useState(0);
+  const [isSendingVoice, setIsSendingVoice] = useState(false);
+
+  const markMessagesRead = useCallback((targetMessages: Msg[]) => {
+    if (!me?.id) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden")
+      return;
+
+    const unreadIds = targetMessages
+      .filter((message) => {
+        if (message.from === me.id) return false;
+        if (message.deletedAt) return false;
+        const receipt = message.receipts?.find((entry) => entry.userId === me.id);
+        return !receipt?.readAt;
+      })
+      .map((message) => message.id);
+
+    if (!unreadIds.length) return;
+    ensureSocket().emit("chat:read", { messageIds: unreadIds });
+  }, [me?.id]);
+
+  const markVoiceListened = useCallback((messageId: string) => {
+    if (!me?.id) return;
+    const message = messages.find((entry) => entry.id === messageId);
+    if (!message || message.from === me.id) return;
+    const receipt = message.receipts?.find((entry) => entry.userId === me.id);
+    if (receipt?.listenedAt) return;
+
+    const at = new Date().toISOString();
+    setMessages((prev) =>
+      prev.map((entry) =>
+        entry.id !== messageId
+          ? entry
+          : {
+              ...entry,
+              receipts: (() => {
+                const existing = entry.receipts?.find((item) => item.userId === me.id);
+                if (existing) {
+                  return (entry.receipts ?? []).map((item) =>
+                    item.userId !== me.id
+                      ? item
+                      : {
+                          ...item,
+                          deliveredAt: item.deliveredAt ?? at,
+                          readAt: item.readAt ?? at,
+                          listenedAt: item.listenedAt ?? at,
+                        },
+                  );
+                }
+                return [
+                  ...(entry.receipts ?? []),
+                  {
+                    userId: me.id,
+                    deliveredAt: at,
+                    readAt: at,
+                    listenedAt: at,
+                  },
+                ];
+              })(),
+            },
+      ),
+    );
+
+    ensureSocket().emit("chat:voice:listened", { messageId });
+  }, [me?.id, messages]);
 
   const ensureSocket = () => {
     const s = getSocket();
     if (!s.connected) s.connect();
     return s;
+  };
+
+  const clearVoiceRecorder = () => {
+    if (recordingTimerRef.current != null) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    recordingStartedAtRef.current = null;
+    recordingChunksRef.current = [];
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    recordingStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    setIsRecordingVoice(false);
+    setVoiceDurationMs(0);
+  };
+
+  const sendVoiceMessage = async (blob: Blob, mimeType: string, durationMs: number) => {
+    if (!otherUserId) return;
+
+    setIsSendingVoice(true);
+    try {
+      const extension = mimeType.includes("ogg")
+        ? "ogg"
+        : mimeType.includes("mp4")
+          ? "m4a"
+          : "webm";
+      const file = new File([blob], `voice-message-${Date.now()}.${extension}`, {
+        type: mimeType || "audio/webm",
+      });
+      const upload = await uploadFile(file);
+      const uploadedItem = asRecord(upload.item) ?? {};
+      const uploadedMeta = asRecord(uploadedItem.meta) ?? {};
+      const s = ensureSocket();
+      const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      s.emit("share:item", {
+        to: otherUserId,
+        item: {
+          ...uploadedItem,
+          kind: "audio",
+          meta: {
+            ...uploadedMeta,
+            voiceNote: true,
+            durationMs,
+          },
+        },
+        clientMessageId,
+      });
+    } catch {
+      toast({
+        title: "Voice message failed",
+        message: "Could not upload and send this recording.",
+        tone: "error",
+      });
+    } finally {
+      setIsSendingVoice(false);
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+    recorder.stop();
+  };
+
+  const startVoiceRecording = async () => {
+    if (!otherUserId || isRecordingVoice || isSendingVoice) return;
+    if (typeof window === "undefined" || typeof MediaRecorder === "undefined") {
+      toast({
+        title: "Voice messages unavailable",
+        message: "This browser does not support in-app audio recording.",
+        tone: "error",
+      });
+      return;
+    }
+
+    try {
+      const mimeType = detectVoiceMimeType();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      recordingStreamRef.current = stream;
+      recordingChunksRef.current = [];
+      recordingStartedAtRef.current = Date.now();
+      mediaRecorderRef.current = recorder;
+      setIsRecordingVoice(true);
+      setVoiceDurationMs(0);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordingChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        const chunks = [...recordingChunksRef.current];
+        const durationMs = Math.max(0, Date.now() - (recordingStartedAtRef.current ?? Date.now()));
+        const outputMimeType = recorder.mimeType || mimeType || "audio/webm";
+        clearVoiceRecorder();
+        if (!chunks.length) return;
+        void sendVoiceMessage(new Blob(chunks, { type: outputMimeType }), outputMimeType, durationMs);
+      };
+
+      recorder.start(250);
+      recordingTimerRef.current = window.setInterval(() => {
+        setVoiceDurationMs(
+          Math.max(0, Date.now() - (recordingStartedAtRef.current ?? Date.now())),
+        );
+      }, 250);
+    } catch {
+      clearVoiceRecorder();
+      toast({
+        title: "Recording failed",
+        message: "Could not access the microphone for a voice message.",
+        tone: "error",
+      });
+    }
   };
 
   const emitTyping = (isTyping: boolean) => {
@@ -447,6 +660,18 @@ export default function ChatPage() {
   }, [chatId]);
 
   useEffect(() => {
+    markMessagesRead(messages);
+  }, [messages, markMessagesRead]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") markMessagesRead(messages);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [messages, markMessagesRead]);
+
+  useEffect(() => {
     const s = getSocket();
     if (!s.connected) s.connect();
     typingAckFailedOnce.current = false;
@@ -474,8 +699,9 @@ export default function ChatPage() {
         prev.some((x) => x.id === m.id) ? prev : [...prev, m],
       );
       if (m.from !== me?.id) {
-        s.emit("chat:delivered", { messageIds: [m.id] });
-        s.emit("chat:read", { messageIds: [m.id] });
+        if (typeof document !== "undefined" && document.visibilityState === "visible") {
+          s.emit("chat:read", { messageIds: [m.id] });
+        }
       }
     };
 
@@ -539,6 +765,7 @@ export default function ChatPage() {
                       ...r,
                       deliveredAt: r.deliveredAt ?? at,
                       readAt: typ === "read" ? at : r.readAt,
+                      listenedAt: r.listenedAt,
                     },
               )
             : [
@@ -547,9 +774,48 @@ export default function ChatPage() {
                   userId: uid,
                   deliveredAt: at,
                   readAt: typ === "read" ? at : undefined,
+                  listenedAt: undefined,
                 },
               ];
           return { ...m, receipts };
+        }),
+      );
+    };
+
+    const onVoiceListened = (p: unknown) => {
+      const r = asRecord(p);
+      if (!r) return;
+      if (String(r.chatId ?? "") !== chatId) return;
+      const messageId = typeof r.messageId === "string" ? r.messageId : "";
+      const userId = typeof r.userId === "string" ? r.userId : "";
+      const at = typeof r.at === "string" ? r.at : new Date().toISOString();
+      if (!messageId || !userId) return;
+
+      setMessages((prev) =>
+        prev.map((message) => {
+          if (message.id !== messageId) return message;
+          const existing = message.receipts?.find((entry) => entry.userId === userId);
+          const receipts = existing
+            ? (message.receipts ?? []).map((entry) =>
+                entry.userId !== userId
+                  ? entry
+                  : {
+                      ...entry,
+                      deliveredAt: entry.deliveredAt ?? at,
+                      readAt: entry.readAt ?? at,
+                      listenedAt: entry.listenedAt ?? at,
+                    },
+              )
+            : [
+                ...(message.receipts ?? []),
+                {
+                  userId,
+                  deliveredAt: at,
+                  readAt: at,
+                  listenedAt: at,
+                },
+              ];
+          return { ...message, receipts };
         }),
       );
     };
@@ -594,6 +860,7 @@ export default function ChatPage() {
     s.on("chat:message:edited", onEdited);
     s.on("chat:message:deleted", onDeleted);
     s.on("chat:receipt", onReceipt);
+    s.on("chat:voice:listened", onVoiceListened);
     s.on("chat:reaction", onReaction);
 
     return () => {
@@ -603,6 +870,7 @@ export default function ChatPage() {
       s.off("chat:message:edited", onEdited);
       s.off("chat:message:deleted", onDeleted);
       s.off("chat:receipt", onReceipt);
+      s.off("chat:voice:listened", onVoiceListened);
       s.off("chat:reaction", onReaction);
     };
   }, [chatId, me?.id, reactionUserDirectory]);
@@ -610,6 +878,8 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length]);
+
+  useEffect(() => () => clearVoiceRecorder(), []);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[32px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,252,253,0.96),rgba(255,238,245,0.9))] shadow-[0_24px_80px_rgba(102,24,61,0.12)]">
@@ -811,7 +1081,12 @@ export default function ChatPage() {
                         </div>
                       ) : m.type === "share" &&
                         (m.item?.url || m.item?.legacyUrl) ? (
-                        <Attachment item={m.item} />
+                        <Attachment
+                          item={m.item}
+                          message={m}
+                          meId={me?.id}
+                          onVoiceListened={markVoiceListened}
+                        />
                       ) : (
                         <div className="whitespace-pre-wrap break-words leading-5">
                           {m.text}
@@ -856,10 +1131,10 @@ export default function ChatPage() {
                           minute: "2-digit",
                         })}
                         {mine ? (
-                          <span className="ml-1.5 inline-flex items-center">
-                            <ReceiptMark m={m} otherUserId={otherUserId} />
-                          </span>
-                        ) : null}
+                        <span className="ml-1.5 inline-flex items-center">
+                          <ReceiptMark m={m} otherUserId={otherUserId} />
+                        </span>
+                      ) : null}
                       </div>
                     </div>
 
@@ -1002,14 +1277,48 @@ export default function ChatPage() {
                   }}
                 />
               </label>
+              <button
+                className={`focus-ring inline-flex h-10 min-w-[4.75rem] shrink-0 items-center justify-center gap-1 rounded-[16px] px-2 text-[11px] font-semibold transition ${
+                  isRecordingVoice
+                    ? "bg-[color:var(--rose-600)] text-white shadow-[0_10px_24px_rgba(198,43,105,0.22)]"
+                    : "bg-[color:var(--wine-900)]/6 text-[color:var(--wine-900)] hover:bg-[color:var(--wine-900)]/10"
+                } ${isSendingVoice ? "cursor-wait opacity-70" : ""}`}
+                disabled={isSendingVoice}
+                onClick={() => {
+                  if (isRecordingVoice) stopVoiceRecording();
+                  else void startVoiceRecording();
+                }}
+                type="button"
+                title={isRecordingVoice ? "Stop recording" : "Record voice message"}
+              >
+                {isSendingVoice ? (
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                ) : isRecordingVoice ? (
+                  <Square className="h-3.5 w-3.5" />
+                ) : (
+                  <Mic className="h-3.5 w-3.5" />
+                )}
+                <span className="tabular-nums">
+                  {isSendingVoice
+                    ? "Sending"
+                    : isRecordingVoice
+                      ? formatElapsed(voiceDurationMs)
+                      : "Voice"}
+                </span>
+              </button>
               <div className="min-w-0 flex-1">
                 <div className="mb-1 px-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-[color:var(--wine-900)]/38">
-                  Send a message
+                  {isRecordingVoice ? "Recording voice message" : "Send a message"}
                 </div>
                 <input
                   className="focus-ring w-full rounded-[18px] border border-transparent bg-transparent px-2.5 py-2 text-[13px] text-[color:var(--wine-900)] placeholder:text-[color:var(--wine-900)]/34"
-                  placeholder="Write something sweet..."
+                  placeholder={
+                    isRecordingVoice
+                      ? "Recording... press stop to send."
+                      : "Write something sweet..."
+                  }
                   value={text}
+                  disabled={isRecordingVoice}
                   onChange={(e) => {
                     setText(e.target.value);
                     emitTyping(true);
@@ -1025,6 +1334,7 @@ export default function ChatPage() {
               <button
                 className="focus-ring inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[16px] bg-[linear-gradient(135deg,var(--rose-600),#e05a97)] px-3.5 text-[13px] font-semibold text-white shadow-[0_10px_24px_rgba(198,43,105,0.2)] transition hover:brightness-105"
                 type="submit"
+                disabled={isRecordingVoice}
               >
                 <Send className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Send</span>
@@ -1058,12 +1368,26 @@ function formatBytes(n?: number) {
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-function Attachment({ item }: { item: ShareItem }) {
+function Attachment({
+  item,
+  message,
+  meId,
+  onVoiceListened,
+}: {
+  item: ShareItem;
+  message?: Msg;
+  meId?: string;
+  onVoiceListened?: (messageId: string) => void;
+}) {
   const kind = String(item.kind ?? "file");
   const mime = String(item.mime ?? item.contentType ?? "");
   const url = toAbsoluteUrl(String(item.url ?? item.legacyUrl ?? ""));
   const name = String(item.originalName ?? item.filename ?? "Attachment");
   const size = typeof item.size === "number" ? item.size : undefined;
+  const meta = asRecord(item.meta);
+  const isVoiceNote = meta?.voiceNote === true;
+  const voiceDurationMs =
+    typeof meta?.durationMs === "number" ? meta.durationMs : undefined;
 
   const lowerName = name.toLowerCase();
   const isImageByExt = /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif)$/.test(
@@ -1098,16 +1422,36 @@ function Attachment({ item }: { item: ShareItem }) {
 
   if (effectiveKind === "audio") {
     return (
-      <div className="grid gap-2">
-        <audio src={url} controls className="w-full" />
-        <a
-          className="text-[10px] underline text-black/55"
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-        >
-          {name}
+      <div className="grid gap-2 rounded-[20px] bg-white/55 px-3 py-2">
+        <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--wine-900)]/55">
+          <span>{isVoiceNote ? "Voice message" : "Audio attachment"}</span>
+          <span className="tabular-nums">
+            {voiceDurationMs ? formatElapsed(voiceDurationMs) : size ? formatBytes(size) : ""}
+          </span>
+        </div>
+        <audio
+          src={url}
+          controls
+          className="w-full"
+          onPlay={() => {
+            if (!isVoiceNote || !message?.id || !meId || message.from === meId) return;
+            onVoiceListened?.(message.id);
+          }}
+        />
+        <a className="text-[10px] underline text-black/55" href={url} target="_blank" rel="noreferrer">
+          {isVoiceNote ? "Open original recording" : name}
         </a>
+        {isVoiceNote && message && message.from === meId ? (
+          <div className="text-[10px] text-black/55">
+            {(() => {
+              const status = voiceListenStatus(message, meId);
+              if (status === "listened") return "Played";
+              if (status === "read") return "Seen";
+              if (status === "delivered") return "Delivered";
+              return "Sent";
+            })()}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -1184,6 +1528,15 @@ function ReceiptMark({
   if (s === "delivered")
     return <CheckCheck className="h-3.5 w-3.5 text-black/40" />;
   return <CheckCheck className="h-3.5 w-3.5 text-[color:var(--rose-700)]" />;
+}
+
+function voiceListenStatus(m: Msg, meId: string) {
+  const otherReceipt = m.receipts?.find((entry) => entry.userId !== meId);
+  if (!otherReceipt) return "sent" as const;
+  if (otherReceipt.listenedAt) return "listened" as const;
+  if (otherReceipt.readAt) return "read" as const;
+  if (otherReceipt.deliveredAt) return "delivered" as const;
+  return "sent" as const;
 }
 
 function groupReactions(
