@@ -13,6 +13,16 @@ declare module "react" {
         },
         HTMLElement
       >;
+      "dotlottie-wc": React.DetailedHTMLProps<
+        React.HTMLAttributes<HTMLElement> & {
+          src?: string;
+          autoplay?: boolean;
+          loop?: boolean;
+          background?: string;
+          speed?: number;
+        },
+        HTMLElement
+      >;
     }
   }
 }

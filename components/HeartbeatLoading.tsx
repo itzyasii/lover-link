@@ -1,7 +1,7 @@
 "use client";
 
 import { useIsFetching, useIsMutating } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLoadingStore } from "@/stores/loading";
 
 export function HeartbeatLoading() {
@@ -11,6 +11,7 @@ export function HeartbeatLoading() {
   const busy = fetching + mutating + manual > 0;
 
   const [visible, setVisible] = useState(false);
+  const [playerReady, setPlayerReady] = useState(false);
 
   useEffect(() => {
     if (!busy) {
@@ -22,30 +23,26 @@ export function HeartbeatLoading() {
   }, [busy]);
 
   useEffect(() => {
-    // Registers the <dotlottie-player> web component.
-    void import("@dotlottie/player-component");
+    void import("@lottiefiles/dotlottie-wc")
+      .then(() => setPlayerReady(true))
+      .catch(() => setPlayerReady(true));
   }, []);
-
-  const label = useMemo(() => {
-    if (!busy) return "";
-    if (mutating > 0) return "Sending…";
-    return "Loading…";
-  }, [busy, mutating]);
 
   if (!visible) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/30 p-6">
-      <div className="glass grid w-full max-w-xs place-items-center gap-3 rounded-3xl p-6">
-        <dotlottie-player
-          src="/heartbeat.lottie"
-          autoplay
-          loop
-          className="h-20 w-20"
-        />
-        <div className="text-sm font-semibold text-[color:var(--wine-900)]">
-          {label}
-        </div>
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/20 p-6">
+      <div className="grid place-items-center">
+        {playerReady ? (
+          <dotlottie-wc
+            src="/heartbeat.lottie"
+            autoplay
+            loop
+            className="h-24 w-24 drop-shadow-[0_10px_30px_rgba(198,43,105,0.28)]"
+          />
+        ) : (
+          <div className="h-24 w-24" />
+        )}
       </div>
     </div>
   );

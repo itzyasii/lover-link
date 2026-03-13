@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { ChevronRight, MessageSquarePlus } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
+import { useTypingStore } from "@/stores/typing";
 
 type Chat = {
   id: string;
@@ -64,6 +65,7 @@ function formatLastMessagePreview(
 
 export default function ChatsPage() {
   const me = useAuthStore((s) => s.user);
+  const typingByChatId = useTypingStore((s) => s.byChatId);
   const { data, isLoading, error } = useQuery({
     queryKey: ["chats"],
     queryFn: () => apiFetch<{ ok: true; chats: Chat[] }>("/api/chats"),
@@ -117,15 +119,39 @@ export default function ChatsPage() {
                       "Chat"}
                   </div>
                   <div className="mt-0.5 flex min-w-0 items-center justify-between gap-3 text-xs text-black/55">
-                    <div className="min-w-0 truncate">
-                      {formatLastMessagePreview(c.lastMessage ?? null, me?.id)}
-                    </div>
-                    <div className="shrink-0 tabular-nums">
-                      {formatChatTime(
-                        (c.lastMessage?.createdAt as string | undefined) ??
-                          c.updatedAt,
-                      )}
-                    </div>
+                    {(() => {
+                      const t = typingByChatId[c.id];
+                      const active = t && Date.now() - t.at < 6500;
+                      const otherTyping = active && t?.from && t.from !== me?.id;
+                      if (otherTyping) {
+                        return (
+                          <div className="flex min-w-0 items-center justify-between gap-3">
+                            <div className="inline-flex min-w-0 items-center gap-2 truncate font-semibold text-[color:var(--rose-700)]">
+                              Typing
+                              <span className="typing-dots" aria-hidden="true">
+                                <span />
+                                <span />
+                                <span />
+                              </span>
+                            </div>
+                            <div className="shrink-0 tabular-nums text-black/35" />
+                          </div>
+                        );
+                      }
+                      return (
+                        <>
+                          <div className="min-w-0 truncate">
+                            {formatLastMessagePreview(c.lastMessage ?? null, me?.id)}
+                          </div>
+                          <div className="shrink-0 tabular-nums">
+                            {formatChatTime(
+                              (c.lastMessage?.createdAt as string | undefined) ??
+                                c.updatedAt,
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>

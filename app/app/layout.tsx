@@ -10,6 +10,7 @@ import { getSocket } from "@/lib/socket";
 import { Heart, MessageCircle, Phone, Users } from "lucide-react";
 import { CallProvider } from "@/components/call/CallProvider";
 import { CallOverlay } from "@/components/call/CallOverlay";
+import { RealtimeListener } from "@/components/RealtimeListener";
 
 const nav = [
   { href: "/app", label: "Chats", icon: MessageCircle },
@@ -41,9 +42,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <CallProvider>
-      <div className="mx-auto grid h-dvh max-w-6xl min-h-0 grid-cols-1 gap-6 overflow-hidden px-6 py-6 md:grid-cols-[300px_1fr]">
-        <aside className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl p-5 md:sticky md:top-6">
-          <Brand />
+    <RealtimeListener />
+    <div className="mx-auto grid h-dvh max-w-6xl min-h-0 grid-cols-1 gap-6 overflow-hidden px-6 py-6 md:grid-cols-[300px_1fr]">
+      <aside className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl p-5 md:sticky md:top-6">
+        <Brand />
           <nav className="mt-6 grid gap-1">
             {nav.map((item) => {
               const active =

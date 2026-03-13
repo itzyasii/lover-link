@@ -168,14 +168,34 @@ export default function ChatPage() {
   const [editDraft, setEditDraft] = useState("");
   const [openReactionFor, setOpenReactionFor] = useState<string | null>(null);
   const typingTimer = useRef<number | null>(null);
+  const typingAckFailedOnce = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  const ensureSocket = () => {
+    const s = getSocket();
+    if (!s.connected) s.connect();
+    return s;
+  };
+
+  const emitTyping = (isTyping: boolean) => {
+    const s = ensureSocket();
+    s.emit("chat:typing", { chatId, isTyping }, (ack?: { ok: boolean }) => {
+      if (ack?.ok) return;
+      if (typingAckFailedOnce.current) return;
+      typingAckFailedOnce.current = true;
+      toast({
+        title: "Typing unavailable",
+        message: "Could not send typing indicator. Check connection or reopen the chat.",
+        tone: "error",
+      });
+    });
+  };
 
   const emitReaction = (messageId: string, emoji: string) => {
     if (!me?.id) return;
     setOpenReactionFor(null);
 
-    const s = getSocket();
-    if (!s.connected) s.connect();
+    const s = ensureSocket();
 
     const at = new Date().toISOString();
 
@@ -198,7 +218,7 @@ export default function ChatPage() {
       );
     }, 2500);
 
-    s.emit("chat:react", { messageId, emoji }, (ack: ReactionAck) => {
+    s.emit("chat:react", { messageId, emoji }, (ack: ReactionAck & { error?: string }) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timeoutId);
@@ -206,7 +226,7 @@ export default function ChatPage() {
       if (!ack?.ok) {
         toast({
           title: "Reaction failed",
-          message: "Server rejected this reaction.",
+          message: ack?.error ? `Server rejected this reaction (${ack.error}).` : "Server rejected this reaction.",
           tone: "error",
         });
         setMessages((prev) =>
@@ -284,6 +304,7 @@ export default function ChatPage() {
   useEffect(() => {
     const s = getSocket();
     if (!s.connected) s.connect();
+    typingAckFailedOnce.current = false;
 
     const onTyping = (p: unknown) => {
       const r = asRecord(p);
@@ -439,13 +460,22 @@ export default function ChatPage() {
               {resolvedChat?.members.find((m) => m.id !== me?.id)?.username ?? "Chat"}
             </div>
             <div className="text-xs text-black/55">
-              {typingFrom
-                ? "Typing..."
-                : presence?.isOnline
-                  ? "Online"
-                  : presence?.lastSeenAt
-                    ? formatLastSeen(presence.lastSeenAt)
-                    : " "}
+              {typingFrom ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="typing-dots" aria-label="Typing" title="Typing">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span className="sr-only">Typing</span>
+                </span>
+              ) : presence?.isOnline ? (
+                "Online"
+              ) : presence?.lastSeenAt ? (
+                formatLastSeen(presence.lastSeenAt)
+              ) : (
+                " "
+              )}
             </div>
           </div>
         </div>
@@ -691,6 +721,18 @@ export default function ChatPage() {
             </div>
           );
         })}
+        {typingFrom ? (
+          <div className="flex justify-start">
+            <div className="inline-flex items-center gap-2 rounded-3xl bg-white/70 px-4 py-3 text-sm text-black/70">
+              <span className="typing-dots" aria-label="Typing" title="Typing">
+                <span />
+                <span />
+                <span />
+              </span>
+              <span className="sr-only">Typing</span>
+            </div>
+          </div>
+        ) : null}
         <div ref={bottomRef} />
       </div>
 
@@ -699,7 +741,7 @@ export default function ChatPage() {
         onSubmit={async (e) => {
           e.preventDefault();
           if (!otherUserId || !text.trim()) return;
-          const s = getSocket();
+          const s = ensureSocket();
           const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
           s.emit("chat:message", {
             to: otherUserId,
@@ -707,7 +749,7 @@ export default function ChatPage() {
             clientMessageId,
           });
           setText("");
-          s.emit("chat:typing", { chatId, isTyping: false });
+          emitTyping(false);
         }}
       >
         <label className="focus-ring inline-flex cursor-pointer items-center justify-center rounded-2xl bg-black/5 p-3 hover:bg-black/10">
@@ -720,7 +762,7 @@ export default function ChatPage() {
               e.target.value = "";
               if (!file || !otherUserId) return;
               const up = await uploadFile(file);
-              const s = getSocket();
+              const s = ensureSocket();
               const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
               s.emit("share:item", {
                 to: otherUserId,
@@ -736,16 +778,13 @@ export default function ChatPage() {
           value={text}
           onChange={(e) => {
             setText(e.target.value);
-            const s = getSocket();
-            s.emit("chat:typing", { chatId, isTyping: true });
+            emitTyping(true);
             if (typingTimer.current) window.clearTimeout(typingTimer.current);
             typingTimer.current = window.setTimeout(() => {
-              s.emit("chat:typing", { chatId, isTyping: false });
+              emitTyping(false);
             }, 1200);
           }}
-          onBlur={() =>
-            getSocket().emit("chat:typing", { chatId, isTyping: false })
-          }
+          onBlur={() => emitTyping(false)}
         />
         <button
           className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-[color:var(--rose-600)] px-4 py-3 text-sm font-semibold text-white hover:bg-[color:var(--rose-700)]"
