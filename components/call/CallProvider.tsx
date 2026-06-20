@@ -63,6 +63,11 @@ type CallState =
       remoteStream: MediaStream;
     };
 
+type OutputDevice = {
+  deviceId: string;
+  label: string;
+};
+
 type CallContextValue = {
   state: CallState;
   startCall: (toUserId: string, media: "audio" | "video") => Promise<void>;
@@ -71,8 +76,13 @@ type CallContextValue = {
   hangup: () => Promise<void>;
   toggleMic: () => void;
   toggleCam: () => void;
+  toggleSpeaker: () => void;
+  switchOutputDevice: (deviceId: string) => Promise<void>;
   micEnabled: boolean;
   camEnabled: boolean;
+  speakerEnabled: boolean;
+  outputDevices: OutputDevice[];
+  currentOutputDevice: string | null;
   networkQuality: CallNetworkQuality;
 };
 
@@ -202,9 +212,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   } | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
   const [camEnabled, setCamEnabled] = useState(true);
+  const [speakerEnabled, setSpeakerEnabled] = useState(false);
+  const [outputDevices, setOutputDevices] = useState<OutputDevice[]>([]);
+  const [currentOutputDevice, setCurrentOutputDevice] = useState<string | null>(
+    null,
+  );
   const [networkQuality, setNetworkQuality] = useState<CallNetworkQuality>(() =>
     buildQualityState(pickInitialQuality()),
   );
+  const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const pendingIce = useRef<RTCIceCandidateInit[]>([]);
   const stateRef = useRef<CallState>(state);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -228,9 +244,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     remoteStreamRef.current = null;
+    if (remoteAudioElementRef.current) {
+      remoteAudioElementRef.current.srcObject = null;
+    }
     pendingIce.current = [];
     setMicEnabled(true);
     setCamEnabled(true);
+    setSpeakerEnabled(false);
+    setCurrentOutputDevice(null);
     setNetworkQuality(buildQualityState(pickInitialQuality()));
     setState({ kind: "idle" });
   };
@@ -412,6 +433,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const startCall = async (toUserId: string, media: "audio" | "video") => {
     if (state.kind !== "idle") return;
+    // eslint-disable-next-line react-hooks/purity -- this is an event handler, not called during render
     const callId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const toLabel = (await resolveUserLabel(toUserId)) ?? toUserId;
     setState({ kind: "outgoing", to: toUserId, toLabel, callId, media });
@@ -442,6 +464,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               message: "Could not reach the other side.",
             });
             cleanup();
+          } else {
+            // If the call is answered and we enter inCall state, we'll load devices there
+            // For now, we can load devices as soon as media is accessed
+            void loadOutputDevices();
           }
         },
       );
@@ -487,6 +513,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         localStream: stream,
         remoteStream: remoteStreamRef.current ?? new MediaStream(),
       });
+      void loadOutputDevices();
     } catch (err) {
       s.emit("call:end", { to: from, callId, reason: "media_denied" });
       toast({ title: "Cannot answer", message: mediaErrorMessage(err, media) });
@@ -535,6 +562,57 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     setCamEnabled(next);
     if (next) startNetworkMonitor();
     else stopNetworkMonitor();
+  };
+
+  const loadOutputDevices = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioOutputs = devices
+        .filter((device) => device.kind === "audiooutput")
+        .map((device) => ({
+          deviceId: device.deviceId,
+          label: device.label || `Speaker ${device.deviceId.slice(0, 5)}`,
+        }));
+      setOutputDevices(audioOutputs);
+    } catch (err) {
+      console.error("Failed to enumerate audio output devices:", err);
+    }
+  };
+
+  const toggleSpeaker = () => {
+    const next = !speakerEnabled;
+    setSpeakerEnabled(next);
+    // Speaker mode typically means using the loudspeaker instead of earpiece,
+    // on web we can adjust the audio element's behavior or volume accordingly
+    if (remoteAudioElementRef.current) {
+      if (next) {
+        // Max volume for speaker mode
+        remoteAudioElementRef.current.volume = 1.0;
+      } else {
+        // Lower volume for earpiece mode
+        remoteAudioElementRef.current.volume = 0.6;
+      }
+    }
+  };
+
+  const switchOutputDevice = async (deviceId: string) => {
+    if (!remoteAudioElementRef.current?.setSinkId) {
+      toast({
+        title: "Cannot switch device",
+        message: "Your browser doesn't support audio output device switching.",
+      });
+      return;
+    }
+    try {
+      await remoteAudioElementRef.current.setSinkId(deviceId);
+      setCurrentOutputDevice(deviceId);
+    } catch {
+      toast({
+        title: "Device switch failed",
+        message: "Could not switch to the selected audio device.",
+      });
+    }
   };
 
   useEffect(() => {
@@ -683,8 +761,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     hangup,
     toggleMic,
     toggleCam,
+    toggleSpeaker,
+    switchOutputDevice,
     micEnabled,
     camEnabled,
+    speakerEnabled,
+    outputDevices,
+    currentOutputDevice,
     networkQuality,
   };
 

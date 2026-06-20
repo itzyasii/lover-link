@@ -1,6 +1,17 @@
 "use client";
 
-import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
+import {
+  Mic,
+  MicOff,
+  Phone,
+  PhoneOff,
+  Video,
+  VideoOff,
+  Volume2,
+  VolumeX,
+  Speaker,
+  ChevronDown,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCall } from "./CallProvider";
 
@@ -30,8 +41,13 @@ export function CallOverlay() {
     hangup,
     toggleMic,
     toggleCam,
+    toggleSpeaker,
+    switchOutputDevice,
     micEnabled,
     camEnabled,
+    speakerEnabled,
+    outputDevices,
+    currentOutputDevice,
     networkQuality,
   } = useCall();
 
@@ -39,6 +55,22 @@ export function CallOverlay() {
   const remoteRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [showDeviceSelector, setShowDeviceSelector] = useState(false);
+  const deviceSelectorRef = useRef<HTMLDivElement>(null);
+
+  // Close device selector when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        deviceSelectorRef.current &&
+        !deviceSelectorRef.current.contains(event.target as Node)
+      ) {
+        setShowDeviceSelector(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const title = useMemo(() => {
     if (state.kind === "incoming") return "Incoming call";
@@ -53,13 +85,24 @@ export function CallOverlay() {
     return Number.isFinite(ms) ? ms : null;
   }, [state]);
 
+  // Sync speaker mode volume with all remote media elements
+  useEffect(() => {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.volume = speakerEnabled ? 1.0 : 0.6;
+    }
+    if (remoteRef.current) {
+      remoteRef.current.volume = speakerEnabled ? 1.0 : 0.6;
+    }
+  }, [speakerEnabled]);
+
   useEffect(() => {
     if (state.kind === "inCall") {
       if (localRef.current) localRef.current.srcObject = state.localStream;
       if (remoteRef.current) remoteRef.current.srcObject = state.remoteStream;
       if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject =
-          state.media === "audio" ? state.remoteStream : null;
+        remoteAudioRef.current.srcObject = state.remoteStream;
+        // Set initial volume
+        remoteAudioRef.current.volume = speakerEnabled ? 1.0 : 0.6;
       }
       return;
     }
@@ -309,6 +352,65 @@ export function CallOverlay() {
                   )}
                 </button>
               ) : null}
+              <button
+                className="focus-ring inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
+                onClick={toggleSpeaker}
+                type="button"
+                title={speakerEnabled ? "Turn speaker off" : "Turn speaker on"}
+              >
+                {speakerEnabled ? (
+                  <Volume2 className="h-5 w-5" />
+                ) : (
+                  <VolumeX className="h-5 w-5" />
+                )}
+              </button>
+              {outputDevices.length > 1 && (
+                <div className="relative" ref={deviceSelectorRef}>
+                  <button
+                    className="focus-ring inline-flex h-12 items-center justify-center gap-1 rounded-2xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10 px-3"
+                    onClick={() => setShowDeviceSelector(!showDeviceSelector)}
+                    type="button"
+                    title="Switch audio output device"
+                  >
+                    <Speaker className="h-5 w-5" />
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                  {showDeviceSelector && (
+                    <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50">
+                      {outputDevices.map((device) => (
+                        <button
+                          key={device.deviceId}
+                          className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${
+                            currentOutputDevice === device.deviceId
+                              ? "text-[color:var(--rose-600)] font-semibold"
+                              : "text-gray-700"
+                          }`}
+                          onClick={async () => {
+                            await switchOutputDevice(device.deviceId);
+                            // Also try to set sinkId on video element if it supports it
+                            if (remoteRef.current?.setSinkId) {
+                              try {
+                                await remoteRef.current.setSinkId(
+                                  device.deviceId,
+                                );
+                              } catch (err) {
+                                console.error(
+                                  "Failed to set sinkId on video element:",
+                                  err,
+                                );
+                              }
+                            }
+                            setShowDeviceSelector(false);
+                          }}
+                          type="button"
+                        >
+                          {device.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <button
                 className="focus-ring inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[color:var(--rose-600)] px-5 text-sm font-semibold text-white hover:bg-[color:var(--rose-700)]"
                 onClick={() => void hangup()}
