@@ -72,8 +72,7 @@ export default function CallsPage() {
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["calls"],
-    queryFn: () =>
-      apiFetch<{ ok: true; calls: Call[] }>("/api/calls/history?limit=50"),
+    queryFn: () => apiFetch<{ ok: true; calls: Call[] }>("/api/calls?limit=50"),
     retry: false, // Don't retry on 404
   });
 

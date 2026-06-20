@@ -62,7 +62,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <nav className="grid grid-cols-3 gap-1 md:mt-6 md:grid-cols-1">
             {nav.map((item) => {
               const active =
-                pathname === item.href || pathname.startsWith(item.href + "/");
+                // Special case for home (Chats) page - only match exact /app
+                item.href === "/app"
+                  ? pathname === "/app"
+                  : pathname === item.href ||
+                    pathname.startsWith(item.href + "/");
               const Icon = item.icon;
               return (
                 <Link
