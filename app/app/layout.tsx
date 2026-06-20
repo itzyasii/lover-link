@@ -29,15 +29,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const hasAttemptedRefresh = useRef(false);
   useEffect(() => {
-    if (!isHydrated || isRefreshing || hasAttemptedRefresh.current) return;
-    if (!accessToken) {
-      hasAttemptedRefresh.current = true;
-      void (async () => {
-        const ok = await refresh();
-        if (!ok) router.push("/login");
-      })();
-    }
-  }, [accessToken, isHydrated, isRefreshing, refresh, router]);
+    // Wait for store to fully hydrate before checking auth
+    if (!isHydrated) return;
+
+    // If we already have an access token, no need to refresh
+    if (accessToken) return;
+
+    // Only attempt refresh once to prevent infinite loops
+    if (hasAttemptedRefresh.current || isRefreshing) return;
+
+    hasAttemptedRefresh.current = true;
+    void (async () => {
+      const ok = await refresh();
+      if (!ok) {
+        router.push("/login");
+      }
+    })();
+  }, [isHydrated, accessToken, isRefreshing, refresh, router]);
 
   useEffect(() => {
     if (accessToken) getSocket();
@@ -84,7 +92,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </aside>
 
         <main className="mt-3 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-black/5 bg-white/70 shadow-sm md:mt-0">
-          <div className="min-h-0 flex-1 overflow-auto p-3 md:p-4">{children}</div>
+          <div className="min-h-0 flex-1 overflow-auto p-3 md:p-4">
+            {children}
+          </div>
         </main>
       </div>
       <CallOverlay />

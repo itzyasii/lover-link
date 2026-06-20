@@ -35,11 +35,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrateFromStorage: () => {
     if (typeof window === "undefined") return;
     const t = localStorage.getItem(LS_KEY);
-    set({ accessToken: t, isHydrated: true });
-    if (t)
+    // If we have a stored token, set it immediately - this prevents redirects on page reload
+    if (t) {
+      set({ accessToken: t, isHydrated: true });
+      // Fetch user profile after setting token to maintain session
       void fetchMe(t)
         .then((u) => set({ user: u }))
         .catch(() => set({ user: null }));
+    } else {
+      // No token found - mark as hydrated without setting anything
+      set({ isHydrated: true });
+    }
   },
   login: async (emailOrUsername, password) => {
     const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
