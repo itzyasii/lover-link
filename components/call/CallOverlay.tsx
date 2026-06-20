@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { initials, formatElapsed } from "@/lib/utils";
-import { Camera } from "react-camera-pro";
 
 // CallOverlay now consumes CallContext directly via useCall hook
 
@@ -165,14 +164,16 @@ export function CallOverlay() {
           )}
             {state.media === "video" && state.mediaStream && (
             <div className={`absolute top-4 right-4 w-[30%] overflow-hidden rounded-xl border-2 border-white/30 bg-black/40 shadow-lg aspect-9/16 ${usingFrontCamera ? "" : "scale-x-[-1]"}`}>
-                <Camera
-                  facingMode={usingFrontCamera ? "user" : "environment"}
-                  errorMessages={{
-                    noCameraAccessible: 'No camera device accessible.',
-                    permissionDenied: 'Permission denied.',
-                    switchCamera: 'Cannot switch camera.',
-                    canvas: 'Canvas not supported.',
+                <video
+                  ref={(el) => {
+                    if (el && state.mediaStream && el.srcObject !== state.mediaStream) {
+                      el.srcObject = state.mediaStream;
+                    }
                   }}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
                 />
             </div>
             )}

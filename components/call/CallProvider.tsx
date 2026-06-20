@@ -180,13 +180,35 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const r = asRecord(p);
     if (!r) return;
     const payloadCallId = typeof r.callId === "string" ? r.callId : "";
-    if (stateRef.current.kind !== "incoming" || payloadCallId !== stateRef.current.callId) return;
-    // transition to inCall, clean up local pc and pending ICE, hide overlay
-    setState({ kind: "inCall", connectedAt: new Date().toISOString(), callId: payloadCallId, peerLabel: (stateRef.current as IncomingState).fromLabel, media: (stateRef.current as IncomingState).media } as CallState);
-    pcRef.current?.close();
-    pcRef.current = null;
-    pendingIce.current = [];
-    setOverlayVisible(false);
+    if (stateRef.current.kind !== "outgoing" || payloadCallId !== stateRef.current.callId) return;
+
+    const currentState = stateRef.current as Extract<CallState, { kind: "outgoing" }>;
+
+    try {
+      const answer = r.answer as RTCSessionDescriptionInit;
+      if (pcRef.current && answer) {
+        await pcRef.current.setRemoteDescription(answer);
+        await flushPendingIce();
+      }
+
+      setState({
+        kind: "inCall",
+        peer: currentState.to,
+        peerLabel: currentState.toLabel,
+        callId: payloadCallId,
+        media: currentState.media,
+        connectedAt: new Date().toISOString(),
+        localStream: localStreamRef.current ?? new MediaStream(),
+        remoteStream: remoteStreamRef.current ?? new MediaStream(),
+        mediaStream: currentState.mediaStream,
+      } as CallState);
+      
+      setOverlayVisible(false);
+      void loadOutputDevices();
+    } catch (err) {
+      console.error("Failed to handle answer:", err);
+      cleanupRef.current?.();
+    }
   };
 
 
