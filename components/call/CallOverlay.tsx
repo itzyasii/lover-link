@@ -158,44 +158,39 @@ export function CallOverlay() {
         </div>
 
         {state.kind === "incoming" ? (
-          <div className="mt-6 grid gap-5 md:grid-cols-2">
-            <div className="rounded-3xl bg-white/60 p-5">
-              <div className="text-sm font-semibold text-[color:var(--wine-900)]">
-                Answer on this device
-              </div>
-              <div className="mt-1 text-xs text-black/55">
-                Make sure your mic{state.media === "video" ? " and camera" : ""}{" "}
-                are enabled.
-              </div>
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                <button
-                  className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-[color:var(--rose-600)] px-4 py-2 text-sm font-semibold text-white hover:bg-[color:var(--rose-700)]"
-                  onClick={() => void accept()}
-                  type="button"
-                >
-                  <Phone className="h-4 w-4" /> Accept
-                </button>
-                <button
-                  className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-black/5 px-4 py-2 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-black/10"
-                  onClick={() => void decline()}
-                  type="button"
-                >
-                  <PhoneOff className="h-4 w-4" /> Decline
-                </button>
-              </div>
-            </div>
-
-            <div className="grid place-items-center rounded-3xl bg-[radial-gradient(closest-side,rgba(198,43,105,0.10),transparent_65%)] p-6">
-              <div className="grid place-items-center">
-                <div className="grid h-24 w-24 place-items-center rounded-full bg-white/70 text-2xl font-semibold text-[color:var(--wine-900)] shadow-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md">
+            <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-sm w-full mx-4 transform transition-all">
+              <div className="text-center">
+                <div className="grid h-28 w-28 place-items-center rounded-full bg-rose-100 text-3xl font-semibold text-rose-600 shadow-lg mx-auto mb-4">
                   {initials(state.fromLabel)}
                 </div>
-                <div className="mt-3 text-sm font-semibold text-[color:var(--wine-900)]">
+                <h3 className="text-2xl font-semibold text-gray-800 mb-2">
                   {state.fromLabel}
+                </h3>
+                <p className="text-gray-500 mb-8">
+                  {state.media === "video"
+                    ? "Incoming video call"
+                    : "Incoming voice call"}
+                </p>
+                <div className="flex justify-center gap-6">
+                  <button
+                    className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg hover:scale-105 transition-transform"
+                    onClick={() => void decline()}
+                    type="button"
+                  >
+                    <PhoneOff className="h-7 w-7" />
+                  </button>
+                  <button
+                    className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-green-500 text-white shadow-lg hover:scale-105 transition-transform"
+                    onClick={() => void accept()}
+                    type="button"
+                  >
+                    <Phone className="h-7 w-7" />
+                  </button>
                 </div>
-                <div className="mt-1 text-xs text-black/55 capitalize">
-                  {state.media} call
-                </div>
+                <p className="mt-6 text-xs text-gray-400">
+                  Tap green to answer, red to decline
+                </p>
               </div>
             </div>
           </div>

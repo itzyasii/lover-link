@@ -36,8 +36,10 @@ import {
 type Chat = {
   id: string;
   type: "dm";
-  members: { id: string; email?: string; username?: string }[];
+  members: ChatMember[];
 };
+
+type ChatMember = string | { id: string; email?: string; username?: string };
 
 type ShareItem = {
   kind?: "file" | "image" | "video" | "audio";
@@ -113,6 +115,15 @@ type ReactionGroup = {
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (typeof v !== "object" || v == null) return null;
   return v as Record<string, unknown>;
+}
+
+function memberId(member: ChatMember) {
+  return typeof member === "string" ? member : member.id;
+}
+
+function memberLabel(member: ChatMember | null | undefined) {
+  if (!member || typeof member === "string") return "";
+  return member.username?.trim() || member.email?.trim() || "";
 }
 
 function normalizeReactions(reactions: unknown): Msg["reactions"] {
@@ -382,6 +393,13 @@ export default function ChatPage() {
         },
         clientMessageId,
       });
+      // Force scroll to bottom after sending message
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop =
+            messagesContainerRef.current.scrollHeight;
+        }
+      }, 50);
     } catch {
       toast({
         title: "Voice message failed",
@@ -579,17 +597,19 @@ export default function ChatPage() {
 
   const otherUserId = useMemo(() => {
     if (!resolvedChat || !me) return null;
-    const ids = resolvedChat.members.map((m) => m.id);
+    const ids = resolvedChat.members.map(memberId);
     return ids.find((id) => id !== me.id) ?? null;
   }, [resolvedChat, me]);
 
   const reactionUserDirectory = useMemo(() => {
     const users = new Map<string, ReactionUser>();
     for (const member of resolvedChat?.members ?? []) {
-      users.set(member.id, {
-        id: member.id,
-        username: member.username,
-        email: member.email,
+      const id = memberId(member);
+      const rec = typeof member === "string" ? null : member;
+      users.set(id, {
+        id,
+        username: rec?.username,
+        email: rec?.email,
       });
     }
     if (me?.id) {
@@ -627,26 +647,56 @@ export default function ChatPage() {
     return labels;
   }, [messages, reactionUserDirectory, me]);
 
-  const presenceQ = useQuery({
-    queryKey: ["presence", otherUserId],
-    enabled: Boolean(otherUserId),
-    queryFn: () =>
-      apiFetch<{
-        ok: true;
-        presence: {
-          userId: string;
-          isOnline: boolean;
-          lastSeenAt: string | null;
-        }[];
-      }>(`/api/users/presence?ids=${otherUserId}`),
-    refetchInterval: 10_000,
-  });
+  // Track online status via socket.io instead of REST polling (per FRONTEND_INTEGRATION.md)
+  const [isOtherUserOnline, setIsOtherUserOnline] = useState(false);
+  const [otherUserLastSeen, setOtherUserLastSeen] = useState<string | null>(
+    null,
+  );
 
-  const presence = presenceQ.data?.presence?.[0];
+  useEffect(() => {
+    if (!otherUserId) return;
+
+    const s = getSocket();
+    if (!s.connected) s.connect();
+
+    // Get initial online users list
+    s.emit("presence:list", (response: { ok: boolean; users: string[] }) => {
+      if (response.ok) {
+        setIsOtherUserOnline(response.users.includes(otherUserId));
+      }
+    });
+
+    // Listen for presence updates (when users come online/go offline)
+    const handlePresenceUpdate = (data: { ok: boolean; users: string[] }) => {
+      if (data.ok) {
+        setIsOtherUserOnline(data.users.includes(otherUserId));
+      }
+    };
+
+    // Initial online list on connect
+    const handlePresenceOnline = (data: { ok: boolean; users: string[] }) => {
+      if (data.ok) {
+        setIsOtherUserOnline(data.users.includes(otherUserId));
+      }
+    };
+
+    s.on("presence:update", handlePresenceUpdate);
+    s.on("presence:online", handlePresenceOnline);
+
+    return () => {
+      s.off("presence:update", handlePresenceUpdate);
+      s.off("presence:online", handlePresenceOnline);
+    };
+  }, [otherUserId]);
+
+  // Create presence object for compatibility with existing code
+  const presence = {
+    isOnline: isOtherUserOnline,
+    lastSeenAt: otherUserLastSeen,
+  };
   const otherMember =
-    resolvedChat?.members.find((member) => member.id !== me?.id) ?? null;
-  const otherDisplayName =
-    otherMember?.username?.trim() || otherMember?.email?.trim() || "Chat";
+    resolvedChat?.members.find((member) => memberId(member) !== me?.id) ?? null;
+  const otherDisplayName = memberLabel(otherMember) || "Chat";
   const conversationStatus = typingFrom
     ? "Typing..."
     : presence?.isOnline
@@ -894,43 +944,65 @@ export default function ChatPage() {
     };
   }, [chatId, me?.id, reactionUserDirectory]);
 
+  // Auto-scroll to bottom logic - always stay at bottom like modern messaging apps
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScroll = useRef(true);
+
+  // Handle scroll events to detect if user is manually scrolling up
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } =
+      messagesContainerRef.current;
+    // If user is within 100px of bottom, enable auto-scroll, otherwise disable
+    shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 100;
+  }, []);
+
+  // Scroll to bottom whenever messages change, but only if shouldAutoScroll is true
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length]);
+    if (shouldAutoScroll.current && messagesContainerRef.current) {
+      // Use instant scroll for new messages to be snappier, smooth scroll can cause jank
+      messagesContainerRef.current.scrollTop =
+        messagesContainerRef.current.scrollHeight;
+    }
+    // Also scroll to bottom when initial messages load
+    if (messages.length > 0 && messagesContainerRef.current) {
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop =
+            messagesContainerRef.current.scrollHeight;
+        }
+      }, 100);
+    }
+  }, [messages]);
+
+  // Force scroll to bottom when component mounts (initial load)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop =
+          messagesContainerRef.current.scrollHeight;
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => () => clearVoiceRecorder(), []);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[32px] border border-white/60 bg-[linear-gradient(180deg,rgba(255,252,253,0.96),rgba(255,238,245,0.9))] shadow-[0_24px_80px_rgba(102,24,61,0.12)]">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute left-[-6%] top-[-8%] h-56 w-56 rounded-full bg-[color:var(--peach-200)]/45 blur-3xl" />
-        <div className="absolute right-[-8%] top-[18%] h-64 w-64 rounded-full bg-[color:var(--rose-600)]/10 blur-3xl" />
-        <div className="absolute bottom-[-10%] left-[24%] h-72 w-72 rounded-full bg-white/35 blur-3xl" />
-      </div>
-      <div className="relative flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--wine-900)]/8 bg-white/64 px-2 pb-2 pt-1 backdrop-blur-xl sm:px-5">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-black/5 bg-white px-3 py-3">
         <div className="flex min-w-0 items-center gap-3">
-          <img
-            src="/avatars/default-love.svg"
-            alt=""
-            className="h-11 w-11 rounded-[18px] border border-white/70 bg-white/75 p-1 shadow-[0_10px_24px_rgba(126,35,75,0.12)]"
+          <ChatAvatar
+            name={otherDisplayName}
+            online={Boolean(presence?.isOnline)}
           />
           <div className="min-w-0">
-            <div className="truncate font-[family-name:var(--font-serif)] text-[1.25rem] text-[color:var(--wine-900)]">
+            <div className="truncate text-base font-semibold text-[color:var(--wine-900)]">
               {otherDisplayName}
-              <span className="ml-2 inline-flex rounded-full bg-[color:var(--rose-600)]/10 px-2 py-0.5 text-[7px] font-semibold uppercase tracking-[0.16em] text-[color:var(--rose-700)]">
-                DM
-              </span>
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[9px] text-[color:var(--wine-900)]/62">
-              <span
-                className={`inline-flex h-1.5 w-1.5 rounded-full ${
-                  presence?.isOnline
-                    ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]"
-                    : "bg-[color:var(--wine-900)]/18"
-                }`}
-              />
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-black/50">
               {typingFrom ? (
-                <span className="inline-flex items-center gap-2">
+                <>
                   <span
                     className="typing-dots"
                     aria-label="Typing"
@@ -940,432 +1012,440 @@ export default function ChatPage() {
                     <span />
                     <span />
                   </span>
-                  <span>{otherDisplayName} is typing</span>
-                </span>
-              ) : presence?.isOnline ? (
-                conversationStatus
-              ) : presence?.lastSeenAt ? (
-                formatLastSeen(presence.lastSeenAt)
+                  <span>Typing</span>
+                </>
               ) : (
-                " "
+                <span>{conversationStatus}</span>
               )}
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-2">
           <button
-            className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[color:var(--wine-900)]/8 bg-white/72 px-3 py-2 text-[12px] font-semibold text-[color:var(--wine-900)] shadow-sm transition hover:bg-white"
+            className="focus-ring grid h-10 w-10 place-items-center rounded-xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
             onClick={() => {
               if (otherUserId) void startCall(otherUserId, "audio");
             }}
             title="Audio call"
             type="button"
           >
-            <Phone className="h-3 w-3" /> Call
+            <Phone className="h-4 w-4" />
           </button>
           <button
-            className="focus-ring inline-flex items-center gap-1 rounded-full bg-[color:var(--rose-600)] px-3 py-2 text-[12px] font-semibold text-white shadow-[0_10px_24px_rgba(198,43,105,0.25)] transition hover:bg-[color:var(--rose-700)]"
+            className="focus-ring grid h-10 w-10 place-items-center rounded-xl bg-[color:var(--rose-600)] text-white hover:bg-[color:var(--rose-700)]"
             onClick={() => {
               if (otherUserId) void startCall(otherUserId, "video");
             }}
             title="Video call"
             type="button"
           >
-            <Video className="h-3.5 w-3.5" /> Video
+            <Video className="h-4 w-4" />
           </button>
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1 sm:px-3 sm:pb-3">
-        <div className="relative flex h-full min-h-0 flex-col overflow-hidden border border-white/65 bg-white/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_14px_38px_rgba(98,19,57,0.07)] backdrop-blur-xl">
-          <div className="pointer-events-none absolute inset-0 opacity-70">
-            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.24),transparent_24%,transparent_76%,rgba(255,255,255,0.22))]" />
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,216,230,0.38),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(198,43,105,0.08),transparent_28%)]" />
-          </div>
-          <div className="relative mt-0.5 min-h-0 flex-1 space-y-2.5 overflow-x-hidden overflow-y-auto px-1.5 py-2 sm:px-3">
-            {messages.map((m) => {
-              if (m.type === "event") {
-                const label =
-                  m.event?.kind === "call_started"
-                    ? `${m.event.media === "video" ? "Video" : "Audio"} call started`
-                    : m.event?.kind === "call_ended"
-                      ? `${m.event.media === "video" ? "Video" : "Audio"} call ended`
-                      : "Event";
-                const duration =
-                  typeof m.event?.durationMs === "number" &&
-                  m.event.durationMs > 0
-                    ? ` · ${formatElapsed(m.event.durationMs)}`
-                    : "";
-                return (
-                  <div key={m.id} className="flex justify-center py-1">
-                    <div className="rounded-full border border-white/70 bg-white/82 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[color:var(--wine-900)]/58 shadow-sm">
-                      {label}
-                      <span className="tabular-nums">{duration}</span>
-                    </div>
-                  </div>
-                );
-              }
-
-              const mine = m.from === me?.id;
-              const reactions = m.reactions ?? [];
-              const reactionGroups = groupReactions(
-                reactions,
-                me?.id ?? "",
-                reactionUserLabels,
-              );
-              const reactionSummary = reactionGroups
-                .map(
-                  (reaction) =>
-                    reaction.emoji +
-                    " " +
-                    formatReactionUsers(reaction.userLabels),
-                )
-                .join(" · ");
-              const reactionsOpen = openReactionFor === m.id;
+      <div className="flex min-h-0 flex-1 flex-col bg-[#fbf8fa]">
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleScroll}
+          className="min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto px-3 py-4 scroll-smooth"
+        >
+          {messages.map((m) => {
+            if (m.type === "event") {
+              const label =
+                m.event?.kind === "call_started"
+                  ? `${m.event.media === "video" ? "Video" : "Audio"} call started`
+                  : m.event?.kind === "call_ended"
+                    ? `${m.event.media === "video" ? "Video" : "Audio"} call ended`
+                    : "Event";
+              const duration =
+                typeof m.event?.durationMs === "number" &&
+                m.event.durationMs > 0
+                  ? ` · ${formatElapsed(m.event.durationMs)}`
+                  : "";
               return (
+                <div key={m.id} className="flex justify-center py-1">
+                  <div className="rounded-full border border-black/5 bg-white px-3 py-1 text-xs font-medium text-black/50">
+                    {label}
+                    <span className="tabular-nums">{duration}</span>
+                  </div>
+                </div>
+              );
+            }
+
+            const mine = m.from === me?.id;
+            const reactions = m.reactions ?? [];
+            const reactionGroups = groupReactions(
+              reactions,
+              me?.id ?? "",
+              reactionUserLabels,
+            );
+            const reactionSummary = reactionGroups
+              .map(
+                (reaction) =>
+                  reaction.emoji +
+                  " " +
+                  formatReactionUsers(reaction.userLabels),
+              )
+              .join(" · ");
+            const reactionsOpen = openReactionFor === m.id;
+            return (
+              <div
+                key={m.id}
+                className={`flex w-full ${mine ? "justify-end" : "justify-start"}`}
+              >
                 <div
-                  key={m.id}
-                  className={`flex w-full ${mine ? "justify-end" : "justify-start"}`}
+                  className={`group relative flex max-w-[min(88%,42rem)] items-end gap-2 ${
+                    mine ? "flex-row-reverse" : ""
+                  }`}
                 >
                   <div
-                    className={`group relative flex w-full min-w-0 max-w-[min(100%,42rem)] items-end gap-1.5 sm:max-w-[min(100%,48rem)] ${mine ? "flex-row-reverse self-end" : "self-start"}`}
+                    className={`min-w-0 rounded-2xl border px-3 py-2 text-sm shadow-sm ${
+                      mine
+                        ? "rounded-br-md border-[color:var(--rose-600)]/15 bg-[color:var(--rose-600)] text-white"
+                        : "rounded-bl-md border-black/5 bg-white text-[color:var(--wine-900)]"
+                    }`}
                   >
-                    <div
-                      className={`relative min-w-0 overflow-hidden rounded-[24px] border px-3.5 py-2.5 text-[13px] shadow-[0_14px_26px_rgba(116,34,70,0.07)] ${
-                        mine
-                          ? "border-[color:var(--rose-600)]/22 bg-[linear-gradient(165deg,rgba(255,225,236,0.98),rgba(255,206,226,0.94))] text-[color:var(--wine-900)]"
-                          : "border-[color:var(--wine-900)]/8 bg-[linear-gradient(165deg,rgba(255,255,255,0.98),rgba(248,241,255,0.9))] text-[color:var(--wine-900)]"
-                      }`}
-                    >
-                      {!mine ? (
-                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--rose-700)]/78">
-                          {otherDisplayName}
-                        </div>
-                      ) : null}
-
-                      {m.deletedAt ? (
-                        <span className="italic text-black/50">
-                          Message deleted
-                        </span>
-                      ) : editingId === m.id ? (
-                        <div className="grid gap-2">
-                          <textarea
-                            className="focus-ring w-full resize-none rounded-2xl border border-black/10 bg-white/70 px-3 py-2 text-sm text-[color:var(--wine-900)]"
-                            rows={3}
-                            value={editDraft}
-                            onChange={(e) => setEditDraft(e.target.value)}
-                          />
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-black/5 px-3 py-2 text-xs font-semibold text-[color:var(--wine-900)] hover:bg-black/10"
-                              onClick={() => {
-                                setEditingId(null);
-                                setEditDraft("");
-                              }}
-                              type="button"
-                            >
-                              <X className="h-4 w-4" /> Cancel
-                            </button>
-                            <button
-                              className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-[color:var(--rose-600)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--rose-700)]"
-                              onClick={async () => {
-                                const next = editDraft.trim();
-                                if (!next) return;
-                                await apiFetch(
-                                  `/api/chats/${chatId}/messages/${m.id}`,
-                                  {
-                                    method: "PATCH",
-                                    body: JSON.stringify({ text: next }),
-                                    trackLoading: false,
-                                  },
-                                );
-                                setMessages((prev) =>
-                                  prev.map((x) =>
-                                    x.id === m.id
-                                      ? {
-                                          ...x,
-                                          text: next,
-                                          editedAt: new Date().toISOString(),
-                                        }
-                                      : x,
-                                  ),
-                                );
-                                setEditingId(null);
-                                setEditDraft("");
-                              }}
-                              type="button"
-                            >
-                              <Check className="h-4 w-4" /> Save
-                            </button>
-                          </div>
-                        </div>
-                      ) : m.type === "share" &&
-                        (m.item?.url || m.item?.legacyUrl) ? (
-                        <Attachment
-                          item={m.item}
-                          message={m}
-                          meId={me?.id}
-                          onVoiceListened={markVoiceListened}
-                        />
-                      ) : (
-                        <div className="whitespace-pre-wrap break-words leading-5">
-                          {m.text}
-                        </div>
-                      )}
-
-                      {reactionGroups.length ? (
-                        <div className="mt-2 max-w-full rounded-[16px] bg-white/40 px-2 py-1.5 ring-1 ring-white/40">
-                          <div className="flex max-w-full flex-wrap gap-1 overflow-hidden">
-                            {reactionGroups.map((r) => (
-                              <button
-                                key={r.emoji}
-                                type="button"
-                                className={`inline-flex max-w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium shadow-sm transition ${
-                                  r.me
-                                    ? "border-[color:var(--rose-600)]/18 bg-[color:var(--rose-600)]/12 text-[color:var(--rose-800)]"
-                                    : "border-black/5 bg-white/72 text-black/70"
-                                }`}
-                                onClick={() => emitReaction(m.id, r.emoji)}
-                                title={formatReactionUsers(r.userLabels)}
-                                aria-label={formatReactionUsers(r.userLabels)}
-                              >
-                                <span className="text-[13px] leading-none">
-                                  {r.emoji}
-                                </span>
-                                <span className="tabular-nums">{r.count}</span>
-                              </button>
-                            ))}
-                          </div>
-                          <div
-                            className="mt-1 max-w-full truncate text-[9px] leading-4 text-black/55"
-                            title={reactionSummary}
-                          >
-                            {reactionSummary}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="mt-2 flex items-center gap-1.5 text-[9px] text-[color:var(--wine-900)]/42">
-                        {new Date(m.createdAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        {mine ? (
-                          <span className="ml-1.5 inline-flex items-center">
-                            <ReceiptMark m={m} otherUserId={otherUserId} />
-                          </span>
-                        ) : null}
+                    {!mine ? (
+                      <div className="mb-1 text-xs font-medium text-black/45">
+                        {otherDisplayName}
                       </div>
-                    </div>
+                    ) : null}
 
-                    {!m.deletedAt && editingId !== m.id ? (
-                      <div className="relative flex shrink-0 flex-col items-center gap-1.5">
-                        <button
-                          type="button"
-                          className="focus-ring grid h-8 w-8 place-items-center rounded-[18px] border border-white/70 bg-white/82 text-[color:var(--wine-900)]/64 shadow-sm transition hover:bg-white"
-                          onClick={() =>
-                            setOpenReactionFor((cur) =>
-                              cur === m.id ? null : m.id,
-                            )
-                          }
-                          aria-label="Reactions"
-                          title="Reactions"
-                        >
-                          <SmilePlus className="h-3.5 w-3.5" />
-                        </button>
+                    {m.deletedAt ? (
+                      <span
+                        className={
+                          mine ? "italic text-white/70" : "italic text-black/45"
+                        }
+                      >
+                        Message deleted
+                      </span>
+                    ) : editingId === m.id ? (
+                      <div className="grid gap-2">
+                        <textarea
+                          className="focus-ring w-full resize-none rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-[color:var(--wine-900)]"
+                          rows={3}
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                        />
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            className="focus-ring grid h-9 w-9 place-items-center rounded-xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditDraft("");
+                            }}
+                            title="Cancel"
+                            type="button"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                          <button
+                            className="focus-ring grid h-9 w-9 place-items-center rounded-xl bg-[color:var(--rose-600)] text-white hover:bg-[color:var(--rose-700)]"
+                            onClick={async () => {
+                              const next = editDraft.trim();
+                              if (!next) return;
+                              await apiFetch(
+                                `/api/chats/${chatId}/messages/${m.id}`,
+                                {
+                                  method: "PATCH",
+                                  body: JSON.stringify({ text: next }),
+                                  trackLoading: false,
+                                },
+                              );
+                              setMessages((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id
+                                    ? {
+                                        ...x,
+                                        text: next,
+                                        editedAt: new Date().toISOString(),
+                                      }
+                                    : x,
+                                ),
+                              );
+                              setEditingId(null);
+                              setEditDraft("");
+                            }}
+                            title="Save"
+                            type="button"
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : m.type === "share" &&
+                      (m.item?.url || m.item?.legacyUrl) ? (
+                      <Attachment
+                        item={m.item}
+                        message={m}
+                        meId={me?.id}
+                        onVoiceListened={markVoiceListened}
+                      />
+                    ) : (
+                      <div className="whitespace-pre-wrap break-words leading-5">
+                        {m.text}
+                      </div>
+                    )}
 
-                        <div
-                          className={`absolute top-10 z-10 max-w-[200px] flex-wrap items-center gap-1 rounded-[18px] border border-white/70 bg-white/92 p-1 shadow-[0_12px_28px_rgba(95,22,56,0.16)] backdrop-blur ${
-                            reactionsOpen ? "flex" : "hidden"
-                          } ${mine ? "right-0" : "left-0"}`}
-                        >
-                          {QUICK_REACTIONS.map((e) => (
+                    {reactionGroups.length ? (
+                      <div
+                        className={`mt-2 max-w-full rounded-xl px-2 py-1.5 ${
+                          mine ? "bg-white/15" : "bg-black/[0.03]"
+                        }`}
+                      >
+                        <div className="flex max-w-full flex-wrap gap-1">
+                          {reactionGroups.map((r) => (
                             <button
-                              key={e}
+                              key={r.emoji}
                               type="button"
-                              className="grid h-7 w-7 place-items-center rounded-[16px] transition hover:bg-[color:var(--rose-600)]/10"
-                              onClick={() => emitReaction(m.id, e)}
-                              aria-label={`React ${e}`}
+                              className={`inline-flex max-w-full items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-medium transition ${
+                                r.me
+                                  ? mine
+                                    ? "bg-white/25 text-white"
+                                    : "bg-[color:var(--rose-600)]/10 text-[color:var(--rose-700)]"
+                                  : mine
+                                    ? "bg-white/15 text-white/85"
+                                    : "bg-white text-black/65"
+                              }`}
+                              onClick={() => emitReaction(m.id, r.emoji)}
+                              title={formatReactionUsers(r.userLabels)}
+                              aria-label={formatReactionUsers(r.userLabels)}
                             >
-                              <span className="text-sm leading-none">{e}</span>
+                              <span className="text-[13px] leading-none">
+                                {r.emoji}
+                              </span>
+                              <span className="tabular-nums">{r.count}</span>
                             </button>
                           ))}
                         </div>
-
-                        {mine ? (
-                          <div className="flex items-center gap-1 rounded-[18px] border border-white/70 bg-white/82 p-1 shadow-sm md:pointer-events-none md:opacity-0 md:transition md:group-hover:pointer-events-auto md:group-hover:opacity-100">
-                            {m.type === "text" ? (
-                              <button
-                                className="focus-ring grid h-7 w-7 place-items-center rounded-[16px] text-[color:var(--wine-900)]/62 hover:bg-black/5"
-                                onClick={() => {
-                                  setEditingId(m.id);
-                                  setEditDraft(m.text ?? "");
-                                }}
-                                type="button"
-                                aria-label="Edit"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                            ) : null}
-                            <button
-                              className="focus-ring grid h-8 w-8 place-items-center rounded-2xl text-[color:var(--wine-900)]/62 hover:bg-black/5"
-                              onClick={async () => {
-                                await apiFetch(
-                                  `/api/chats/${chatId}/messages/${m.id}`,
-                                  { method: "DELETE", trackLoading: false },
-                                );
-                                setMessages((prev) =>
-                                  prev.map((x) =>
-                                    x.id === m.id
-                                      ? {
-                                          ...x,
-                                          text: null,
-                                          item: null,
-                                          reactions: [],
-                                          deletedAt: new Date().toISOString(),
-                                        }
-                                      : x,
-                                  ),
-                                );
-                              }}
-                              type="button"
-                              aria-label="Delete"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        ) : null}
                       </div>
                     ) : null}
-                  </div>
-                </div>
-              );
-            })}
-            {typingFrom ? (
-              <div className="flex justify-start">
-                <div className="inline-flex items-center gap-2 rounded-[20px] border border-white/70 bg-white/85 px-3 py-2.5 text-[13px] text-[color:var(--wine-900)]/70 shadow-sm">
-                  <span
-                    className="typing-dots"
-                    aria-label="Typing"
-                    title="Typing"
-                  >
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                  <span>{otherDisplayName} is typing</span>
-                </div>
-              </div>
-            ) : null}
-            <div ref={bottomRef} />
-          </div>
 
-          <form
-            className="relative border-t border-[color:var(--wine-900)]/8 bg-white/68 px-2.5 pb-2.5 pt-2.5 backdrop-blur-xl sm:px-3 sm:pb-3"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!otherUserId || !text.trim()) return;
-              const s = ensureSocket();
-              const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-              s.emit("chat:message", {
-                to: otherUserId,
-                text: text.trim(),
-                clientMessageId,
-              });
-              setText("");
-              emitTyping(false);
-            }}
-          >
-            <div className="flex items-end gap-2 rounded-[24px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,245,249,0.88))] p-1.5 shadow-[0_14px_28px_rgba(111,27,64,0.09)]">
-              <label className="focus-ring inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[16px] bg-[color:var(--rose-600)]/10 text-[color:var(--rose-700)] transition hover:bg-[color:var(--rose-600)]/16">
-                <Paperclip className="h-3.5 w-3.5" />
-                <input
-                  className="hidden"
-                  type="file"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (!file || !otherUserId) return;
-                    const up = await uploadFile(file, false);
-                    const s = ensureSocket();
-                    const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-                    s.emit("share:item", {
-                      to: otherUserId,
-                      item: up.item,
-                      clientMessageId,
-                    });
-                  }}
-                />
-              </label>
-              <button
-                className={`focus-ring inline-flex h-10 min-w-[4.75rem] shrink-0 items-center justify-center gap-1 rounded-[16px] px-2 text-[11px] font-semibold transition ${
-                  isRecordingVoice
-                    ? "bg-[color:var(--rose-600)] text-white shadow-[0_10px_24px_rgba(198,43,105,0.22)]"
-                    : "bg-[color:var(--wine-900)]/6 text-[color:var(--wine-900)] hover:bg-[color:var(--wine-900)]/10"
-                } ${isSendingVoice ? "cursor-wait opacity-70" : ""}`}
-                disabled={isSendingVoice}
-                onClick={() => {
-                  if (isRecordingVoice) stopVoiceRecording();
-                  else void startVoiceRecording();
-                }}
-                type="button"
-                title={
-                  isRecordingVoice ? "Stop recording" : "Record voice message"
-                }
-              >
-                {isSendingVoice ? (
-                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                ) : isRecordingVoice ? (
-                  <Square className="h-3.5 w-3.5" />
-                ) : (
-                  <Mic className="h-3.5 w-3.5" />
-                )}
-                <span className="tabular-nums">
-                  {isSendingVoice
-                    ? "Sending"
-                    : isRecordingVoice
-                      ? formatElapsed(voiceDurationMs)
-                      : "Voice"}
-                </span>
-              </button>
-              <div className="min-w-0 flex-1">
-                <div className="mb-1 px-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-[color:var(--wine-900)]/38">
-                  {isRecordingVoice
-                    ? "Recording voice message"
-                    : "Send a message"}
+                    <div
+                      className={`mt-2 flex items-center gap-1.5 text-[11px] ${
+                        mine ? "text-gray-500" : "text-gray-400"
+                      }`}
+                    >
+                      {new Date(m.createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      {mine ? (
+                        <span className="ml-1.5 inline-flex items-center">
+                          <ReceiptMark m={m} otherUserId={otherUserId} />
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {!m.deletedAt && editingId !== m.id ? (
+                    <div className="relative flex shrink-0 items-center gap-1 rounded-xl border border-black/5 bg-white p-1 opacity-100 shadow-sm md:opacity-0 md:transition md:group-hover:opacity-100">
+                      <button
+                        type="button"
+                        className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-[color:var(--wine-900)]/65 hover:bg-black/5"
+                        onClick={() =>
+                          setOpenReactionFor((cur) =>
+                            cur === m.id ? null : m.id,
+                          )
+                        }
+                        aria-label="Reactions"
+                        title="Reactions"
+                      >
+                        <SmilePlus className="h-3.5 w-3.5" />
+                      </button>
+
+                      <div
+                        className={`absolute top-10 z-10 max-w-[220px] flex-wrap items-center gap-1 rounded-xl border border-black/10 bg-white p-1 shadow-lg ${
+                          reactionsOpen ? "flex" : "hidden"
+                        } ${mine ? "right-0" : "left-0"}`}
+                      >
+                        {QUICK_REACTIONS.map((e) => (
+                          <button
+                            key={e}
+                            type="button"
+                            className="grid h-8 w-8 place-items-center rounded-lg transition hover:bg-black/5"
+                            onClick={() => emitReaction(m.id, e)}
+                            aria-label={`React ${e}`}
+                          >
+                            <span className="text-sm leading-none">{e}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      {mine ? (
+                        <>
+                          {m.type === "text" ? (
+                            <button
+                              className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-[color:var(--wine-900)]/65 hover:bg-black/5"
+                              onClick={() => {
+                                setEditingId(m.id);
+                                setEditDraft(m.text ?? "");
+                              }}
+                              type="button"
+                              aria-label="Edit"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                          <button
+                            className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-[color:var(--wine-900)]/65 hover:bg-black/5"
+                            onClick={async () => {
+                              await apiFetch(
+                                `/api/chats/${chatId}/messages/${m.id}`,
+                                { method: "DELETE", trackLoading: false },
+                              );
+                              setMessages((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id
+                                    ? {
+                                        ...x,
+                                        text: null,
+                                        item: null,
+                                        reactions: [],
+                                        deletedAt: new Date().toISOString(),
+                                      }
+                                    : x,
+                                ),
+                              );
+                            }}
+                            type="button"
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
-                <input
-                  className="focus-ring w-full rounded-[18px] border border-transparent bg-transparent px-2.5 py-2 text-[13px] text-[color:var(--wine-900)] placeholder:text-[color:var(--wine-900)]/34"
-                  placeholder={
-                    isRecordingVoice
-                      ? "Recording... press stop to send."
-                      : "Write something sweet..."
-                  }
-                  value={text}
-                  disabled={isRecordingVoice}
-                  onChange={(e) => {
-                    setText(e.target.value);
-                    emitTyping(true);
-                    if (typingTimer.current)
-                      window.clearTimeout(typingTimer.current);
-                    typingTimer.current = window.setTimeout(() => {
-                      emitTyping(false);
-                    }, 1200);
-                  }}
-                  onBlur={() => emitTyping(false)}
-                />
               </div>
-              <button
-                className="focus-ring inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[16px] bg-[linear-gradient(135deg,var(--rose-600),#e05a97)] px-3.5 text-[13px] font-semibold text-white shadow-[0_10px_24px_rgba(198,43,105,0.2)] transition hover:brightness-105"
-                type="submit"
-                disabled={isRecordingVoice}
-              >
-                <Send className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Send</span>
-              </button>
+            );
+          })}
+          {typingFrom ? (
+            <div className="flex justify-start">
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-black/5 bg-white px-3 py-2 text-sm text-black/55 shadow-sm">
+                <span
+                  className="typing-dots"
+                  aria-label="Typing"
+                  title="Typing"
+                >
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span>{otherDisplayName} is typing</span>
+              </div>
             </div>
-          </form>
+          ) : null}
+          <div ref={bottomRef} />
         </div>
+
+        <form
+          className="border-t border-black/5 bg-white p-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!otherUserId || !text.trim()) return;
+            const s = ensureSocket();
+            const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+            s.emit("chat:message", {
+              to: otherUserId,
+              text: text.trim(),
+              clientMessageId,
+            });
+            setText("");
+            // Force scroll to bottom after sending message
+            setTimeout(() => {
+              if (messagesContainerRef.current) {
+                messagesContainerRef.current.scrollTop =
+                  messagesContainerRef.current.scrollHeight;
+              }
+            }, 50);
+            emitTyping(false);
+          }}
+        >
+          <div className="flex items-end gap-2 rounded-2xl border border-black/10 bg-white p-2 shadow-sm">
+            <label className="focus-ring grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-xl bg-black/5 text-[color:var(--wine-900)] transition hover:bg-black/10">
+              <Paperclip className="h-3.5 w-3.5" />
+              <input
+                className="hidden"
+                type="file"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file || !otherUserId) return;
+                  const up = await uploadFile(file, false);
+                  const s = ensureSocket();
+                  const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+                  s.emit("share:item", {
+                    to: otherUserId,
+                    item: up.item,
+                    clientMessageId,
+                  });
+                }}
+              />
+            </label>
+            <button
+              className={`focus-ring grid h-10 w-10 shrink-0 place-items-center rounded-xl transition ${
+                isRecordingVoice
+                  ? "bg-[color:var(--rose-600)] text-white shadow-[0_10px_24px_rgba(198,43,105,0.22)]"
+                  : "bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
+              } ${isSendingVoice ? "cursor-wait opacity-70" : ""}`}
+              disabled={isSendingVoice}
+              onClick={() => {
+                if (isRecordingVoice) stopVoiceRecording();
+                else void startVoiceRecording();
+              }}
+              type="button"
+              title={
+                isRecordingVoice ? "Stop recording" : "Record voice message"
+              }
+            >
+              {isSendingVoice ? (
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              ) : isRecordingVoice ? (
+                <Square className="h-3.5 w-3.5" />
+              ) : (
+                <Mic className="h-3.5 w-3.5" />
+              )}
+            </button>
+            <div className="min-w-0 flex-1">
+              {isRecordingVoice ? (
+                <div className="mb-1 px-1 text-xs font-medium text-[color:var(--rose-700)]">
+                  Recording {formatElapsed(voiceDurationMs)}
+                </div>
+              ) : null}
+              <input
+                className="focus-ring w-full rounded-2xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-800 placeholder:text-gray-400 shadow-sm transition-all duration-200 focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
+                placeholder={
+                  isRecordingVoice
+                    ? "Tap stop to send voice message"
+                    : "Type a message..."
+                }
+                value={text}
+                disabled={isRecordingVoice}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  emitTyping(true);
+                  if (typingTimer.current)
+                    window.clearTimeout(typingTimer.current);
+                  typingTimer.current = window.setTimeout(() => {
+                    emitTyping(false);
+                  }, 1200);
+                }}
+                onBlur={() => emitTyping(false)}
+              />
+            </div>
+            <button
+              className="focus-ring grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-rose-500 to-rose-600 text-white shadow-lg transition-all duration-200 hover:shadow-xl hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+              type="submit"
+              disabled={isRecordingVoice || !text.trim()}
+              title="Send message"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -1378,6 +1458,28 @@ function toAbsoluteUrl(url: string) {
     return trimmed;
   const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
   return `${API_BASE_URL}${path}`;
+}
+
+function ChatAvatar({ name, online }: { name: string; online: boolean }) {
+  const initials =
+    name
+      .trim()
+      .split(/[\s._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || "?";
+
+  return (
+    <div className="relative grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-black/5 bg-[color:var(--peach-200)]/55 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--rose-700)]">
+      {initials}
+      <span
+        className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${
+          online ? "bg-emerald-500" : "bg-black/25"
+        }`}
+      />
+    </div>
+  );
 }
 
 function formatBytes(n?: number) {

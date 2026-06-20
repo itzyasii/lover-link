@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import { ChevronRight, MessageSquarePlus } from "lucide-react";
+import { getSocket } from "@/lib/socket";
+import { ChevronRight, MessageSquarePlus, MessageCircle } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useTypingStore } from "@/stores/typing";
 import { formatLastSeen } from "@/lib/time";
@@ -12,7 +13,7 @@ import { formatLastSeen } from "@/lib/time";
 type Chat = {
   id: string;
   type: "dm";
-  members: { id: string; email?: string; username?: string }[];
+  members: ChatMember[];
   lastMessage?: {
     id: string;
     type: "text" | "share" | "event";
@@ -25,6 +26,17 @@ type Chat = {
   } | null;
   updatedAt: string;
 };
+
+type ChatMember = string | { id: string; email?: string; username?: string };
+
+function memberId(member: ChatMember) {
+  return typeof member === "string" ? member : member.id;
+}
+
+function memberName(member: ChatMember | null | undefined) {
+  if (!member || typeof member === "string") return "Chat";
+  return member.username?.trim() || member.email?.trim() || "Chat";
+}
 
 function formatChatTime(iso: string) {
   const d = new Date(iso);
@@ -77,37 +89,65 @@ export default function ChatsPage() {
     () =>
       chats
         .map(
-          (chat) => chat.members.find((member) => member.id !== me?.id) ?? null,
+          (chat) =>
+            chat.members.find((member) => memberId(member) !== me?.id) ?? null,
         )
         .filter(Boolean) as NonNullable<Chat["members"][number]>[],
     [chats, me?.id],
   );
-  const presenceIds = useMemo(
-    () =>
-      Array.from(new Set(otherMembers.map((member) => member.id))).join(","),
-    [otherMembers],
-  );
-  const presenceQ = useQuery({
-    queryKey: ["presence:list", presenceIds],
-    enabled: Boolean(presenceIds),
-    queryFn: () =>
-      apiFetch<{
-        ok: true;
-        presence: {
-          userId: string;
-          isOnline: boolean;
-          lastSeenAt: string | null;
-        }[];
-      }>(`/api/users/presence?ids=${presenceIds}`),
-    refetchInterval: 10_000,
-  });
-  const presenceByUserId = useMemo(
-    () =>
-      new Map(
-        (presenceQ.data?.presence ?? []).map((entry) => [entry.userId, entry]),
-      ),
-    [presenceQ.data],
-  );
+  // Track online users via socket.io instead of REST polling (per FRONTEND_INTEGRATION.md)
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [lastSeen, setLastSeen] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s.connected) s.connect();
+
+    // Get initial online users list
+    s.emit("presence:list", (response: { ok: boolean; users: string[] }) => {
+      if (response.ok) {
+        setOnlineUsers(new Set(response.users));
+      }
+    });
+
+    // Listen for presence updates (when users come online/go offline)
+    const handlePresenceUpdate = (data: { ok: boolean; users: string[] }) => {
+      if (data.ok) {
+        setOnlineUsers(new Set(data.users));
+      }
+    };
+
+    // Initial online list on connect
+    const handlePresenceOnline = (data: { ok: boolean; users: string[] }) => {
+      if (data.ok) {
+        setOnlineUsers(new Set(data.users));
+      }
+    };
+
+    s.on("presence:update", handlePresenceUpdate);
+    s.on("presence:online", handlePresenceOnline);
+
+    return () => {
+      s.off("presence:update", handlePresenceUpdate);
+      s.off("presence:online", handlePresenceOnline);
+    };
+  }, []);
+
+  // Create presence map for easy access - just track online status, lastSeen can be cached
+  const presenceByUserId = useMemo(() => {
+    const map = new Map<
+      string,
+      { isOnline: boolean; lastSeenAt: string | null }
+    >();
+    otherMembers.forEach((memberId) => {
+      const userId = typeof memberId === "string" ? memberId : memberId.id;
+      map.set(userId, {
+        isOnline: onlineUsers.has(userId),
+        lastSeenAt: lastSeen.get(userId) || null,
+      });
+    });
+    return map;
+  }, [otherMembers, onlineUsers, lastSeen]);
 
   return (
     <div>
@@ -116,11 +156,11 @@ export default function ChatsPage() {
           Chats
         </h1>
         <Link
-          className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-[color:var(--rose-600)] px-4 py-2 text-sm font-semibold text-white hover:bg-[color:var(--rose-700)]"
+          className="focus-ring inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-rose-500 to-rose-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
           href="/app/friends"
         >
           <MessageSquarePlus className="h-4 w-4" />
-          New chat
+          New message
         </Link>
       </div>
 
@@ -137,42 +177,45 @@ export default function ChatsPage() {
       ) : (
         <div className="mt-6 grid gap-2">
           {chats.map((c) => {
-            const otherMember = c.members.find((m) => m.id !== me?.id) ?? null;
+            const otherMember =
+              c.members.find((m) => memberId(m) !== me?.id) ?? null;
             const presence = otherMember
-              ? presenceByUserId.get(otherMember.id)
+              ? presenceByUserId.get(memberId(otherMember))
               : null;
-            const name = otherMember?.username ?? otherMember?.email ?? "Chat";
+            const name = memberName(otherMember);
 
             return (
               <Link
                 key={c.id}
                 href={`/app/chat/${c.id}`}
-                className="focus-ring flex items-center justify-between rounded-2xl bg-white/55 px-2 py-2 hover:bg-white/70"
+                className="focus-ring flex items-center justify-between rounded-3xl bg-white/70 px-4 py-4 shadow-sm hover:bg-white hover:shadow-md hover:scale-[1.02] transition-all duration-200"
               >
-                <div className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-0 items-center gap-4">
                   <div className="relative shrink-0">
                     <ChatAvatar name={name} />
                     <span
-                      className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white ${
-                        presence?.isOnline ? "bg-emerald-500" : "bg-slate-400"
+                      className={`absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 border-white ${
+                        presence?.isOnline ? "bg-green-500" : "bg-slate-400"
                       }`}
-                      title={presence?.isOnline ? "Online" : "Offline"}
+                      title={
+                        presence?.isOnline ? "Online now" : "Last seen recently"
+                      }
                     />
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <div className="truncate text-sm font-semibold text-[color:var(--wine-900)]">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center justify-between gap-3">
+                      <div className="truncate text-base font-semibold text-gray-800">
                         {name}
                       </div>
-                      <span className="shrink-0 text-[10px] text-black/40">
+                      <span className="shrink-0 text-[11px] text-gray-400">
                         {presence?.isOnline
-                          ? "Online"
+                          ? "Online now"
                           : presence?.lastSeenAt
                             ? formatLastSeen(presence.lastSeenAt)
                             : "Offline"}
                       </span>
                     </div>
-                    <div className="mt-0.5 flex min-w-0 items-center justify-between gap-3 text-xs text-black/55">
+                    <div className="mt-1 flex min-w-0 items-center justify-between gap-4 text-sm text-gray-500">
                       {(() => {
                         const t = typingByChatId[c.id];
                         const active = t && Date.now() - t.at < 6500;

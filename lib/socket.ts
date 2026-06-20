@@ -32,6 +32,10 @@ export function getSocket() {
       transports: ["websocket", "polling"],
       auth: token ? { accessToken: token } : undefined,
       withCredentials: true,
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity,
       autoConnect: false,
     });
 

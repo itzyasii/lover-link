@@ -1,7 +1,16 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDownLeft, ArrowUpRight, Clock, PhoneOff } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Clock,
+  MessageCircle,
+  Phone,
+  PhoneOff,
+  Video,
+} from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { getCachedUserLabel, resolveUserLabels } from "@/lib/users";
@@ -12,11 +21,20 @@ type Call = {
   callId: string;
   callerId: string;
   calleeId: string;
-  status: string;
+  media?: "audio" | "video";
+  status:
+    | "ringing"
+    | "answered"
+    | "ended"
+    | "missed"
+    | "declined"
+    | "cancelled"
+    | string;
   offeredAt: string;
-  answeredAt: string | null;
-  endedAt: string | null;
-  reason: string | null;
+  answeredAt?: string | null;
+  endedAt?: string | null;
+  duration?: number;
+  reason?: string | null;
 };
 
 const EMPTY_CALLS: Call[] = [];
@@ -32,23 +50,31 @@ function formatDuration(ms: number) {
   return `${m}:${ss}`;
 }
 
-function safeMs(a: string | null, b: string | null) {
+function safeMs(a?: string | null, b?: string | null) {
   if (!a || !b) return null;
   const x = new Date(a).getTime();
   const y = new Date(b).getTime();
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   const d = y - x;
-  if (d < 0) return null;
-  return d;
+  return d < 0 ? null : d;
+}
+
+function callDuration(call: Call) {
+  if (typeof call.duration === "number")
+    return formatDuration(call.duration * 1000);
+  const ms = safeMs(call.answeredAt, call.endedAt);
+  return ms == null ? "" : formatDuration(ms);
 }
 
 export default function CallsPage() {
   const me = useAuthStore((s) => s.user);
   const [labelsVersion, setLabelsVersion] = useState(0);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["calls"],
-    queryFn: () => apiFetch<{ ok: true; calls: Call[] }>("/api/calls?limit=50"),
+    queryFn: () =>
+      apiFetch<{ ok: true; calls: Call[] }>("/api/calls/history?limit=50"),
+    retry: false, // Don't retry on 404
   });
 
   const calls = data?.calls ?? EMPTY_CALLS;
@@ -70,83 +96,140 @@ export default function CallsPage() {
   }, [allUserIds]);
 
   return (
-    <div>
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <h1 className="font-[family-name:var(--font-serif)] text-2xl text-[color:var(--wine-900)]">Calls</h1>
-          <p className="mt-1 text-sm text-black/60">History, missed calls, and durations.</p>
-        </div>
+    <div className="mx-auto max-w-4xl">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-800">
+          Calls
+        </h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Recent voice and video calls.
+        </p>
       </div>
 
       {isLoading ? (
-        <div className="mt-6 text-sm text-black/60">Loading...</div>
+        <div className="mt-6 text-sm text-gray-500">Loading your calls...</div>
+      ) : error ? (
+        <div className="mt-6 rounded-3xl bg-white/80 px-6 py-10 text-center shadow-sm">
+          <Phone className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+          <h3 className="text-lg font-medium text-gray-800 mb-2">
+            Call history coming soon
+          </h3>
+          <p className="text-gray-500 mb-6 max-w-md mx-auto">
+            Your recent voice and video calls will appear here once the feature
+            is fully enabled.
+          </p>
+          <Link
+            href="/app"
+            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-rose-500 to-rose-600 px-6 py-3 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
+          >
+            <MessageCircle className="h-4 w-4" />
+            Go to messages
+          </Link>
+        </div>
       ) : (
-        <div className="mt-6 grid gap-2">
-          {calls.map((c) => {
-            const isOutgoing = Boolean(me?.id) && c.callerId === me?.id;
-            const otherId = isOutgoing ? c.calleeId : c.callerId;
+        <div className="mt-5 grid gap-3">
+          {calls.map((call) => {
+            const isOutgoing = Boolean(me?.id) && call.callerId === me?.id;
+            const otherId = isOutgoing ? call.calleeId : call.callerId;
             const otherLabel = getCachedUserLabel(otherId) ?? otherId;
-            const durMs = safeMs(c.answeredAt, c.endedAt);
-            const missed = !c.answeredAt;
+            const media = call.media === "video" ? "video" : "audio";
+            const duration = callDuration(call);
+            const missed =
+              call.status === "missed" ||
+              call.status === "declined" ||
+              call.status === "cancelled" ||
+              !call.answeredAt;
+            const statusLabel = missed
+              ? call.status === "declined"
+                ? "You declined"
+                : call.status === "cancelled"
+                  ? "Cancelled"
+                  : "Missed call"
+              : duration || "Call ended";
 
             return (
               <div
-                key={c.id}
-                className="flex items-start justify-between gap-3 rounded-3xl bg-white/60 px-4 py-3 shadow-sm"
+                key={call.id}
+                className="flex items-center justify-between gap-4 rounded-3xl border border-gray-100 bg-white/80 px-4 py-4 shadow-sm hover:shadow-md hover:scale-[1.01] transition-all duration-200"
               >
-                <div className="flex items-start gap-3">
+                <div className="flex min-w-0 items-center gap-4">
                   <div
-                    className={`grid h-10 w-10 place-items-center rounded-2xl ${
-                      missed ? "bg-[color:var(--rose-600)]/10 text-[color:var(--rose-700)]" : "bg-black/5 text-black/65"
+                    className={`grid h-14 w-14 shrink-0 place-items-center rounded-2xl ${
+                      missed
+                        ? "bg-red-100 text-red-600"
+                        : "bg-green-100 text-green-600"
                     }`}
                     aria-hidden="true"
                   >
-                    {isOutgoing ? <ArrowUpRight className="h-5 w-5" /> : <ArrowDownLeft className="h-5 w-5" />}
+                    {isOutgoing ? (
+                      <ArrowUpRight className="h-6 w-6" />
+                    ) : (
+                      <ArrowDownLeft className="h-6 w-6" />
+                    )}
                   </div>
 
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-sm font-semibold text-[color:var(--wine-900)]">
-                        {isOutgoing ? "Outgoing" : "Incoming"}{" "}
-                        <span className="text-black/40">{isOutgoing ? "to" : "from"}</span>{" "}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="truncate text-base font-semibold text-gray-800">
                         {otherLabel}
                       </div>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                          missed
-                            ? "bg-[color:var(--rose-600)]/10 text-[color:var(--rose-800)]"
-                            : "bg-black/5 text-black/70"
-                        }`}
-                        title={c.reason ?? c.status}
-                      >
-                        {(missed ? "MISSED" : c.status || "OK").toUpperCase()}
-                        {c.reason ? ` (${c.reason})` : ""}
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                        {media === "video" ? (
+                          <Video className="h-3.5 w-3.5" />
+                        ) : (
+                          <Phone className="h-3.5 w-3.5" />
+                        )}
+                        {media === "video" ? "Video call" : "Voice call"}
                       </span>
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-black/55">
-                      <span className="tabular-nums">{new Date(c.offeredAt).toLocaleString()}</span>
-                      <span className="inline-flex items-center gap-1">
-                        <Clock className="h-3.5 w-3.5" />
-                        <span className="tabular-nums">{durMs == null ? "—" : formatDuration(durMs)}</span>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-sm text-gray-500">
+                      <span>{isOutgoing ? "You called" : "Called you"}</span>
+                      <span>•</span>
+                      <span className="tabular-nums">
+                        {new Date(call.offeredAt).toLocaleString()}
                       </span>
+                      {duration && (
+                        <>
+                          <span>•</span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-4 w-4" />
+                            <span className="tabular-nums">{duration}</span>
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {missed ? (
-                  <div className="mt-1 inline-flex items-center gap-2 rounded-2xl bg-black/5 px-3 py-2 text-xs font-semibold text-black/65">
-                    <PhoneOff className="h-4 w-4" /> Missed
-                  </div>
-                ) : null}
+                <div
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ${
+                    missed
+                      ? "bg-red-100 text-red-600"
+                      : "bg-green-100 text-green-700"
+                  }`}
+                  title={call.reason ?? call.status}
+                >
+                  {missed ? <PhoneOff className="h-4 w-4" /> : null}
+                  {statusLabel}
+                </div>
               </div>
             );
           })}
 
-          {calls.length === 0 ? <div className="text-sm text-black/50">No calls yet.</div> : null}
+          {!error && calls.length === 0 ? (
+            <div className="rounded-3xl bg-white/80 px-6 py-12 text-center shadow-sm">
+              <Phone className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+              <h3 className="text-lg font-medium text-gray-800 mb-2">
+                No calls yet
+              </h3>
+              <p className="text-gray-500">
+                Your voice and video call history will appear here.
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
 
-      {/* forces re-render when label cache fills */}
       <span className="sr-only">{labelsVersion}</span>
     </div>
   );

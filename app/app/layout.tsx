@@ -7,7 +7,7 @@ import { Brand } from "@/components/Brand";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
 import { getSocket } from "@/lib/socket";
-import { Heart, MessageCircle, Phone, Users } from "lucide-react";
+import { LogOut, MessageCircle, Phone, Users } from "lucide-react";
 import { CallProvider } from "@/components/call/CallProvider";
 import { CallOverlay } from "@/components/call/CallOverlay";
 import { RealtimeListener } from "@/components/RealtimeListener";
@@ -46,10 +46,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <CallProvider>
       <RealtimeListener />
-      <div className="mx-auto grid h-dvh max-w-6xl min-h-0 grid-cols-1 gap-6 overflow-hidden px-6 py-6 md:grid-cols-[300px_1fr]">
-        <aside className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl p-5 md:sticky md:top-6">
-          <Brand />
-          <nav className="mt-6 grid gap-1">
+      <div className="mx-auto grid h-dvh min-h-0 max-w-7xl grid-cols-1 overflow-hidden p-3 md:grid-cols-[240px_1fr] md:gap-3 md:p-4">
+        <aside className="flex min-h-0 flex-col border-black/5 bg-white/70 p-3 shadow-sm md:h-full md:rounded-2xl md:border">
+          <div className="hidden md:block">
+            <Brand />
+          </div>
+          <nav className="grid grid-cols-3 gap-1 md:mt-6 md:grid-cols-1">
             {nav.map((item) => {
               const active =
                 pathname === item.href || pathname.startsWith(item.href + "/");
@@ -59,10 +61,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "focus-ring flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold tracking-wide",
+                    "focus-ring flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold md:justify-start",
                     active
-                      ? "bg-[radial-gradient(closest-side,rgba(198,43,105,0.18),transparent_70%)] text-[color:var(--wine-900)]"
-                      : "text-black/70 hover:bg-white/55",
+                      ? "bg-[color:var(--wine-900)] text-white"
+                      : "text-black/65 hover:bg-black/5",
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -73,15 +75,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
 
           <button
-            className="focus-ring mt-auto flex w-full items-center justify-center gap-2 rounded-2xl bg-black/5 px-4 py-3 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-black/10"
+            className="focus-ring mt-auto hidden w-full items-center justify-center gap-2 rounded-xl bg-black/5 px-4 py-3 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-black/10 md:flex"
             onClick={() => void logout().then(() => router.push("/"))}
+            type="button"
           >
-            <Heart className="h-4 w-4" /> Log out
+            <LogOut className="h-4 w-4" /> Log out
           </button>
         </aside>
 
-        <main className="glass flex min-h-0 flex-col overflow-hidden rounded-3xl">
-          <div className="min-h-0 flex-1 overflow-auto p-5">{children}</div>
+        <main className="mt-3 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-black/5 bg-white/70 shadow-sm md:mt-0">
+          <div className="min-h-0 flex-1 overflow-auto p-3 md:p-4">{children}</div>
         </main>
       </div>
       <CallOverlay />
