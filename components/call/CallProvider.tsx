@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { toast } from "@/stores/toast";
 import { resolveUserLabel } from "@/lib/users";
+import type { CallState } from "@/lib/utils";
 import {
   playIncomingCallSound,
   stopCallSound,
@@ -39,34 +40,6 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   if (typeof v !== "object" || v == null) return null;
   return v as Record<string, unknown>;
 }
-
-type CallState =
-  | { kind: "idle" }
-  | {
-      kind: "incoming";
-      from: string;
-      fromLabel: string;
-      callId: string;
-      media: "audio" | "video";
-      offer: RTCSessionDescriptionInit;
-    }
-  | {
-      kind: "outgoing";
-      to: string;
-      toLabel: string;
-      callId: string;
-      media: "audio" | "video";
-    }
-  | {
-      kind: "inCall";
-      peer: string;
-      peerLabel: string;
-      callId: string;
-      media: "audio" | "video";
-      connectedAt: string;
-      localStream: MediaStream;
-      remoteStream: MediaStream;
-    };
 
 type OutputDevice = {
   deviceId: string;
@@ -447,7 +420,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/purity -- this is an event handler, not called during render
     const callId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const toLabel = (await resolveUserLabel(toUserId)) ?? toUserId;
-    setState({ kind: "outgoing", to: toUserId, toLabel, callId, media });
+    setState({
+      kind: "outgoing",
+      to: toUserId,
+      toLabel,
+      callId,
+      media,
+      mediaStream: undefined,
+    });
 
     try {
       const s = getSocket();
@@ -523,6 +503,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         connectedAt: new Date().toISOString(),
         localStream: stream,
         remoteStream: remoteStreamRef.current ?? new MediaStream(),
+        mediaStream: stream,
       });
       void loadOutputDevices();
     } catch (err) {
@@ -679,9 +660,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         callId,
         media,
         offer,
+        mediaStream: undefined,
       });
       toast({ title: "Incoming call", message: `From ${fromLabel}` });
       playIncomingCallSound();
+    };
+
+    const onAccepted = () => {
+      stopIncomingCallSound();
     };
 
     const onAnswer = async (p: unknown) => {
@@ -717,6 +703,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         connectedAt: new Date().toISOString(),
         localStream: local ?? new MediaStream(),
         remoteStream: remoteStreamRef.current ?? new MediaStream(),
+        mediaStream: local ?? new MediaStream(),
       });
     };
 

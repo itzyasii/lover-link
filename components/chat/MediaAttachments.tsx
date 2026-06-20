@@ -39,8 +39,8 @@ function formatMediaTime(value: number) {
 function HeartBackdrop() {
   return (
     <>
-      <div className="absolute -left-10 top-8 h-28 w-28 rounded-full bg-[color:var(--rose-400)]/20 blur-3xl" />
-      <div className="absolute right-0 top-1/3 h-24 w-24 rounded-full bg-[color:var(--peach-200)]/25 blur-3xl" />
+      <div className="absolute -left-10 top-8 h-28 w-28 rounded-full bg-(--rose-400)/20 blur-3xl" />
+      <div className="absolute right-0 top-1/3 h-24 w-24 rounded-full bg-(--peach-200)/25 blur-3xl" />
       <div className="absolute bottom-2 left-1/3 h-20 w-20 rounded-full bg-white/10 blur-2xl" />
     </>
   );
@@ -82,10 +82,10 @@ export function RomanticImageAttachment({
           <img
             src={url}
             alt={name}
-            className="max-h-[520px] w-full object-contain transition duration-500 group-hover:scale-[1.03]"
+            className="max-h-130 w-full object-contain transition duration-500 group-hover:scale-[1.03]"
             loading="lazy"
           />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[color:var(--wine-900)]/90 via-[color:var(--wine-900)]/30 to-transparent px-5 py-4 text-white">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-(--wine-900)/90 via-(--wine-900)/30 to-transparent px-5 py-4 text-white">
             <div className="flex items-end justify-between gap-3">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.35em] text-white/65">
@@ -102,11 +102,11 @@ export function RomanticImageAttachment({
           </div>
         </div>
         <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-black/55">
-          <span className="truncate font-medium text-[color:var(--wine-900)]">
+          <span className="truncate font-medium text-(--wine-900)">
             {name}
           </span>
           {size ? (
-            <span className="rounded-full bg-white/70 px-2.5 py-1 tabular-nums text-[color:var(--wine-900)] shadow-sm">
+            <span className="rounded-full bg-white/70 px-2.5 py-1 tabular-nums text-(--wine-900) shadow-sm">
               {formatBytes(size)}
             </span>
           ) : null}
@@ -151,7 +151,7 @@ export function RomanticImageAttachment({
                   </a>
                   <button
                     type="button"
-                    className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-semibold text-[color:var(--wine-900)] hover:cursor-pointer"
+                    className="focus-ring inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-semibold text-(--wine-900) hover:cursor-pointer"
                     onClick={() => setOpen(false)}
                   >
                     <X className="h-4 w-4" /> Close
@@ -163,7 +163,7 @@ export function RomanticImageAttachment({
                   <img
                     src={url}
                     alt={name}
-                    className="block h-auto max-h-[78vh] max-w-full rounded-[24px] object-contain"
+                    className="block h-auto max-h-[78vh] max-w-full rounded-3xl object-contain"
                   />
                 </div>
               </div>
@@ -284,7 +284,7 @@ export function RomanticVideoAttachment({
       >
         <HeartBackdrop />
         <div className="relative px-4 pt-4 sm:px-5 sm:pt-5">
-          <div className="flex items-center justify-between gap-3 rounded-[24px] border border-white/10 bg-white/6 px-4 py-3 text-white backdrop-blur-sm">
+          <div className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/6 px-4 py-3 text-white backdrop-blur-sm">
             <div className="min-w-0">
               <div className="text-[11px] uppercase tracking-[0.3em] text-white/55">
                 Shared video
@@ -301,7 +301,7 @@ export function RomanticVideoAttachment({
             <video
               ref={videoRef}
               src={url}
-              className="max-h-[520px] w-full bg-transparent object-contain"
+              className="max-h-130 w-full bg-transparent object-contain"
               preload="metadata"
               playsInline
               controls={false}
@@ -314,7 +314,7 @@ export function RomanticVideoAttachment({
           <button
             type="button"
             onClick={togglePlayback}
-            className="focus-ring absolute left-1/2 top-1/2 z-10 grid h-[4.5rem] w-[4.5rem] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-white/16 text-white shadow-[0_14px_45px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:scale-[1.03] hover:bg-white/24"
+            className="focus-ring absolute left-1/2 top-1/2 z-10 grid h-18 w-18 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-white/16 text-white shadow-[0_14px_45px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:scale-[1.03] hover:bg-white/24"
             aria-label={isPlaying ? "Pause video" : "Play video"}
           >
             {isPlaying ? (
@@ -327,7 +327,7 @@ export function RomanticVideoAttachment({
       </div>
 
       <div className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
-        <div className="rounded-[24px] bg-[color:var(--wine-900)] px-4 py-4 text-white shadow-[0_15px_40px_rgba(76,10,36,0.18)]">
+        <div className="rounded-[24px] bg-(--wine-900) px-4 py-4 text-white shadow-[0_15px_40px_rgba(76,10,36,0.18)]">
           <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.28em] text-white/58">
             <span>Playback</span>
             <span>
@@ -347,7 +347,7 @@ export function RomanticVideoAttachment({
             step={0.1}
             value={Math.min(currentTime, duration || currentTime)}
             onChange={(event) => seek(Number(event.target.value))}
-            className="mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/20 accent-[color:var(--rose-400)]"
+            className="mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/20 accent-(--rose-400)"
             aria-label="Seek video"
           />
         </div>
@@ -357,7 +357,7 @@ export function RomanticVideoAttachment({
             <button
               type="button"
               onClick={togglePlayback}
-              className="focus-ring inline-flex items-center gap-2 rounded-full bg-[color:var(--rose-600)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[color:var(--rose-700)]"
+              className="focus-ring inline-flex items-center gap-2 rounded-full bg-(--rose-600) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-(--rose-700)"
             >
               {isPlaying ? (
                 <Pause className="h-4 w-4" />
@@ -369,7 +369,7 @@ export function RomanticVideoAttachment({
             <button
               type="button"
               onClick={toggleMute}
-              className="focus-ring inline-flex items-center gap-2 rounded-full bg-[color:var(--rose-600)]/10 px-3 py-2 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-[color:var(--rose-600)]/15"
+              className="focus-ring inline-flex items-center gap-2 rounded-full bg-(--rose-600)/10 px-3 py-2 text-sm font-semibold text-(--wine-900) hover:bg-(--rose-600)/15"
             >
               {isMuted ? (
                 <VolumeX className="h-4 w-4" />
@@ -385,13 +385,13 @@ export function RomanticVideoAttachment({
               step={0.05}
               value={isMuted ? 0 : volume}
               onChange={(event) => setVideoVolume(Number(event.target.value))}
-              className="h-1.5 w-28 cursor-pointer appearance-none rounded-full bg-[color:var(--rose-600)]/15 accent-[color:var(--rose-500)]"
+              className="h-1.5 w-28 cursor-pointer appearance-none rounded-full bg-(--rose-600)/15 accent-(--rose-500)"
               aria-label="Video volume"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             <a
-              className="focus-ring inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-semibold text-[color:var(--wine-900)] shadow-sm hover:bg-[color:var(--peach-50)]"
+              className="focus-ring inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-semibold text-(--wine-900) shadow-sm hover:bg-(--peach-50)"
               href={url}
               target="_blank"
               rel="noreferrer"
@@ -401,7 +401,7 @@ export function RomanticVideoAttachment({
             <button
               type="button"
               onClick={() => void openFullscreen()}
-              className="focus-ring inline-flex items-center gap-2 rounded-full bg-[color:var(--wine-900)] px-3 py-2 text-xs font-semibold text-white hover:cursor-pointer"
+              className="focus-ring inline-flex items-center gap-2 rounded-full bg-(--wine-900) px-3 py-2 text-xs font-semibold text-white hover:cursor-pointer"
             >
               <Maximize2 className="h-4 w-4" /> Cinema mode
             </button>
