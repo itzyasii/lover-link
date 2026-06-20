@@ -12,8 +12,17 @@ type AuthState = {
   isRefreshing: boolean;
   setAccessToken: (t: string | null) => void;
   hydrateFromStorage: () => void;
-  login: (emailOrUsername: string, password: string) => Promise<void>;
-  signup: (email: string, username: string, password: string) => Promise<void>;
+  login: (
+    emailOrUsername: string,
+    password: string,
+    fcmToken: string | null,
+  ) => Promise<void>;
+  signup: (
+    email: string,
+    username: string,
+    password: string,
+    fcmToken: string | null,
+  ) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<boolean>;
 };
@@ -51,24 +60,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ isHydrated: true });
     }
   },
-  login: async (emailOrUsername, password) => {
+  login: async (emailOrUsername, password, fcmToken) => {
     const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ emailOrUsername, password }),
+      body: JSON.stringify({ emailOrUsername, password, fcmToken }),
     });
     if (!res.ok) throw new Error("Login failed");
     const json = (await res.json()) as { accessToken: string; user: User };
     get().setAccessToken(json.accessToken);
     set({ user: json.user });
   },
-  signup: async (email, username, password) => {
+  signup: async (email, username, password, fcmToken) => {
     const res = await fetch(`${API_BASE_URL}/api/auth/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ email, username, password }),
+      body: JSON.stringify({ email, username, password, fcmToken }),
     });
     if (!res.ok) throw new Error("Signup failed");
     const json = (await res.json()) as { accessToken: string; user: User };

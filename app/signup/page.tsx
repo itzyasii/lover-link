@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { HeartHandshake, LockKeyhole, Sparkles, Users } from "lucide-react";
 import { Brand } from "@/components/Brand";
+import { useFcm } from "@/hooks/useFcm";
 import { useAuthStore } from "@/stores/auth";
 
 export default function SignupPage() {
@@ -13,6 +14,7 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const { requestNotificationPermission } = useFcm();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -76,7 +78,8 @@ export default function SignupPage() {
               setError(null);
               setBusy(true);
               try {
-                await signup(email, username, password);
+                const fcmToken = await requestNotificationPermission();
+                await signup(email, username, password, fcmToken);
                 router.push("/app");
               } catch {
                 setError(

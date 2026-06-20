@@ -6,6 +6,8 @@ import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/stores/auth";
 import { resolveUserLabel } from "@/lib/users";
 import { toast } from "@/stores/toast";
+import { onMessageListener } from "@/lib/firebase";
+import { MessagePayload } from "firebase/messaging";
 import { useTypingStore } from "@/stores/typing";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -25,8 +27,10 @@ function previewMessage(message: Record<string, unknown>) {
   const meta = asRecord(item?.meta);
   const kind = typeof item?.kind === "string" ? item.kind : "";
 
-  if (type === "text" && text) return text.length > 80 ? `${text.slice(0, 77)}...` : text;
-  if (type === "share" && kind === "audio" && meta?.voiceNote === true) return "Sent a voice message";
+  if (type === "text" && text)
+    return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+  if (type === "share" && kind === "audio" && meta?.voiceNote === true)
+    return "Sent a voice message";
   if (type === "share" && kind === "image") return "Sent a photo";
   if (type === "share" && kind === "video") return "Sent a video";
   if (type === "share" && kind === "audio") return "Sent an audio file";
@@ -39,7 +43,10 @@ export function RealtimeListener() {
   const setTyping = useTypingStore((s) => s.setTyping);
   const clearTyping = useTypingStore((s) => s.clearTyping);
   const me = useAuthStore((s) => s.user);
-  const activeChatId = useMemo(() => activeChatIdFromPath(pathname), [pathname]);
+  const activeChatId = useMemo(
+    () => activeChatIdFromPath(pathname),
+    [pathname],
+  );
   const [unreadByChat, setUnreadByChat] = useState<Record<string, number>>({});
   const activeChatRef = useRef<string | null>(activeChatId);
   const defaultTitleRef = useRef("LoverLink");
@@ -57,7 +64,8 @@ export function RealtimeListener() {
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    if (totalUnread === 0) defaultTitleRef.current = document.title || "LoverLink";
+    if (totalUnread === 0)
+      defaultTitleRef.current = document.title || "LoverLink";
   }, [pathname, totalUnread]);
 
   useEffect(() => {
@@ -110,6 +118,21 @@ export function RealtimeListener() {
   }, [activeChatId]);
 
   useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      onMessageListener()
+        .then((payload) => {
+          if (payload && payload.notification) {
+            const { title, body } = payload.notification;
+            if (title && body) {
+              toast({ title, message: body });
+            }
+          }
+        })
+        .catch((err) => console.log("failed: ", err));
+    }
+  }, []);
+
+  useEffect(() => {
     const s = getSocket();
     if (!s.connected) s.connect();
 
@@ -132,7 +155,8 @@ export function RealtimeListener() {
     const onTyping = (p: unknown) => {
       const r = asRecord(p);
       if (!r) return;
-      const chatId = typeof r.chatId === "string" ? r.chatId : String(r.chatId ?? "");
+      const chatId =
+        typeof r.chatId === "string" ? r.chatId : String(r.chatId ?? "");
       const from = typeof r.from === "string" ? r.from : String(r.from ?? "");
       const isTyping = Boolean(r.isTyping);
       if (!chatId || !from) return;
@@ -164,8 +188,16 @@ export function RealtimeListener() {
       const chatId = typeof r.chatId === "string" ? r.chatId : "";
       const userId = r.userId == null ? "" : String(r.userId);
       const emoji = typeof r.emoji === "string" ? r.emoji : "";
-      const action = r.action === "added" || r.action === "removed" ? r.action : "";
-      if (!chatId || !userId || userId === me?.id || !emoji || action !== "added") return;
+      const action =
+        r.action === "added" || r.action === "removed" ? r.action : "";
+      if (
+        !chatId ||
+        !userId ||
+        userId === me?.id ||
+        !emoji ||
+        action !== "added"
+      )
+        return;
       if (isChatVisible(chatId)) return;
       void resolveUserLabel(userId).then((label) => {
         notify(label ?? "New reaction", `Reacted ${emoji} to your message`);
@@ -173,7 +205,10 @@ export function RealtimeListener() {
     };
 
     const onVisibilityChange = () => {
-      if (typeof document === "undefined" || document.visibilityState !== "visible")
+      if (
+        typeof document === "undefined" ||
+        document.visibilityState !== "visible"
+      )
         return;
       const currentChatId = activeChatRef.current;
       if (!currentChatId) return;
@@ -201,4 +236,3 @@ export function RealtimeListener() {
 
   return null;
 }
-

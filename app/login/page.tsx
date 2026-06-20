@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Heart, LockKeyhole, MessageCircle, MoonStar } from "lucide-react";
 import { Brand } from "@/components/Brand";
+import { useFcm } from "@/hooks/useFcm";
 import { useAuthStore } from "@/stores/auth";
 
 export default function LoginPage() {
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const login = useAuthStore((s) => s.login);
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
+  const { requestNotificationPermission } = useFcm();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -74,7 +76,8 @@ export default function LoginPage() {
               setError(null);
               setBusy(true);
               try {
-                await login(emailOrUsername, password);
+                const fcmToken = await requestNotificationPermission();
+                await login(emailOrUsername, password, fcmToken);
                 router.push("/app");
               } catch {
                 setError("Invalid credentials.");

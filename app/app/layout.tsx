@@ -11,6 +11,7 @@ import { LogOut, MessageCircle, Phone, Users } from "lucide-react";
 import { CallProvider } from "@/components/call/CallProvider";
 import { CallOverlay } from "@/components/call/CallOverlay";
 import { RealtimeListener } from "@/components/RealtimeListener";
+import { NotificationPermission } from "@/components/NotificationPermission";
 
 const nav = [
   { href: "/app", label: "Chats", icon: MessageCircle },
@@ -75,7 +76,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   className={cn(
                     "focus-ring flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold md:justify-start",
                     active
-                      ? "bg-[color:var(--wine-900)] text-white"
+                      ? "bg-wine-900 text-white"
                       : "text-black/65 hover:bg-black/5",
                   )}
                 >
@@ -87,7 +88,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
 
           <button
-            className="focus-ring mt-auto hidden w-full items-center justify-center gap-2 rounded-xl bg-black/5 px-4 py-3 text-sm font-semibold text-[color:var(--wine-900)] hover:bg-black/10 md:flex"
+            className="focus-ring mt-auto hidden w-full items-center justify-center gap-2 rounded-xl bg-black/5 px-4 py-3 text-sm font-semibold text-wine-900 hover:bg-black/10 md:flex"
             onClick={() => void logout().then(() => router.push("/"))}
             type="button"
           >
@@ -102,6 +103,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </main>
       </div>
       <CallOverlay />
+      <NotificationPermission />
     </CallProvider>
   );
 }
