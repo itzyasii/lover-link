@@ -61,11 +61,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   login: async (emailOrUsername, password, fcmToken) => {
+    const body: Record<string, unknown> = { emailOrUsername, password };
+    if (fcmToken) {
+      body.fcmToken = fcmToken;
+    }
     const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ emailOrUsername, password, fcmToken }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error("Login failed");
     const json = (await res.json()) as { accessToken: string; user: User };
@@ -73,11 +77,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: json.user });
   },
   signup: async (email, username, password, fcmToken) => {
+    const body: Record<string, unknown> = { email, username, password };
+    if (fcmToken) {
+      body.fcmToken = fcmToken;
+    }
     const res = await fetch(`${API_BASE_URL}/api/auth/signup`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ email, username, password, fcmToken }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error("Signup failed");
     const json = (await res.json()) as { accessToken: string; user: User };

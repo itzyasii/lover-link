@@ -88,7 +88,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
 
           <button
-            className="focus-ring mt-auto hidden w-full items-center justify-center gap-2 rounded-xl bg-black/5 px-4 py-3 text-sm font-semibold text-wine-900 hover:bg-black/10 md:flex"
+            className="focus-ring mt-auto flex w-full items-center justify-center gap-2 rounded-xl bg-black/5 px-4 py-3 text-sm font-semibold text-wine-900 hover:bg-black/10"
             onClick={() => void logout().then(() => router.push("/"))}
             type="button"
           >
