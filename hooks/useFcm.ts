@@ -19,6 +19,19 @@ export const useFcm = () => {
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermission>(getInitialPermission());
 
+  // Get token if permission is already granted on mount
+  useEffect(() => {
+    const getExistingToken = async () => {
+      if (notificationPermission === "granted" && !token) {
+        const fcmToken = await getFcmToken();
+        if (fcmToken) {
+          setToken(fcmToken);
+        }
+      }
+    };
+    getExistingToken();
+  }, [notificationPermission]);
+
   // Auto-register token when user is authenticated and we have a token
   useEffect(() => {
     if (token && accessToken && !isTokenRegistered) {
@@ -36,6 +49,18 @@ export const useFcm = () => {
       return null;
     }
 
+    // If permission is already granted, just return the existing token or get it
+    if (Notification.permission === "granted") {
+      const fcmToken = await getFcmToken();
+      if (fcmToken) {
+        setToken(fcmToken);
+        setIsTokenRegistered(false);
+        return fcmToken;
+      }
+      return null;
+    }
+
+    // Otherwise request permission
     const permission = await Notification.requestPermission();
     setNotificationPermission(permission);
 
