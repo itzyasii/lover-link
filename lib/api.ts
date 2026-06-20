@@ -45,6 +45,11 @@ export async function apiFetch<T>(
     trackLoading?: boolean;
   } = {},
 ): Promise<T> {
+  // Debug: Log stack trace for presence endpoint calls
+  if (path.includes("/api/users/presence")) {
+    console.log("⚠️ PRESENCE API CALL DETECTED from stack:");
+    console.trace(`Calling ${path}`);
+  }
   const auth = init.auth ?? true;
   const retry = init.retry ?? true;
   const trackLoading = init.trackLoading ?? true;
