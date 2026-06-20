@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Brand } from "@/components/Brand";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
@@ -27,9 +27,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const refresh = useAuthStore((s) => s.refresh);
   const logout = useAuthStore((s) => s.logout);
 
+  const hasAttemptedRefresh = useRef(false);
   useEffect(() => {
-    if (!isHydrated || isRefreshing) return;
+    if (!isHydrated || isRefreshing || hasAttemptedRefresh.current) return;
     if (!accessToken) {
+      hasAttemptedRefresh.current = true;
       void (async () => {
         const ok = await refresh();
         if (!ok) router.push("/login");

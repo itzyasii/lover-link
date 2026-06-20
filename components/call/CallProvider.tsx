@@ -1,41 +1,22 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { toast } from "@/stores/toast";
 import { resolveUserLabel } from "@/lib/users";
 
-type IceServer = {
-  urls: string[] | string;
-  username?: string;
-  credential?: string;
-};
-
-function inferMediaFromOffer(
-  offer: RTCSessionDescriptionInit,
-): "audio" | "video" {
-  const sdp = typeof offer?.sdp === "string" ? offer.sdp : "";
-  // If we didn't add a video track, the offer SDP typically has no m=video section.
-  return /\r?\nm=video\s/.test(sdp) ? "video" : "audio";
-}
-
 type CallOfferAck = { ok: boolean; callId?: string };
 type CallSimpleAck = { ok: boolean };
 type CallQualityProfile = "low" | "medium" | "high";
+
 type CallNetworkQuality = {
   profile: CallQualityProfile;
   label: string;
-  bitrateKbps: number | null;
-  rttMs: number | null;
-  packetLossPct: number | null;
+  bitrateKbps?: number;
+  rttMs?: number;
+  packetLossPct?: number;
 };
 
 type NavigatorConnection = {
@@ -45,144 +26,13 @@ type NavigatorConnection = {
   removeEventListener?: (type: "change", listener: () => void) => void;
 };
 
-const QUALITY_PRESETS: Record<
-  CallQualityProfile,
-  {
-    label: string;
-    width: number;
-    height: number;
-    frameRate: number;
-    maxBitrate: number;
-  }
-> = {
-  low: {
-    label: "Low bandwidth",
-    width: 480,
-    height: 270,
-    frameRate: 12,
-    maxBitrate: 250_000,
-  },
-  medium: {
-    label: "Balanced",
-    width: 640,
-    height: 360,
-    frameRate: 20,
-    maxBitrate: 700_000,
-  },
-  high: {
-    label: "HD",
-    width: 1280,
-    height: 720,
-    frameRate: 30,
-    maxBitrate: 1_500_000,
-  },
+type NavigatorWithConnection = Navigator & {
+  connection?: NavigatorConnection;
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (typeof v !== "object" || v == null) return null;
   return v as Record<string, unknown>;
-}
-
-function getConnectionInfo() {
-  if (typeof navigator === "undefined") return null;
-  const nav = navigator as Navigator & { connection?: NavigatorConnection };
-  return nav.connection ?? null;
-}
-
-function pickInitialQuality(): CallQualityProfile {
-  const connection = getConnectionInfo();
-  const effectiveType = connection?.effectiveType;
-  const downlink = connection?.downlink ?? 0;
-
-  if (effectiveType === "slow-2g" || effectiveType === "2g") return "low";
-  if (effectiveType === "3g") return "medium";
-  if (downlink > 0 && downlink < 1.2) return "low";
-  if (downlink > 0 && downlink < 3) return "medium";
-  return "high";
-}
-
-function buildQualityState(
-  profile: CallQualityProfile,
-  stats?: Partial<Omit<CallNetworkQuality, "profile" | "label">>,
-): CallNetworkQuality {
-  return {
-    profile,
-    label: QUALITY_PRESETS[profile].label,
-    bitrateKbps: stats?.bitrateKbps ?? null,
-    rttMs: stats?.rttMs ?? null,
-    packetLossPct: stats?.packetLossPct ?? null,
-  };
-}
-
-async function applyVideoQualityProfile(
-  pc: RTCPeerConnection | null,
-  stream: MediaStream | null,
-  profile: CallQualityProfile,
-) {
-  if (!pc || !stream) return;
-
-  const preset = QUALITY_PRESETS[profile];
-  const videoTrack = stream.getVideoTracks()[0];
-  if (!videoTrack) return;
-
-  try {
-    await videoTrack.applyConstraints({
-      width: { ideal: preset.width, max: preset.width },
-      height: { ideal: preset.height, max: preset.height },
-      frameRate: { ideal: preset.frameRate, max: preset.frameRate },
-    });
-  } catch {
-    // Some cameras reject dynamic constraints. Sender parameters still help.
-  }
-
-  const sender = pc.getSenders().find((item) => item.track?.kind === "video");
-  if (!sender) return;
-
-  try {
-    const params = sender.getParameters();
-    const nextEncoding = {
-      ...(params.encodings?.[0] ?? {}),
-      maxBitrate: preset.maxBitrate,
-      maxFramerate: preset.frameRate,
-      scaleResolutionDownBy:
-        profile === "high" ? 1 : profile === "medium" ? 1.5 : 2.5,
-    };
-    params.encodings = [nextEncoding];
-    params.degradationPreference = "maintain-framerate";
-    await sender.setParameters(params);
-  } catch {
-    // Keep the call alive even if the browser does not support all sender knobs.
-  }
-}
-
-function chooseQualityProfile({
-  bitrateKbps,
-  rttMs,
-  packetLossPct,
-}: {
-  bitrateKbps: number | null;
-  rttMs: number | null;
-  packetLossPct: number | null;
-}): CallQualityProfile {
-  const baseline = pickInitialQuality();
-
-  if (
-    (bitrateKbps != null && bitrateKbps < 250) ||
-    (rttMs != null && rttMs > 650) ||
-    (packetLossPct != null && packetLossPct > 12)
-  ) {
-    return "low";
-  }
-
-  if (
-    (bitrateKbps != null && bitrateKbps < 900) ||
-    (rttMs != null && rttMs > 320) ||
-    (packetLossPct != null && packetLossPct > 5)
-  ) {
-    return baseline === "low" ? "low" : "medium";
-  }
-
-  return baseline;
 }
 
 type CallState =
@@ -228,39 +78,113 @@ type CallContextValue = {
 
 const Ctx = createContext<CallContextValue | null>(null);
 
-function mediaErrorMessage(err: unknown, media: "audio" | "video") {
-  const secureHint = !window.isSecureContext
-    ? " Use https or http://localhost so the browser can ask for permissions."
-    : "";
-
-  const base = media === "audio" ? "Microphone" : "Mic/camera";
-
-  const name = (() => {
-    if (err instanceof DOMException) return err.name;
-    const r = asRecord(err);
-    const n = r?.name;
-    return typeof n === "string" ? n : "";
-  })();
-
-  if (name === "NotAllowedError" || name === "SecurityError") {
-    return `${base} permission was denied.${secureHint}`;
-  }
-  if (name === "NotFoundError") {
-    return media === "audio"
-      ? "No microphone was found."
-      : "No camera or microphone was found.";
-  }
-  if (name === "NotReadableError") {
-    return `${base} is already in use by another app.`;
-  }
-
-  return `Could not access ${base.toLowerCase()}.${secureHint}`;
-}
-
 export function useCall() {
   const v = useContext(Ctx);
   if (!v) throw new Error("useCall must be used within CallProvider");
   return v;
+}
+
+// Ice server type placeholder
+type IceServer = { urls: string; username?: string; credential?: string };
+
+const QUALITY_PRESETS: Record<
+  CallQualityProfile,
+  { width: number; height: number; frameRate: number }
+> = {
+  low: { width: 640, height: 480, frameRate: 24 },
+  medium: { width: 1280, height: 720, frameRate: 30 },
+  high: { width: 1920, height: 1080, frameRate: 30 },
+};
+
+function pickInitialQuality(): CallQualityProfile {
+  if (typeof navigator === "undefined" || !("connection" in navigator))
+    return "medium";
+  const connection = (navigator as NavigatorWithConnection).connection;
+  if (!connection) return "medium";
+  if (
+    connection.effectiveType === "2g" ||
+    connection.effectiveType === "slow-2g"
+  )
+    return "low";
+  if (connection.effectiveType === "3g") return "medium";
+  return "high";
+}
+
+function buildQualityState(
+  profile: CallQualityProfile,
+  metrics?: Partial<CallNetworkQuality>,
+): CallNetworkQuality {
+  const profileLabels: Record<CallQualityProfile, string> = {
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+  };
+  return { profile, label: profileLabels[profile], ...metrics };
+}
+
+function chooseQualityProfile({
+  bitrateKbps,
+  rttMs,
+  packetLossPct,
+}: {
+  bitrateKbps?: number;
+  rttMs?: number;
+  packetLossPct?: number;
+}): CallQualityProfile {
+  if (bitrateKbps != null && bitrateKbps < 300) return "low";
+  if (bitrateKbps != null && bitrateKbps < 900) return "medium";
+  if ((packetLossPct ?? 0) > 5 || (rttMs ?? 0) > 500) return "low";
+  if ((packetLossPct ?? 0) > 2 || (rttMs ?? 0) > 300) return "medium";
+  return "high";
+}
+
+async function applyVideoQualityProfile(
+  pc: RTCPeerConnection | null,
+  stream: MediaStream | null,
+  profile: CallQualityProfile,
+) {
+  if (!pc || !stream) return;
+  const preset = QUALITY_PRESETS[profile];
+  const videoTrack = stream.getVideoTracks()[0];
+  if (!videoTrack) return;
+  try {
+    await videoTrack.applyConstraints({
+      width: { ideal: preset.width },
+      height: { ideal: preset.height },
+      frameRate: { ideal: preset.frameRate },
+    });
+  } catch {
+    // Keep the call alive if the camera cannot satisfy an adaptive profile.
+  }
+}
+
+function getConnectionInfo(): NavigatorConnection {
+  if (typeof navigator === "undefined") return {};
+  return (navigator as NavigatorWithConnection).connection || {};
+}
+
+function mediaErrorMessage(err: unknown, media: "audio" | "video"): string {
+  const name = err instanceof DOMException ? err.name : "";
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return `Permission is needed to use your ${media === "video" ? "camera and microphone" : "microphone"}.`;
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return media === "video"
+      ? "Could not find a camera and microphone for this call."
+      : "Could not find a microphone for this call.";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "Your media device is already in use by another app.";
+  }
+  return "Could not access media devices.";
+}
+
+function inferMediaFromOffer(
+  offer: RTCSessionDescriptionInit,
+): "audio" | "video" {
+  return typeof offer.sdp === "string" && /^m=video\s/m.test(offer.sdp)
+    ? "video"
+    : "audio";
 }
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
@@ -282,6 +206,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     buildQualityState(pickInitialQuality()),
   );
   const pendingIce = useRef<RTCIceCandidateInit[]>([]);
+  const stateRef = useRef<CallState>(state);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const stopNetworkMonitor = () => {
     if (networkIntervalRef.current != null) {
@@ -298,10 +228,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     remoteStreamRef.current = null;
+    pendingIce.current = [];
     setMicEnabled(true);
     setCamEnabled(true);
     setNetworkQuality(buildQualityState(pickInitialQuality()));
     setState({ kind: "idle" });
+  };
+
+  useEffect(() => {
+    cleanupRef.current = cleanup;
+  });
+
+  const flushPendingIce = async () => {
+    const pc = pcRef.current;
+    if (!pc?.remoteDescription) return;
+    for (const c of pendingIce.current.splice(0)) {
+      try {
+        await pc.addIceCandidate(c);
+      } catch {
+        // Ignore candidates that are no longer valid for this negotiation.
+      }
+    }
   };
 
   const ensurePC = async (peerId: string, callId: string) => {
@@ -340,15 +287,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Flush ICE that arrived early
-    for (const c of pendingIce.current.splice(0)) {
-      try {
-        void pc.addIceCandidate(c);
-      } catch {
-        // ignore
-      }
-    }
-
     return pc;
   };
 
@@ -364,9 +302,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       video:
         media === "video"
           ? {
-              width: { ideal: preset.width, max: preset.width },
-              height: { ideal: preset.height, max: preset.height },
-              frameRate: { ideal: preset.frameRate, max: preset.frameRate },
+              width: { ideal: preset.width },
+              height: { ideal: preset.height },
+              frameRate: { ideal: preset.frameRate },
             }
           : false,
     });
@@ -382,10 +320,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const stream = localStreamRef.current;
     if (!pc || !stream || stream.getVideoTracks().length === 0) return;
 
-    let bytesSent: number | null = null;
-    let packetsSent: number | null = null;
-    let packetsLost: number | null = null;
-    let rttMs: number | null = null;
+    let bytesSent: number | undefined;
+    let packetsSent: number | undefined;
+    let packetsLost: number | undefined;
+    let rttMs: number | undefined;
 
     const stats = await pc.getStats();
     stats.forEach((report) => {
@@ -411,27 +349,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             ? Math.round(report.roundTripTime * 1000)
             : rttMs;
       }
-      if (
-        report.type === "candidate-pair" &&
-        report.state === "succeeded" &&
-        rttMs == null
-      ) {
-        rttMs =
-          typeof report.currentRoundTripTime === "number"
-            ? Math.round(report.currentRoundTripTime * 1000)
-            : rttMs;
-      }
     });
 
-    let bitrateKbps: number | null = null;
-    let packetLossPct: number | null = null;
     const now = Date.now();
     const previous = lastVideoStatsRef.current;
-    if (previous && bytesSent != null && now > previous.timestamp) {
+    let bitrateKbps: number | undefined;
+    let packetLossPct: number | undefined;
+
+    if (previous && bytesSent != null) {
+      const elapsedSeconds = Math.max(0.001, (now - previous.timestamp) / 1000);
       bitrateKbps = Math.max(
         0,
         Math.round(
-          ((bytesSent - previous.bytesSent) * 8) / (now - previous.timestamp),
+          ((bytesSent - previous.bytesSent) * 8) / elapsedSeconds / 1000,
         ),
       );
     }
@@ -439,14 +369,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       previous &&
       packetsSent != null &&
       packetsLost != null &&
-      packetsSent >= previous.packetsSent &&
-      packetsLost >= previous.packetsLost
+      packetsSent > previous.packetsSent
     ) {
       const sentDelta = packetsSent - previous.packetsSent;
-      const lostDelta = packetsLost - previous.packetsLost;
-      const total = sentDelta + lostDelta;
+      const lostDelta = Math.max(0, packetsLost - previous.packetsLost);
       packetLossPct =
-        total > 0 ? Number(((lostDelta / total) * 100).toFixed(1)) : 0;
+        Math.round((lostDelta / (sentDelta + lostDelta)) * 1000) / 10;
     }
 
     if (bytesSent != null && packetsSent != null) {
@@ -458,7 +386,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    const profile = chooseQualityProfile({ bitrateKbps, rttMs, packetLossPct });
+    const profile = chooseQualityProfile({
+      bitrateKbps,
+      rttMs,
+      packetLossPct,
+    });
     await applyVideoQualityProfile(pc, stream, profile);
     setNetworkQuality(
       buildQualityState(profile, { bitrateKbps, rttMs, packetLossPct }),
@@ -533,6 +465,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       startNetworkMonitor();
 
       await pc.setRemoteDescription(offer);
+      await flushPendingIce();
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -638,7 +571,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socketRef.current = s;
 
     const onOffer = async (p: unknown) => {
-      if (state.kind !== "idle") return;
+      if (stateRef.current.kind !== "idle") return;
       const r = asRecord(p);
       if (!r) return;
       const from = r.from == null ? "" : String(r.from);
@@ -662,21 +595,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     };
 
     const onAnswer = async (p: unknown) => {
-      if (state.kind !== "outgoing") return;
+      const current = stateRef.current;
+      if (current.kind !== "outgoing") return;
       const r = asRecord(p);
       if (!r) return;
       const callId = typeof r.callId === "string" ? r.callId : "";
-      if (!callId || callId !== state.callId) return;
+      if (!callId || callId !== current.callId) return;
       const pc = pcRef.current;
       if (!pc) return;
       await pc.setRemoteDescription(r.answer as RTCSessionDescriptionInit);
+      await flushPendingIce();
       const local = localStreamRef.current;
       setState({
         kind: "inCall",
-        peer: state.to,
-        peerLabel: state.toLabel,
-        callId: state.callId,
-        media: state.media,
+        peer: current.to,
+        peerLabel: current.toLabel,
+        callId: current.callId,
+        media: current.media,
         connectedAt: new Date().toISOString(),
         localStream: local ?? new MediaStream(),
         remoteStream: remoteStreamRef.current ?? new MediaStream(),
@@ -686,31 +621,34 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const onIce = async (p: unknown) => {
       const r = asRecord(p);
       if (!r) return;
+      const candidate = r.candidate as RTCIceCandidateInit | undefined;
+      if (!candidate) return;
       const pc = pcRef.current;
-      if (!pc) {
-        if (r.candidate)
-          pendingIce.current.push(r.candidate as RTCIceCandidateInit);
+      if (!pc?.remoteDescription) {
+        pendingIce.current.push(candidate);
         return;
       }
       try {
-        await pc.addIceCandidate(r.candidate as RTCIceCandidateInit);
+        await pc.addIceCandidate(candidate);
       } catch {
         // ignore
       }
     };
 
     const onEnd = (p: unknown) => {
-      if (state.kind === "idle") return;
+      const current = stateRef.current;
+      if (current.kind === "idle") return;
       const r = asRecord(p);
       const callId = typeof r?.callId === "string" ? r.callId : "";
-      if (callId && callId !== state.callId) return;
-      cleanup();
+      if (callId && callId !== current.callId) return;
+      cleanupRef.current?.();
     };
 
     const onMissed = (p: unknown) => {
       const r = asRecord(p);
       if (!r) return;
-      if (state.kind === "idle") {
+      const current = stateRef.current;
+      if (current.kind === "idle") {
         const from = r.from == null ? "" : String(r.from);
         if (!from) return;
         void resolveUserLabel(from).then((label) => {
@@ -719,7 +657,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const callId = typeof r.callId === "string" ? r.callId : "";
-      if (callId && callId === state.callId) cleanup();
+      if (callId && callId === current.callId) cleanupRef.current?.();
     };
 
     s.on("call:offer", onOffer);
@@ -735,8 +673,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       s.off("call:end", onEnd);
       s.off("call:missed", onMissed);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.kind]);
+  }, []);
 
   const value: CallContextValue = {
     state,

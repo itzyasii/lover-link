@@ -247,68 +247,81 @@ export default function ChatPage() {
   const [voiceDurationMs, setVoiceDurationMs] = useState(0);
   const [isSendingVoice, setIsSendingVoice] = useState(false);
 
-  const markMessagesRead = useCallback((targetMessages: Msg[]) => {
-    if (!me?.id) return;
-    if (typeof document !== "undefined" && document.visibilityState === "hidden")
-      return;
+  const markMessagesRead = useCallback(
+    (targetMessages: Msg[]) => {
+      if (!me?.id) return;
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      )
+        return;
 
-    const unreadIds = targetMessages
-      .filter((message) => {
-        if (message.from === me.id) return false;
-        if (message.deletedAt) return false;
-        const receipt = message.receipts?.find((entry) => entry.userId === me.id);
-        return !receipt?.readAt;
-      })
-      .map((message) => message.id);
+      const unreadIds = targetMessages
+        .filter((message) => {
+          if (message.from === me.id) return false;
+          if (message.deletedAt) return false;
+          const receipt = message.receipts?.find(
+            (entry) => entry.userId === me.id,
+          );
+          return !receipt?.readAt;
+        })
+        .map((message) => message.id);
 
-    if (!unreadIds.length) return;
-    ensureSocket().emit("chat:read", { messageIds: unreadIds });
-  }, [me?.id]);
+      if (!unreadIds.length) return;
+      ensureSocket().emit("chat:read", { messageIds: unreadIds });
+    },
+    [me?.id],
+  );
 
-  const markVoiceListened = useCallback((messageId: string) => {
-    if (!me?.id) return;
-    const message = messages.find((entry) => entry.id === messageId);
-    if (!message || message.from === me.id) return;
-    const receipt = message.receipts?.find((entry) => entry.userId === me.id);
-    if (receipt?.listenedAt) return;
+  const markVoiceListened = useCallback(
+    (messageId: string) => {
+      if (!me?.id) return;
+      const message = messages.find((entry) => entry.id === messageId);
+      if (!message || message.from === me.id) return;
+      const receipt = message.receipts?.find((entry) => entry.userId === me.id);
+      if (receipt?.listenedAt) return;
 
-    const at = new Date().toISOString();
-    setMessages((prev) =>
-      prev.map((entry) =>
-        entry.id !== messageId
-          ? entry
-          : {
-              ...entry,
-              receipts: (() => {
-                const existing = entry.receipts?.find((item) => item.userId === me.id);
-                if (existing) {
-                  return (entry.receipts ?? []).map((item) =>
-                    item.userId !== me.id
-                      ? item
-                      : {
-                          ...item,
-                          deliveredAt: item.deliveredAt ?? at,
-                          readAt: item.readAt ?? at,
-                          listenedAt: item.listenedAt ?? at,
-                        },
+      const at = new Date().toISOString();
+      setMessages((prev) =>
+        prev.map((entry) =>
+          entry.id !== messageId
+            ? entry
+            : {
+                ...entry,
+                receipts: (() => {
+                  const existing = entry.receipts?.find(
+                    (item) => item.userId === me.id,
                   );
-                }
-                return [
-                  ...(entry.receipts ?? []),
-                  {
-                    userId: me.id,
-                    deliveredAt: at,
-                    readAt: at,
-                    listenedAt: at,
-                  },
-                ];
-              })(),
-            },
-      ),
-    );
+                  if (existing) {
+                    return (entry.receipts ?? []).map((item) =>
+                      item.userId !== me.id
+                        ? item
+                        : {
+                            ...item,
+                            deliveredAt: item.deliveredAt ?? at,
+                            readAt: item.readAt ?? at,
+                            listenedAt: item.listenedAt ?? at,
+                          },
+                    );
+                  }
+                  return [
+                    ...(entry.receipts ?? []),
+                    {
+                      userId: me.id,
+                      deliveredAt: at,
+                      readAt: at,
+                      listenedAt: at,
+                    },
+                  ];
+                })(),
+              },
+        ),
+      );
 
-    ensureSocket().emit("chat:voice:listened", { messageId });
-  }, [me?.id, messages]);
+      ensureSocket().emit("chat:voice:listened", { messageId });
+    },
+    [me?.id, messages],
+  );
 
   const ensureSocket = () => {
     const s = getSocket();
@@ -330,7 +343,11 @@ export default function ChatPage() {
     setVoiceDurationMs(0);
   };
 
-  const sendVoiceMessage = async (blob: Blob, mimeType: string, durationMs: number) => {
+  const sendVoiceMessage = async (
+    blob: Blob,
+    mimeType: string,
+    durationMs: number,
+  ) => {
     if (!otherUserId) return;
 
     setIsSendingVoice(true);
@@ -340,10 +357,14 @@ export default function ChatPage() {
         : mimeType.includes("mp4")
           ? "m4a"
           : "webm";
-      const file = new File([blob], `voice-message-${Date.now()}.${extension}`, {
-        type: mimeType || "audio/webm",
-      });
-      const upload = await uploadFile(file);
+      const file = new File(
+        [blob],
+        `voice-message-${Date.now()}.${extension}`,
+        {
+          type: mimeType || "audio/webm",
+        },
+      );
+      const upload = await uploadFile(file, false);
       const uploadedItem = asRecord(upload.item) ?? {};
       const uploadedMeta = asRecord(uploadedItem.meta) ?? {};
       const s = ensureSocket();
@@ -415,17 +436,27 @@ export default function ChatPage() {
 
       recorder.onstop = () => {
         const chunks = [...recordingChunksRef.current];
-        const durationMs = Math.max(0, Date.now() - (recordingStartedAtRef.current ?? Date.now()));
+        const durationMs = Math.max(
+          0,
+          Date.now() - (recordingStartedAtRef.current ?? Date.now()),
+        );
         const outputMimeType = recorder.mimeType || mimeType || "audio/webm";
         clearVoiceRecorder();
         if (!chunks.length) return;
-        void sendVoiceMessage(new Blob(chunks, { type: outputMimeType }), outputMimeType, durationMs);
+        void sendVoiceMessage(
+          new Blob(chunks, { type: outputMimeType }),
+          outputMimeType,
+          durationMs,
+        );
       };
 
       recorder.start(250);
       recordingTimerRef.current = window.setInterval(() => {
         setVoiceDurationMs(
-          Math.max(0, Date.now() - (recordingStartedAtRef.current ?? Date.now())),
+          Math.max(
+            0,
+            Date.now() - (recordingStartedAtRef.current ?? Date.now()),
+          ),
         );
       }, 250);
     } catch {
@@ -650,7 +681,8 @@ export default function ChatPage() {
       if (document.visibilityState === "visible") markMessagesRead(messages);
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [messages, markMessagesRead]);
 
   useEffect(() => {
@@ -681,7 +713,10 @@ export default function ChatPage() {
         prev.some((x) => x.id === m.id) ? prev : [...prev, m],
       );
       if (m.from !== me?.id) {
-        if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        if (
+          typeof document !== "undefined" &&
+          document.visibilityState === "visible"
+        ) {
           s.emit("chat:read", { messageIds: [m.id] });
         }
       }
@@ -776,7 +811,9 @@ export default function ChatPage() {
       setMessages((prev) =>
         prev.map((message) => {
           if (message.id !== messageId) return message;
-          const existing = message.receipts?.find((entry) => entry.userId === userId);
+          const existing = message.receipts?.find(
+            (entry) => entry.userId === userId,
+          );
           const receipts = existing
             ? (message.receipts ?? []).map((entry) =>
                 entry.userId !== userId
@@ -1039,6 +1076,7 @@ export default function ChatPage() {
                                   {
                                     method: "PATCH",
                                     body: JSON.stringify({ text: next }),
+                                    trackLoading: false,
                                   },
                                 );
                                 setMessages((prev) =>
@@ -1113,10 +1151,10 @@ export default function ChatPage() {
                           minute: "2-digit",
                         })}
                         {mine ? (
-                        <span className="ml-1.5 inline-flex items-center">
-                          <ReceiptMark m={m} otherUserId={otherUserId} />
-                        </span>
-                      ) : null}
+                          <span className="ml-1.5 inline-flex items-center">
+                            <ReceiptMark m={m} otherUserId={otherUserId} />
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 
@@ -1174,7 +1212,7 @@ export default function ChatPage() {
                               onClick={async () => {
                                 await apiFetch(
                                   `/api/chats/${chatId}/messages/${m.id}`,
-                                  { method: "DELETE" },
+                                  { method: "DELETE", trackLoading: false },
                                 );
                                 setMessages((prev) =>
                                   prev.map((x) =>
@@ -1248,7 +1286,7 @@ export default function ChatPage() {
                     const file = e.target.files?.[0];
                     e.target.value = "";
                     if (!file || !otherUserId) return;
-                    const up = await uploadFile(file);
+                    const up = await uploadFile(file, false);
                     const s = ensureSocket();
                     const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
                     s.emit("share:item", {
@@ -1271,7 +1309,9 @@ export default function ChatPage() {
                   else void startVoiceRecording();
                 }}
                 type="button"
-                title={isRecordingVoice ? "Stop recording" : "Record voice message"}
+                title={
+                  isRecordingVoice ? "Stop recording" : "Record voice message"
+                }
               >
                 {isSendingVoice ? (
                   <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
@@ -1290,7 +1330,9 @@ export default function ChatPage() {
               </button>
               <div className="min-w-0 flex-1">
                 <div className="mb-1 px-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-[color:var(--wine-900)]/38">
-                  {isRecordingVoice ? "Recording voice message" : "Send a message"}
+                  {isRecordingVoice
+                    ? "Recording voice message"
+                    : "Send a message"}
                 </div>
                 <input
                   className="focus-ring w-full rounded-[18px] border border-transparent bg-transparent px-2.5 py-2 text-[13px] text-[color:var(--wine-900)] placeholder:text-[color:var(--wine-900)]/34"
@@ -1408,7 +1450,11 @@ function Attachment({
         <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--wine-900)]/55">
           <span>{isVoiceNote ? "Voice message" : "Audio attachment"}</span>
           <span className="tabular-nums">
-            {voiceDurationMs ? formatElapsed(voiceDurationMs) : size ? formatBytes(size) : ""}
+            {voiceDurationMs
+              ? formatElapsed(voiceDurationMs)
+              : size
+                ? formatBytes(size)
+                : ""}
           </span>
         </div>
         <audio
@@ -1416,11 +1462,17 @@ function Attachment({
           controls
           className="w-full"
           onPlay={() => {
-            if (!isVoiceNote || !message?.id || !meId || message.from === meId) return;
+            if (!isVoiceNote || !message?.id || !meId || message.from === meId)
+              return;
             onVoiceListened?.(message.id);
           }}
         />
-        <a className="text-[10px] underline text-black/55" href={url} target="_blank" rel="noreferrer">
+        <a
+          className="text-[10px] underline text-black/55"
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+        >
           {isVoiceNote ? "Open original recording" : name}
         </a>
         {isVoiceNote && message && message.from === meId ? (

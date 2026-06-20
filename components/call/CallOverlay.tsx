@@ -37,6 +37,7 @@ export function CallOverlay() {
 
   const localRef = useRef<HTMLVideoElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const title = useMemo(() => {
@@ -56,11 +57,16 @@ export function CallOverlay() {
     if (state.kind === "inCall") {
       if (localRef.current) localRef.current.srcObject = state.localStream;
       if (remoteRef.current) remoteRef.current.srcObject = state.remoteStream;
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject =
+          state.media === "audio" ? state.remoteStream : null;
+      }
       return;
     }
 
     if (localRef.current) localRef.current.srcObject = null;
     if (remoteRef.current) remoteRef.current.srcObject = null;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
   }, [state]);
 
   useEffect(() => {
@@ -254,6 +260,7 @@ export function CallOverlay() {
               </div>
             ) : (
               <div className="grid place-items-center rounded-3xl bg-[radial-gradient(closest-side,rgba(198,43,105,0.10),transparent_65%)] p-8">
+                <audio ref={remoteAudioRef} autoPlay playsInline />
                 <div className="relative grid place-items-center">
                   <div className="absolute inset-0 -m-6 rounded-full ring-2 ring-[color:var(--rose-600)]/15 animate-pulse" />
                   <div className="relative grid h-28 w-28 place-items-center rounded-full bg-white/70 text-3xl font-semibold text-[color:var(--wine-900)] shadow-sm">

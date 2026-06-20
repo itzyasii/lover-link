@@ -6,8 +6,12 @@ import { loadingBegin, loadingEnd } from "@/stores/loading";
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
+let refreshFailedPermanently = false; // Prevent infinite refresh loops
 
 async function refreshOnce() {
+  // If refresh already failed permanently, don't try again
+  if (refreshFailedPermanently) return false;
+
   // If already refreshing, return the existing promise to prevent multiple calls
   if (isRefreshing && refreshPromise) {
     return refreshPromise;
@@ -18,6 +22,14 @@ async function refreshOnce() {
 
   try {
     const result = await refreshPromise;
+    if (!result) {
+      refreshFailedPermanently = true;
+      // Log user out if refresh fails
+      await useAuthStore.getState().logout();
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+    }
     return result;
   } finally {
     isRefreshing = false;
@@ -81,8 +93,8 @@ export async function apiFetch<T>(
   }
 }
 
-export async function uploadFile(file: File) {
-  loadingBegin();
+export async function uploadFile(file: File, trackLoading = true) {
+  if (trackLoading) loadingBegin();
   const token = useAuthStore.getState().accessToken;
   const form = new FormData();
   form.append("file", file);
@@ -97,6 +109,6 @@ export async function uploadFile(file: File) {
     if (!res.ok) throw new Error("Upload failed");
     return (await res.json()) as { ok: true; item: unknown };
   } finally {
-    loadingEnd();
+    if (trackLoading) loadingEnd();
   }
 }

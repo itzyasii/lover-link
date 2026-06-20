@@ -49,4 +49,3 @@ export function getSocket() {
 
   return socket;
 }
-
