@@ -1,6 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
+import { getCachedUserLabel, resolveUserLabels } from "@/lib/users";
+import { useAuthStore } from "@/stores/auth";
+import { usePrefetchedQuery } from "@/hooks/usePrefetchedQuery";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -12,9 +15,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "@/lib/api";
-import { getCachedUserLabel, resolveUserLabels } from "@/lib/users";
-import { useAuthStore } from "@/stores/auth";
 
 type Call = {
   id: string;
@@ -70,13 +70,15 @@ export default function CallsPage() {
   const me = useAuthStore((s) => s.user);
   const [labelsVersion, setLabelsVersion] = useState(0);
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["calls"],
-    queryFn: () => apiFetch<{ ok: true; calls: Call[] }>("/api/calls?limit=50"),
-    retry: false, // Don't retry on 404
-  });
+  const { guaranteedData, isInstantlyAvailable, error, isLoading } =
+    usePrefetchedQuery({
+      queryKey: ["calls"],
+      queryFn: () =>
+        apiFetch<{ ok: true; calls: Call[] }>("/api/calls?limit=50"),
+      retry: false, // Don't retry on 404
+    });
 
-  const calls = data?.calls ?? EMPTY_CALLS;
+  const calls = guaranteedData?.calls ?? EMPTY_CALLS;
 
   const allUserIds = useMemo(() => {
     const ids: string[] = [];

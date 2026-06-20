@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { getFcmToken } from "@/lib/firebase";
+import { useState, useEffect } from "react";
+import { getFcmToken, registerFcmTokenWithBackend } from "@/lib/firebase";
+import { useAuthStore } from "@/stores/auth";
 
 type NotificationPermission = "default" | "denied" | "granted";
 
@@ -12,8 +13,22 @@ const getInitialPermission = (): NotificationPermission => {
 
 export const useFcm = () => {
   const [token, setToken] = useState<string | null>(null);
+  const [isTokenRegistered, setIsTokenRegistered] = useState(false);
+  const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.accessToken);
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermission>(getInitialPermission());
+
+  // Auto-register token when user is authenticated and we have a token
+  useEffect(() => {
+    if (token && accessToken && !isTokenRegistered) {
+      registerFcmTokenWithBackend(token).then((success) => {
+        if (success) {
+          setIsTokenRegistered(true);
+        }
+      });
+    }
+  }, [token, accessToken, isTokenRegistered]);
 
   const requestNotificationPermission = async () => {
     if (!("Notification" in window)) {
@@ -28,11 +43,30 @@ export const useFcm = () => {
       const fcmToken = await getFcmToken();
       if (fcmToken) {
         setToken(fcmToken);
+        setIsTokenRegistered(false); // Reset to trigger registration
         return fcmToken;
       }
     }
     return null;
   };
 
-  return { token, notificationPermission, requestNotificationPermission };
+  // Manual registration function that can be called after login if needed
+  const registerCurrentToken = async (): Promise<boolean> => {
+    if (token && accessToken) {
+      const success = await registerFcmTokenWithBackend(token);
+      if (success) {
+        setIsTokenRegistered(true);
+      }
+      return success;
+    }
+    return false;
+  };
+
+  return {
+    token,
+    notificationPermission,
+    requestNotificationPermission,
+    registerCurrentToken,
+    isTokenRegistered,
+  };
 };

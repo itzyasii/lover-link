@@ -119,16 +119,14 @@ export function RealtimeListener() {
 
   useEffect(() => {
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-      onMessageListener()
-        .then((payload) => {
-          if (payload && payload.notification) {
-            const { title, body } = payload.notification;
-            if (title && body) {
-              toast({ title, message: body });
-            }
+      onMessageListener((payload) => {
+        if (payload && payload.notification) {
+          const { title, body } = payload.notification;
+          if (title && body) {
+            toast({ title, message: body });
           }
-        })
-        .catch((err) => console.log("failed: ", err));
+        }
+      });
     }
   }, []);
 

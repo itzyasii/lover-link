@@ -5,6 +5,8 @@ import {
   onMessage,
   MessagePayload,
 } from "firebase/messaging";
+import { API_BASE_URL } from "@/lib/env";
+import { useAuthStore } from "@/stores/auth";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -22,7 +24,82 @@ if (!getApps().length) {
   app = getApp();
 }
 
-const messaging = typeof window !== "undefined" ? getMessaging(app) : null;
+export const messaging =
+  typeof window !== "undefined" ? getMessaging(app) : null;
+
+// Register FCM token with backend
+export const registerFcmTokenWithBackend = async (
+  token: string,
+): Promise<boolean> => {
+  try {
+    const accessToken = useAuthStore.getState().accessToken;
+    if (!accessToken) {
+      console.warn("Cannot register FCM token: User not authenticated");
+      return false;
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/notifications/fcm/register`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        credentials: "include",
+        body: JSON.stringify({ token }),
+      },
+    );
+
+    if (!response.ok) {
+      console.error("Failed to register FCM token with backend");
+      return false;
+    }
+
+    console.log("FCM token registered successfully");
+    return true;
+  } catch (error) {
+    console.error("Error registering FCM token:", error);
+    return false;
+  }
+};
+
+// Unregister FCM token from backend (call on logout)
+export const unregisterFcmTokenFromBackend = async (
+  token: string,
+): Promise<boolean> => {
+  try {
+    const accessToken = useAuthStore.getState().accessToken;
+    if (!accessToken) {
+      console.warn("Cannot unregister FCM token: User not authenticated");
+      return false;
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/notifications/fcm/unregister`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        credentials: "include",
+        body: JSON.stringify({ token }),
+      },
+    );
+
+    if (!response.ok) {
+      console.error("Failed to unregister FCM token from backend");
+      return false;
+    }
+
+    console.log("FCM token unregistered successfully");
+    return true;
+  } catch (error) {
+    console.error("Error unregistering FCM token:", error);
+    return false;
+  }
+};
 
 export const getFcmToken = async () => {
   try {
@@ -49,13 +126,28 @@ export const getFcmToken = async () => {
   }
 };
 
-export const onMessageListener = (): Promise<MessagePayload | null> =>
-  new Promise((resolve) => {
-    if (!messaging) {
-      resolve(null);
-      return;
+// Note: onTokenRefresh is deprecated in newer Firebase versions.
+// Token refresh is now handled automatically by the Firebase SDK.
+// The getToken() method will always return a valid token when called.
+
+// Listen for foreground messages
+export const onMessageListener = (
+  callback: (payload: MessagePayload) => void,
+) => {
+  if (!messaging) return;
+
+  onMessage(messaging, (payload) => {
+    console.log("Received foreground message:", payload);
+
+    // Show in-app browser notification if permission is granted
+    if (Notification.permission === "granted") {
+      new Notification(payload.notification?.title || "New Notification", {
+        body: payload.notification?.body,
+        icon: "/logo.svg",
+        badge: "/logo.svg",
+      });
     }
-    onMessage(messaging, (payload) => {
-      resolve(payload);
-    });
+
+    callback(payload);
   });
+};

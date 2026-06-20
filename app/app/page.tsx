@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { ChevronRight, MessageSquarePlus, MessageCircle } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useTypingStore } from "@/stores/typing";
 import { formatLastSeen } from "@/lib/time";
+import { usePrefetchedQuery } from "@/hooks/usePrefetchedQuery";
 
 type Chat = {
   id: string;
@@ -79,12 +79,13 @@ function formatLastMessagePreview(
 export default function ChatsPage() {
   const me = useAuthStore((s) => s.user);
   const typingByChatId = useTypingStore((s) => s.byChatId);
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["chats"],
-    queryFn: () => apiFetch<{ ok: true; chats: Chat[] }>("/api/chats"),
-  });
+  const { guaranteedData, isInstantlyAvailable, error, isLoading } =
+    usePrefetchedQuery({
+      queryKey: ["chats"],
+      queryFn: () => apiFetch<{ ok: true; chats: Chat[] }>("/api/chats"),
+    });
 
-  const chats = useMemo(() => data?.chats ?? [], [data]);
+  const chats = useMemo(() => guaranteedData?.chats ?? [], [guaranteedData]);
   const otherMembers = useMemo(
     () =>
       chats

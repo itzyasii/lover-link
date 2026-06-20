@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
+import { usePrefetchedQuery } from "@/hooks/usePrefetchedQuery";
 
 type User = {
   id: string;
@@ -33,12 +34,13 @@ export default function FriendsPage() {
   const me = useAuthStore((s) => s.user);
   const [q, setQ] = useState("");
 
-  const friendsQ = useQuery({
+  const friendsQ = usePrefetchedQuery({
     queryKey: ["friends"],
-    queryFn: () => apiFetch<{ ok: true; friends: User[] }>("/api/users/friends"),
+    queryFn: () =>
+      apiFetch<{ ok: true; friends: User[] }>("/api/users/friends"),
   });
 
-  const reqQ = useQuery({
+  const reqQ = usePrefetchedQuery({
     queryKey: ["friendRequests"],
     queryFn: () =>
       apiFetch<FriendRequestsResponse>("/api/users/friends/requests"),
@@ -172,7 +174,9 @@ export default function FriendsPage() {
               }
             />
           ))}
-          {incoming.length === 0 ? <EmptyText>No requests right now.</EmptyText> : null}
+          {incoming.length === 0 ? (
+            <EmptyText>No requests right now.</EmptyText>
+          ) : null}
         </Section>
 
         <Section title="Your Friends">
@@ -200,13 +204,13 @@ export default function FriendsPage() {
                   <button
                     className="focus-ring inline-flex items-center gap-2 rounded-xl bg-[color:var(--rose-600)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--rose-700)]"
                     onClick={async () => {
-                      const r = await apiFetch<{ ok: true; chat: { id: string } }>(
-                        "/api/chats/dm",
-                        {
-                          method: "POST",
-                          body: JSON.stringify({ userId: u.id }),
-                        },
-                      );
+                      const r = await apiFetch<{
+                        ok: true;
+                        chat: { id: string };
+                      }>("/api/chats/dm", {
+                        method: "POST",
+                        body: JSON.stringify({ userId: u.id }),
+                      });
                       window.location.href = `/app/chat/${r.chat.id}`;
                     }}
                     type="button"
@@ -226,7 +230,13 @@ export default function FriendsPage() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="rounded-2xl border border-black/5 bg-white/60 p-3 shadow-sm">
       <div className="px-1 text-xs font-semibold text-black/50">{title}</div>
