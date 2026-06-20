@@ -35,15 +35,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrateFromStorage: () => {
     if (typeof window === "undefined") return;
     const t = localStorage.getItem(LS_KEY);
-    // If we have a stored token, set it immediately - this prevents redirects on page reload
+    // If we have a stored token, set it - the apiFetch interceptor will handle refreshing if needed
     if (t) {
       set({ accessToken: t, isHydrated: true });
-      // Fetch user profile after setting token to maintain session
+      // Fetch user profile, the interceptor will refresh token if needed
       void fetchMe(t)
         .then((u) => set({ user: u }))
-        .catch(() => set({ user: null }));
+        .catch(() => {
+          // If fetchMe fails, the interceptor will already have tried to refresh, so clear state
+          get().setAccessToken(null);
+          set({ user: null, isHydrated: true });
+        });
     } else {
-      // No token found - mark as hydrated without setting anything
+      // No token found - mark as hydrated
       set({ isHydrated: true });
     }
   },
@@ -80,8 +84,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: null });
   },
   refresh: async () => {
-    // Prevent multiple simultaneous refresh calls
-    if (get().isRefreshing) return false;
+    // If already refreshing, return true to let the existing refresh complete
+    if (get().isRefreshing) return true;
 
     set({ isRefreshing: true });
 
