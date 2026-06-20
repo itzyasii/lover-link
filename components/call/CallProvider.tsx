@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
 import type { Socket } from "socket.io-client";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
@@ -62,37 +62,20 @@ type CallContextValue = {
   outputDevices: OutputDevice[];
   currentOutputDevice: string | null;
   networkQuality: CallNetworkQuality;
+  overlayVisible: boolean;
+  setOverlayVisible: (v: boolean) => void;
 };
 
-const Ctx = createContext<CallContextValue | null>(null);
+// Helper types
+type IncomingState = Extract<CallState, { kind: "incoming" }>;
 
-export function useCall() {
-  const v = useContext(Ctx);
-  if (!v) throw new Error("useCall must be used within CallProvider");
-  return v;
-}
-
-// Ice server type placeholder
-type IceServer = { urls: string; username?: string; credential?: string };
-
-const QUALITY_PRESETS: Record<
-  CallQualityProfile,
-  { width: number; height: number; frameRate: number }
-> = {
-  low: { width: 640, height: 480, frameRate: 24 },
-  medium: { width: 1280, height: 720, frameRate: 30 },
-  high: { width: 1920, height: 1080, frameRate: 30 },
-};
-
+// Functions needed before usage
 function pickInitialQuality(): CallQualityProfile {
   if (typeof navigator === "undefined" || !("connection" in navigator))
     return "medium";
   const connection = (navigator as NavigatorWithConnection).connection;
   if (!connection) return "medium";
-  if (
-    connection.effectiveType === "2g" ||
-    connection.effectiveType === "slow-2g"
-  )
+  if (connection.effectiveType === "2g" || connection.effectiveType === "slow-2g")
     return "low";
   if (connection.effectiveType === "3g") return "medium";
   return "high";
@@ -110,6 +93,40 @@ function buildQualityState(
   return { profile, label: profileLabels[profile], ...metrics };
 }
 
+
+const Ctx = createContext<CallContextValue | null>(null);
+
+export function useCall() {
+  const v = useContext(Ctx);
+  if (!v) throw new Error("useCall must be used within CallProvider");
+  return v;
+}
+
+// Ice server type placeholder
+type IceServer = { urls: string; username?: string; credential?: string };
+
+// Updated Reaction type with optional createdAt
+// Reaction type removed as unused
+// type Reaction = {
+//   emoji: string;
+//   userId: string;
+//   createdAt?: string;
+//   user?: {
+//     id: string;
+//     username?: string;
+//     email?: string;
+//   };
+// };
+
+const QUALITY_PRESETS: Record<
+  CallQualityProfile,
+  { width: number; height: number; frameRate: number }
+> = {
+  low: { width: 640, height: 480, frameRate: 24 },
+  medium: { width: 1280, height: 720, frameRate: 30 },
+  high: { width: 1920, height: 1080, frameRate: 30 },
+};
+
 function chooseQualityProfile({
   bitrateKbps,
   rttMs,
@@ -126,59 +143,11 @@ function chooseQualityProfile({
   return "high";
 }
 
-async function applyVideoQualityProfile(
-  pc: RTCPeerConnection | null,
-  stream: MediaStream | null,
-  profile: CallQualityProfile,
-) {
-  if (!pc || !stream) return;
-  const preset = QUALITY_PRESETS[profile];
-  const videoTrack = stream.getVideoTracks()[0];
-  if (!videoTrack) return;
-  try {
-    await videoTrack.applyConstraints({
-      width: { ideal: preset.width },
-      height: { ideal: preset.height },
-      frameRate: { ideal: preset.frameRate },
-    });
-  } catch {
-    // Keep the call alive if the camera cannot satisfy an adaptive profile.
-  }
-}
-
-function getConnectionInfo(): NavigatorConnection {
-  if (typeof navigator === "undefined") return {};
-  return (navigator as NavigatorWithConnection).connection || {};
-}
-
-function mediaErrorMessage(err: unknown, media: "audio" | "video"): string {
-  const name = err instanceof DOMException ? err.name : "";
-  if (name === "NotAllowedError" || name === "SecurityError") {
-    return `Permission is needed to use your ${media === "video" ? "camera and microphone" : "microphone"}.`;
-  }
-  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return media === "video"
-      ? "Could not find a camera and microphone for this call."
-      : "Could not find a microphone for this call.";
-  }
-  if (name === "NotReadableError" || name === "TrackStartError") {
-    return "Your media device is already in use by another app.";
-  }
-  return "Could not access media devices.";
-}
-
-function inferMediaFromOffer(
-  offer: RTCSessionDescriptionInit,
-): "audio" | "video" {
-  return typeof offer.sdp === "string" && /^m=video\s/m.test(offer.sdp)
-    ? "video"
-    : "audio";
-}
-
 export function CallProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<CallState>({ kind: "idle" });
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const stateRef = useRef<CallState>(state);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const networkIntervalRef = useRef<number | null>(null);
@@ -188,24 +157,83 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     packetsSent: number;
     packetsLost: number;
   } | null>(null);
+  const [overlayVisible, setOverlayVisible] = useState(false);
   const [micEnabled, setMicEnabled] = useState(true);
   const [camEnabled, setCamEnabled] = useState(true);
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
   const [outputDevices, setOutputDevices] = useState<OutputDevice[]>([]);
-  const [currentOutputDevice, setCurrentOutputDevice] = useState<string | null>(
-    null,
-  );
-  const [networkQuality, setNetworkQuality] = useState<CallNetworkQuality>(() =>
-    buildQualityState(pickInitialQuality()),
+  const [currentOutputDevice, setCurrentOutputDevice] = useState<
+    string | null
+  >(null);
+  const [networkQuality, setNetworkQuality] = useState<CallNetworkQuality>(
+    () => buildQualityState(pickInitialQuality()),
   );
   const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const pendingIce = useRef<RTCIceCandidateInit[]>([]);
-  const stateRef = useRef<CallState>(state);
   const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  const onAnswer = async (p: unknown) => {
+    const r = asRecord(p);
+    if (!r) return;
+    const payloadCallId = typeof r.callId === "string" ? r.callId : "";
+    if (stateRef.current.kind !== "incoming" || payloadCallId !== stateRef.current.callId) return;
+    // transition to inCall, clean up local pc and pending ICE, hide overlay
+    setState({ kind: "inCall", connectedAt: new Date().toISOString(), callId: payloadCallId, peerLabel: (stateRef.current as IncomingState).fromLabel, media: (stateRef.current as IncomingState).media } as CallState);
+    pcRef.current?.close();
+    pcRef.current = null;
+    pendingIce.current = [];
+    setOverlayVisible(false);
+  };
+
+
+
+  const applyVideoQualityProfile = useCallback(async (
+    pc: RTCPeerConnection | null,
+    stream: MediaStream | null,
+    profile: CallQualityProfile,
+  ) => {
+    if (!pc || !stream) return;
+    const preset = QUALITY_PRESETS[profile];
+    const videoTrack = stream.getVideoTracks()[0];
+    if (!videoTrack) return;
+    try {
+      await videoTrack.applyConstraints({
+        width: { ideal: preset.width },
+        height: { ideal: preset.height },
+        frameRate: { ideal: preset.frameRate },
+      });
+    } catch {
+      // Keep the call alive if the camera cannot satisfy an adaptive profile.
+    }
+  }, []);
+
+  function mediaErrorMessage(err: unknown, media: "audio" | "video"): string {
+    const name = err instanceof DOMException ? err.name : "";
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      return `Permission is needed to use your ${media === "video" ? "camera and microphone" : "microphone"}.`;
+    }
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      return media === "video"
+        ? "Could not find a camera and microphone for this call."
+        : "Could not find a microphone for this call.";
+    }
+    if (name === "NotReadableError" || name === "TrackStartError") {
+      return "Your media device is already in use by another app.";
+    }
+    return "Could not access media devices.";
+  }
+
+  function inferMediaFromOffer(
+    offer: RTCSessionDescriptionInit,
+  ): "audio" | "video" {
+    return typeof offer.sdp === "string" && /^m=video\s/m.test(offer.sdp)
+      ? "video"
+      : "audio";
+  }
 
   const stopNetworkMonitor = () => {
     if (networkIntervalRef.current != null) {
@@ -238,6 +266,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     setCurrentOutputDevice(null);
     setNetworkQuality(buildQualityState(pickInitialQuality()));
     setState({ kind: "idle" });
+    setOverlayVisible(false);
   };
 
   useEffect(() => {
@@ -362,7 +391,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     let packetLossPct: number | undefined;
 
     if (previous && bytesSent != null) {
-      const elapsedSeconds = Math.max(0.001, (now - previous.timestamp) / 1000);
+      const elapsedSeconds = Math.max(
+        0.001,
+        (now - previous.timestamp) / 1000,
+      );
       bitrateKbps = Math.max(
         0,
         Math.round(
@@ -427,7 +459,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callId,
       media,
       mediaStream: undefined,
-    });
+    } as CallState);
+    setOverlayVisible(true);
 
     try {
       const s = getSocket();
@@ -470,7 +503,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const accept = async () => {
     if (state.kind !== "incoming") return;
-    const { from, callId, offer, media } = state;
+    const { from, callId, offer, media } = state as IncomingState;
     const s = getSocket();
     socketRef.current = s;
 
@@ -497,18 +530,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       setState({
         kind: "inCall",
         peer: from,
-        peerLabel: state.fromLabel,
+        peerLabel: (state as IncomingState).fromLabel,
         callId,
         media,
         connectedAt: new Date().toISOString(),
         localStream: stream,
         remoteStream: remoteStreamRef.current ?? new MediaStream(),
         mediaStream: stream,
-      });
+      } as CallState);
+      setOverlayVisible(false);
       void loadOutputDevices();
     } catch (err) {
       s.emit("call:end", { to: from, callId, reason: "media_denied" });
-      toast({ title: "Cannot answer", message: mediaErrorMessage(err, media) });
+      toast({
+        title: "Cannot answer",
+        message: mediaErrorMessage(err, media),
+      });
       cleanup();
     }
   };
@@ -532,7 +569,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         ? state.from
         : state.kind === "outgoing"
           ? state.to
-          : state.peer;
+          : state.kind === "inCall"
+            ? state.peer
+            : "";
     const callId = state.callId;
     s.emit("call:end", { to: peer, callId, reason: "hangup" });
     cleanup();
@@ -592,7 +631,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     if (!remoteAudioElementRef.current?.setSinkId) {
       toast({
         title: "Cannot switch device",
-        message: "Your browser doesn't support audio output device switching.",
+        message:
+          "Your browser doesn't support audio output device switching.",
       });
       return;
     }
@@ -608,9 +648,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    const connection = getConnectionInfo();
-    if (!connection?.addEventListener) return;
-
     const syncConnection = () => {
       const profile = pickInitialQuality();
       setNetworkQuality((prev) =>
@@ -632,9 +669,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       );
     };
 
-    connection.addEventListener("change", syncConnection);
-    return () => connection.removeEventListener?.("change", syncConnection);
-  }, []);
+    const connection = (navigator as NavigatorWithConnection).connection;
+    if (connection) {
+      connection.addEventListener?.("change", syncConnection);
+      return () => connection.removeEventListener?.("change", syncConnection);
+    }
+  }, [applyVideoQualityProfile]);
 
   useEffect(() => {
     const s = getSocket();
@@ -661,51 +701,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         media,
         offer,
         mediaStream: undefined,
-      });
+      } as CallState);
+      setOverlayVisible(true);
       toast({ title: "Incoming call", message: `From ${fromLabel}` });
       playIncomingCallSound();
     };
 
-    const onAccepted = () => {
-      stopIncomingCallSound();
-    };
-
-    const onAnswer = async (p: unknown) => {
-      const current = stateRef.current;
-      const r = asRecord(p);
-      if (!r) return;
-      const callId = typeof r.callId === "string" ? r.callId : "";
-
-      // Only proceed if we have an active call with a matching callId
-      if (current.kind === "idle") return;
-      if (!callId || callId !== current.callId) return;
-
-      // If we're in incoming state (another device answered the call), cleanup
-      if (current.kind === "incoming") {
-        cleanupRef.current?.();
-        return;
-      }
-
-      // If we're in outgoing state, proceed with connecting the call
-      if (current.kind !== "outgoing") return;
-
-      const pc = pcRef.current;
-      if (!pc) return;
-      await pc.setRemoteDescription(r.answer as RTCSessionDescriptionInit);
-      await flushPendingIce();
-      const local = localStreamRef.current;
-      setState({
-        kind: "inCall",
-        peer: current.to,
-        peerLabel: current.toLabel,
-        callId: current.callId,
-        media: current.media,
-        connectedAt: new Date().toISOString(),
-        localStream: local ?? new MediaStream(),
-        remoteStream: remoteStreamRef.current ?? new MediaStream(),
-        mediaStream: local ?? new MediaStream(),
-      });
-    };
 
     const onIce = async (p: unknown) => {
       const r = asRecord(p);
@@ -764,23 +765,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const value: CallContextValue = {
-    state,
-    startCall,
-    accept,
-    decline,
-    hangup,
-    toggleMic,
-    toggleCam,
-    toggleSpeaker,
-    switchOutputDevice,
-    micEnabled,
-    camEnabled,
-    speakerEnabled,
-    outputDevices,
-    currentOutputDevice,
-    networkQuality,
-  };
-
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={{
+      state,
+      startCall,
+      accept,
+      decline,
+      hangup,
+      toggleMic,
+      toggleCam,
+      toggleSpeaker,
+      switchOutputDevice,
+      micEnabled,
+      camEnabled,
+      speakerEnabled,
+      outputDevices,
+      currentOutputDevice,
+      networkQuality,
+      overlayVisible,
+      setOverlayVisible,
+    }}>
+      {children}
+    </Ctx.Provider>
+  );
 }

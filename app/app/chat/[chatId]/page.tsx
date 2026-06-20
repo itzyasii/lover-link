@@ -57,7 +57,7 @@ type ReactionUser = {
   email?: string;
 };
 
-type Msg = {
+export type Msg = {
   id: string;
   chatId: string;
   from: string;
