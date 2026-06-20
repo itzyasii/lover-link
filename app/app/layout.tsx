@@ -23,18 +23,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const accessToken = useAuthStore((s) => s.accessToken);
   const isHydrated = useAuthStore((s) => s.isHydrated);
+  const isRefreshing = useAuthStore((s) => s.isRefreshing);
   const refresh = useAuthStore((s) => s.refresh);
   const logout = useAuthStore((s) => s.logout);
 
   useEffect(() => {
-    if (!isHydrated) return;
+    if (!isHydrated || isRefreshing) return;
     if (!accessToken) {
       void (async () => {
         const ok = await refresh();
         if (!ok) router.push("/login");
       })();
     }
-  }, [accessToken, isHydrated, refresh, router]);
+  }, [accessToken, isHydrated, isRefreshing, refresh, router]);
 
   useEffect(() => {
     if (accessToken) getSocket();
@@ -42,10 +43,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <CallProvider>
-    <RealtimeListener />
-    <div className="mx-auto grid h-dvh max-w-6xl min-h-0 grid-cols-1 gap-6 overflow-hidden px-6 py-6 md:grid-cols-[300px_1fr]">
-      <aside className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl p-5 md:sticky md:top-6">
-        <Brand />
+      <RealtimeListener />
+      <div className="mx-auto grid h-dvh max-w-6xl min-h-0 grid-cols-1 gap-6 overflow-hidden px-6 py-6 md:grid-cols-[300px_1fr]">
+        <aside className="glass flex h-full min-h-0 flex-col overflow-hidden rounded-3xl p-5 md:sticky md:top-6">
+          <Brand />
           <nav className="mt-6 grid gap-1">
             {nav.map((item) => {
               const active =

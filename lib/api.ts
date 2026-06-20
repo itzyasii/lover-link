@@ -4,13 +4,34 @@ import { API_BASE_URL } from "@/lib/env";
 import { useAuthStore } from "@/stores/auth";
 import { loadingBegin, loadingEnd } from "@/stores/loading";
 
+let isRefreshing = false;
+let refreshPromise: Promise<boolean> | null = null;
+
 async function refreshOnce() {
-  return useAuthStore.getState().refresh();
+  // If already refreshing, return the existing promise to prevent multiple calls
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+
+  isRefreshing = true;
+  refreshPromise = useAuthStore.getState().refresh();
+
+  try {
+    const result = await refreshPromise;
+    return result;
+  } finally {
+    isRefreshing = false;
+    refreshPromise = null;
+  }
 }
 
 export async function apiFetch<T>(
   path: string,
-  init: RequestInit & { auth?: boolean; retry?: boolean; trackLoading?: boolean } = {},
+  init: RequestInit & {
+    auth?: boolean;
+    retry?: boolean;
+    trackLoading?: boolean;
+  } = {},
 ): Promise<T> {
   const auth = init.auth ?? true;
   const retry = init.retry ?? true;
@@ -20,7 +41,11 @@ export async function apiFetch<T>(
 
   try {
     const headers = new Headers(init.headers);
-    if (!headers.has("content-type") && init.body && !(init.body instanceof FormData)) {
+    if (
+      !headers.has("content-type") &&
+      init.body &&
+      !(init.body instanceof FormData)
+    ) {
       headers.set("content-type", "application/json");
     }
 
@@ -37,7 +62,12 @@ export async function apiFetch<T>(
 
     if (res.status === 401 && retry) {
       const ok = await refreshOnce();
-      if (ok) return apiFetch<T>(path, { ...init, retry: false, trackLoading: false });
+      if (ok)
+        return apiFetch<T>(path, {
+          ...init,
+          retry: false,
+          trackLoading: false,
+        });
     }
 
     if (!res.ok) {
@@ -70,4 +100,3 @@ export async function uploadFile(file: File) {
     loadingEnd();
   }
 }
-

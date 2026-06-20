@@ -9,6 +9,7 @@ type AuthState = {
   accessToken: string | null;
   user: User | null;
   isHydrated: boolean;
+  isRefreshing: boolean;
   setAccessToken: (t: string | null) => void;
   hydrateFromStorage: () => void;
   login: (emailOrUsername: string, password: string) => Promise<void>;
@@ -23,6 +24,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   accessToken: null,
   user: null,
   isHydrated: false,
+  isRefreshing: false,
   setAccessToken: (t) => {
     set({ accessToken: t });
     if (typeof window !== "undefined") {
@@ -34,7 +36,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (typeof window === "undefined") return;
     const t = localStorage.getItem(LS_KEY);
     set({ accessToken: t, isHydrated: true });
-    if (t) void fetchMe(t).then((u) => set({ user: u })).catch(() => set({ user: null }));
+    if (t)
+      void fetchMe(t)
+        .then((u) => set({ user: u }))
+        .catch(() => set({ user: null }));
   },
   login: async (emailOrUsername, password) => {
     const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -69,22 +74,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: null });
   },
   refresh: async () => {
-    const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({}),
-    });
-    if (!res.ok) return false;
-    const json = (await res.json()) as { accessToken: string };
-    get().setAccessToken(json.accessToken);
+    // Prevent multiple simultaneous refresh calls
+    if (get().isRefreshing) return false;
+
+    set({ isRefreshing: true });
+
     try {
-      const u = await fetchMe(json.accessToken);
-      set({ user: u });
-    } catch {
-      set({ user: null });
+      const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) return false;
+      const json = (await res.json()) as { accessToken: string };
+      get().setAccessToken(json.accessToken);
+      try {
+        const u = await fetchMe(json.accessToken);
+        set({ user: u });
+      } catch {
+        set({ user: null });
+      }
+      return true;
+    } finally {
+      set({ isRefreshing: false });
     }
-    return true;
   },
 }));
 
