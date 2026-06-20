@@ -380,6 +380,32 @@ export default function ChatPage() {
       const uploadedMeta = asRecord(uploadedItem.meta) ?? {};
       const s = ensureSocket();
       const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+      // Optimistically add voice message to local state immediately
+      const optimisticVoiceMessage: Msg = {
+        id: clientMessageId,
+        from: me!.id,
+        chatId: chatId,
+        item: {
+          ...uploadedItem,
+          kind: "audio",
+          meta: {
+            ...uploadedMeta,
+            voiceNote: true,
+            durationMs,
+          },
+        },
+        createdAt: new Date().toISOString(),
+        deletedAt: null,
+        editedAt: null,
+        reactions: [],
+        receipts: [],
+        type: "share",
+        text: null,
+        event: null,
+      };
+      setMessages((prev) => [...prev, optimisticVoiceMessage]);
+
       s.emit("share:item", {
         to: otherUserId,
         item: {
@@ -1350,9 +1376,27 @@ export default function ChatPage() {
           className="border-t border-black/5 bg-white p-3"
           onSubmit={async (e) => {
             e.preventDefault();
-            if (!otherUserId || !text.trim()) return;
+            if (!otherUserId || !text.trim() || !me?.id) return;
             const s = ensureSocket();
             const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+            // Optimistically add message to local state immediately
+            const optimisticMessage: Msg = {
+              id: clientMessageId,
+              from: me.id,
+              chatId: chatId,
+              text: text.trim(),
+              createdAt: new Date().toISOString(),
+              deletedAt: null,
+              editedAt: null,
+              reactions: [],
+              receipts: [],
+              type: "text",
+              item: null,
+              event: null,
+            };
+            setMessages((prev) => [...prev, optimisticMessage]);
+
             s.emit("chat:message", {
               to: otherUserId,
               text: text.trim(),
@@ -1378,15 +1422,41 @@ export default function ChatPage() {
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   e.target.value = "";
-                  if (!file || !otherUserId) return;
+                  if (!file || !otherUserId || !me?.id) return;
                   const up = await uploadFile(file, false);
                   const s = ensureSocket();
                   const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+                  // Optimistically add file share to local state immediately
+                  const optimisticShare: Msg = {
+                    id: clientMessageId,
+                    from: me.id,
+                    chatId: chatId,
+                    item: up.item as ShareItem,
+                    createdAt: new Date().toISOString(),
+                    deletedAt: null,
+                    editedAt: null,
+                    reactions: [],
+                    receipts: [],
+                    type: "share",
+                    text: null,
+                    event: null,
+                  };
+                  setMessages((prev) => [...prev, optimisticShare]);
+
                   s.emit("share:item", {
                     to: otherUserId,
                     item: up.item,
                     clientMessageId,
                   });
+
+                  // Force scroll to bottom after sending file
+                  setTimeout(() => {
+                    if (messagesContainerRef.current) {
+                      messagesContainerRef.current.scrollTop =
+                        messagesContainerRef.current.scrollHeight;
+                    }
+                  }, 50);
                 }}
               />
             </label>

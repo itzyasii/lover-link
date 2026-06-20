@@ -102,19 +102,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const currentFcmToken = get().fcmToken;
     if (currentFcmToken) {
       try {
+        console.log("[Auth] Unregistering FCM token during logout");
         await unregisterFcmTokenFromBackend(currentFcmToken);
       } catch (error) {
-        console.warn("Failed to unregister FCM token during logout:", error);
+        console.warn(
+          "[Auth] Failed to unregister FCM token during logout:",
+          error,
+        );
       }
     }
 
-    await fetch(`${API_BASE_URL}/api/auth/logout`, {
-      method: "POST",
-      credentials: "include",
-    });
+    try {
+      await fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.warn(
+        "[Auth] Logout API call failed, but proceeding with local logout:",
+        error,
+      );
+    }
+
     get().setAccessToken(null);
     get().setFcmToken(null);
     set({ user: null });
+    console.log("[Auth] User logged out successfully");
   },
   refresh: async () => {
     if (get().isRefreshing) return true;

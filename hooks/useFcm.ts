@@ -1,5 +1,12 @@
-import { useState, useEffect } from "react";
-import { getFcmToken, registerFcmTokenWithBackend } from "@/lib/firebase";
+import { useState, useEffect, useCallback } from "react";
+import {
+  getFcmToken,
+  registerFcmTokenWithBackend,
+  unregisterFcmTokenFromBackend,
+  getStoredFcmToken,
+  deleteFcmToken,
+  requestNotifications,
+} from "@/lib/firebase";
 import { useAuthStore } from "@/stores/auth";
 
 type NotificationPermission = "default" | "denied" | "granted";
@@ -14,84 +21,141 @@ const getInitialPermission = (): NotificationPermission => {
 export const useFcm = () => {
   const [token, setToken] = useState<string | null>(null);
   const [isTokenRegistered, setIsTokenRegistered] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.accessToken);
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermission>(getInitialPermission());
 
+  // Sync with stored token from firebase.ts
+  useEffect(() => {
+    const storedToken = getStoredFcmToken();
+    if (storedToken && !token) {
+      setToken(storedToken);
+    }
+  }, []);
+
   // Get token if permission is already granted on mount
   useEffect(() => {
     const getExistingToken = async () => {
       if (notificationPermission === "granted" && !token) {
-        const fcmToken = await getFcmToken();
-        if (fcmToken) {
-          setToken(fcmToken);
+        setIsLoading(true);
+        try {
+          const fcmToken = await getFcmToken();
+          if (fcmToken) {
+            setToken(fcmToken);
+          }
+        } finally {
+          setIsLoading(false);
         }
       }
     };
     getExistingToken();
-  }, [notificationPermission]);
+  }, [notificationPermission, token]);
 
   // Auto-register token when user is authenticated and we have a token
   useEffect(() => {
-    if (token && accessToken && !isTokenRegistered) {
-      registerFcmTokenWithBackend(token).then((success) => {
-        if (success) {
-          setIsTokenRegistered(true);
+    const registerToken = async () => {
+      if (token && accessToken && !isTokenRegistered) {
+        setIsLoading(true);
+        try {
+          const success = await registerFcmTokenWithBackend(token);
+          setIsTokenRegistered(success);
+        } finally {
+          setIsLoading(false);
         }
-      });
-    }
+      }
+    };
+    registerToken();
   }, [token, accessToken, isTokenRegistered]);
 
-  const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) {
-      console.log("This browser does not support desktop notification");
-      return null;
-    }
-
-    // If permission is already granted, just return the existing token or get it
-    if (Notification.permission === "granted") {
-      const fcmToken = await getFcmToken();
-      if (fcmToken) {
-        setToken(fcmToken);
+  // Unregister token when user logs out
+  useEffect(() => {
+    if (!accessToken && token && isTokenRegistered) {
+      unregisterFcmTokenFromBackend(token).then(() => {
         setIsTokenRegistered(false);
-        return fcmToken;
-      }
+      });
+    }
+  }, [accessToken, token, isTokenRegistered]);
+
+  const requestNotificationPermission = useCallback(async () => {
+    if (!("Notification" in window)) {
+      console.warn("[FCM] This browser does not support desktop notifications");
       return null;
     }
 
-    // Otherwise request permission
-    const permission = await Notification.requestPermission();
-    setNotificationPermission(permission);
-
-    if (permission === "granted") {
-      const fcmToken = await getFcmToken();
+    setIsLoading(true);
+    try {
+      const fcmToken = await requestNotifications();
       if (fcmToken) {
         setToken(fcmToken);
+        setNotificationPermission("granted");
         setIsTokenRegistered(false); // Reset to trigger registration
-        return fcmToken;
+      } else {
+        setNotificationPermission(Notification.permission);
       }
+      return fcmToken;
+    } finally {
+      setIsLoading(false);
     }
-    return null;
-  };
+  }, []);
 
   // Manual registration function that can be called after login if needed
-  const registerCurrentToken = async (): Promise<boolean> => {
-    if (token && accessToken) {
+  const registerCurrentToken = useCallback(async (): Promise<boolean> => {
+    if (!token || !accessToken) {
+      return false;
+    }
+
+    setIsLoading(true);
+    try {
       const success = await registerFcmTokenWithBackend(token);
+      setIsTokenRegistered(success);
+      return success;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [token, accessToken]);
+
+  // Unregister current token
+  const unregisterCurrentToken = useCallback(async (): Promise<boolean> => {
+    if (!token) return false;
+
+    setIsLoading(true);
+    try {
+      const success = await unregisterFcmTokenFromBackend(token);
       if (success) {
-        setIsTokenRegistered(true);
+        setIsTokenRegistered(false);
+        setToken(null);
       }
       return success;
+    } finally {
+      setIsLoading(false);
     }
-    return false;
-  };
+  }, [token]);
+
+  // Delete token completely
+  const removeToken = useCallback(async (): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      const success = await deleteFcmToken();
+      if (success) {
+        setToken(null);
+        setIsTokenRegistered(false);
+      }
+      return success;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   return {
     token,
     notificationPermission,
     requestNotificationPermission,
     registerCurrentToken,
+    unregisterCurrentToken,
+    removeToken,
     isTokenRegistered,
+    isLoading,
   };
 };
