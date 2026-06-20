@@ -768,6 +768,11 @@ export default function ChatPage() {
           document.visibilityState === "visible"
         ) {
           s.emit("chat:read", { messageIds: [m.id] });
+        } else {
+          // Play sound if tab is in background
+          import("@/lib/sounds").then(({ playMessageSound }) =>
+            playMessageSound(),
+          );
         }
       }
     };

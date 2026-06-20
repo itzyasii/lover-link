@@ -6,6 +6,11 @@ import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { toast } from "@/stores/toast";
 import { resolveUserLabel } from "@/lib/users";
+import {
+  playIncomingCallSound,
+  stopCallSound,
+  playCallEndSound,
+} from "@/lib/sounds";
 
 type CallOfferAck = { ok: boolean; callId?: string };
 type CallSimpleAck = { ok: boolean };
@@ -248,6 +253,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       remoteAudioElementRef.current.srcObject = null;
     }
     pendingIce.current = [];
+    // Stop any ringing sounds
+    stopCallSound();
+    // Play call end sound if we were in an active call
+    if (stateRef.current.kind === "inCall") {
+      playCallEndSound();
+    }
     setMicEnabled(true);
     setCamEnabled(true);
     setSpeakerEnabled(false);
@@ -670,15 +681,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         offer,
       });
       toast({ title: "Incoming call", message: `From ${fromLabel}` });
+      playIncomingCallSound();
     };
 
     const onAnswer = async (p: unknown) => {
       const current = stateRef.current;
-      if (current.kind !== "outgoing") return;
       const r = asRecord(p);
       if (!r) return;
       const callId = typeof r.callId === "string" ? r.callId : "";
+
+      // Only proceed if we have an active call with a matching callId
+      if (current.kind === "idle") return;
       if (!callId || callId !== current.callId) return;
+
+      // If we're in incoming state (another device answered the call), cleanup
+      if (current.kind === "incoming") {
+        cleanupRef.current?.();
+        return;
+      }
+
+      // If we're in outgoing state, proceed with connecting the call
+      if (current.kind !== "outgoing") return;
+
       const pc = pcRef.current;
       if (!pc) return;
       await pc.setRemoteDescription(r.answer as RTCSessionDescriptionInit);

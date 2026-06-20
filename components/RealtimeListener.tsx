@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +10,7 @@ import { toast } from "@/stores/toast";
 import { onMessageListener } from "@/lib/firebase";
 import { MessagePayload } from "firebase/messaging";
 import { useTypingStore } from "@/stores/typing";
+import { playMessageSound } from "@/lib/sounds";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (typeof v !== "object" || v == null) return null;
@@ -175,6 +177,7 @@ export function RealtimeListener() {
       if (!chatId || isChatVisible(chatId)) return;
 
       incrementUnread(chatId);
+      playMessageSound();
       void resolveUserLabel(from).then((label) => {
         notify(label ?? "New message", previewMessage(message ?? {}));
       });

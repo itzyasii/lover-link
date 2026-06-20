@@ -251,10 +251,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "focus-ring flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold md:justify-start",
+                    "focus-ring flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold md:justify-start transition-colors",
                     active
-                      ? "bg-wine-900 text-white"
-                      : "text-black/65 hover:bg-black/5",
+                      ? "bg-[color:var(--rose-600)] text-white"
+                      : "text-black/65 hover:bg-[color:var(--rose-600)]/10 hover:text-[color:var(--rose-600)]",
                   )}
                 >
                   <Icon className="h-4 w-4" />

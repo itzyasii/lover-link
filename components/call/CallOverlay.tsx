@@ -215,20 +215,20 @@ export function CallOverlay() {
                     ? "Incoming video call"
                     : "Incoming voice call"}
                 </p>
-                <div className="flex justify-center gap-6">
+                <div className="flex justify-center gap-8 md:gap-6">
                   <button
-                    className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg hover:scale-105 transition-transform"
+                    className="focus-ring inline-flex h-20 w-20 md:h-16 md:w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg hover:scale-105 transition-transform"
                     onClick={() => void decline()}
                     type="button"
                   >
-                    <PhoneOff className="h-7 w-7" />
+                    <PhoneOff className="h-9 w-9 md:h-7 md:w-7" />
                   </button>
                   <button
-                    className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-green-500 text-white shadow-lg hover:scale-105 transition-transform"
+                    className="focus-ring inline-flex h-20 w-20 md:h-16 md:w-16 items-center justify-center rounded-full bg-green-500 text-white shadow-lg hover:scale-105 transition-transform"
                     onClick={() => void accept()}
                     type="button"
                   >
-                    <Phone className="h-7 w-7" />
+                    <Phone className="h-9 w-9 md:h-7 md:w-7" />
                   </button>
                 </div>
                 <p className="mt-6 text-xs text-gray-400">
@@ -279,20 +279,20 @@ export function CallOverlay() {
         {state.kind === "inCall" ? (
           <div className="mt-5 grid gap-4">
             {state.media === "video" ? (
-              <div className="relative overflow-hidden rounded-3xl bg-black/10">
+              <div className="relative overflow-hidden rounded-3xl bg-black/10 min-h-[60vh] md:min-h-0">
                 <video
                   ref={remoteRef}
                   autoPlay
                   playsInline
-                  className="aspect-video w-full bg-black/20 object-cover"
+                  className="w-full h-full min-h-[60vh] md:aspect-video md:min-h-0 bg-black/20 object-cover"
                 />
-                <div className="absolute bottom-3 right-3 w-[34%] max-w-[240px] overflow-hidden rounded-2xl border border-white/30 bg-black/20 shadow-sm">
+                <div className="absolute bottom-4 right-4 w-[38%] max-w-[240px] min-w-[120px] overflow-hidden rounded-2xl border border-white/30 bg-black/20 shadow-sm">
                   <video
                     ref={localRef}
                     autoPlay
                     muted
                     playsInline
-                    className="aspect-video w-full object-cover"
+                    className="aspect-video w-full object-cover scale-x-[-1]"
                   />
                 </div>
               </div>
@@ -314,9 +314,9 @@ export function CallOverlay() {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center justify-center gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-3 p-2">
               {state.media === "video" ? (
-                <div className="w-full text-center text-xs text-black/55">
+                <div className="w-full text-center text-xs text-black/55 mb-2">
                   Video adapts automatically to bandwidth.
                   {networkQuality.bitrateKbps != null
                     ? ` ${networkQuality.bitrateKbps} kbps`
@@ -327,52 +327,52 @@ export function CallOverlay() {
                 </div>
               ) : null}
               <button
-                className="focus-ring inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
+                className="focus-ring inline-flex h-14 w-14 md:h-12 md:w-12 items-center justify-center rounded-full bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
                 onClick={toggleMic}
                 type="button"
                 title={micEnabled ? "Mute microphone" : "Unmute microphone"}
               >
                 {micEnabled ? (
-                  <Mic className="h-5 w-5" />
+                  <Mic className="h-6 w-6 md:h-5 md:w-5" />
                 ) : (
-                  <MicOff className="h-5 w-5" />
+                  <MicOff className="h-6 w-6 md:h-5 md:w-5" />
                 )}
               </button>
               {state.media === "video" ? (
                 <button
-                  className="focus-ring inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
+                  className="focus-ring inline-flex h-14 w-14 md:h-12 md:w-12 items-center justify-center rounded-full bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
                   onClick={toggleCam}
                   type="button"
                   title={camEnabled ? "Turn camera off" : "Turn camera on"}
                 >
                   {camEnabled ? (
-                    <Video className="h-5 w-5" />
+                    <Video className="h-6 w-6 md:h-5 md:w-5" />
                   ) : (
-                    <VideoOff className="h-5 w-5" />
+                    <VideoOff className="h-6 w-6 md:h-5 md:w-5" />
                   )}
                 </button>
               ) : null}
               <button
-                className="focus-ring inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
+                className="focus-ring inline-flex h-14 w-14 md:h-12 md:w-12 items-center justify-center rounded-full bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
                 onClick={toggleSpeaker}
                 type="button"
                 title={speakerEnabled ? "Turn speaker off" : "Turn speaker on"}
               >
                 {speakerEnabled ? (
-                  <Volume2 className="h-5 w-5" />
+                  <Volume2 className="h-6 w-6 md:h-5 md:w-5" />
                 ) : (
-                  <VolumeX className="h-5 w-5" />
+                  <VolumeX className="h-6 w-6 md:h-5 md:w-5" />
                 )}
               </button>
               {outputDevices.length > 1 && (
                 <div className="relative" ref={deviceSelectorRef}>
                   <button
-                    className="focus-ring inline-flex h-12 items-center justify-center gap-1 rounded-2xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10 px-3"
+                    className="focus-ring inline-flex h-14 md:h-12 items-center justify-center gap-1 rounded-full bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10 px-4"
                     onClick={() => setShowDeviceSelector(!showDeviceSelector)}
                     type="button"
                     title="Switch audio output device"
                   >
-                    <Speaker className="h-5 w-5" />
+                    <Speaker className="h-6 w-6 md:h-5 md:w-5" />
                     <ChevronDown className="h-4 w-4" />
                   </button>
                   {showDeviceSelector && (
@@ -412,11 +412,11 @@ export function CallOverlay() {
                 </div>
               )}
               <button
-                className="focus-ring inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[color:var(--rose-600)] px-5 text-sm font-semibold text-white hover:bg-[color:var(--rose-700)]"
+                className="focus-ring inline-flex h-14 md:h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--rose-600)] px-6 md:px-5 text-sm font-semibold text-white hover:bg-[color:var(--rose-700)]"
                 onClick={() => void hangup()}
                 type="button"
               >
-                <PhoneOff className="h-5 w-5" /> Hang up
+                <PhoneOff className="h-6 w-6 md:h-5 md:w-5" /> Hang up
               </button>
             </div>
           </div>
