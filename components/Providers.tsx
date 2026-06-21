@@ -6,7 +6,21 @@ import { useAuthStore, fetchMe } from "@/stores/auth";
 import { Toasts } from "@/components/Toasts";
 import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import { API_BASE_URL } from "@/lib/env";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
+import * as idb from "idb-keyval";
 import { registerServiceWorker, onMessageListener } from "@/lib/firebase";
+
+const idbPersister = createAsyncStoragePersister({
+  storage:
+    typeof window !== "undefined"
+      ? {
+          getItem: (key) => idb.get(key),
+          setItem: (key, value) => idb.set(key, value),
+          removeItem: (key) => idb.del(key),
+        }
+      : undefined,
+});
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(
@@ -68,10 +82,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [client, setAccessToken, storeSetUser]);
 
   return (
-    <QueryClientProvider client={client}>
+    <PersistQueryClientProvider 
+      client={client}
+      persistOptions={{ persister: idbPersister }}
+    >
       {children}
       <Toasts />
       <HeartbeatLoading />
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   );
 }

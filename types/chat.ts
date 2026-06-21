@@ -50,6 +50,12 @@ export type Msg = {
     createdAt: string;
     user?: ReactionUser;
   }[];
+  linkPreview?: {
+    url: string;
+    title?: string;
+    description?: string;
+    image?: string;
+  };
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;

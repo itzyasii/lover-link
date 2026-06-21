@@ -31,6 +31,7 @@ interface MessageBubbleProps {
   }>;
   ReceiptMark: React.FC<{ m: Msg; otherUserId: string | null }>;
   QUICK_REACTIONS: readonly string[];
+  hideName?: boolean;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -54,6 +55,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   Attachment,
   ReceiptMark,
   QUICK_REACTIONS,
+  hideName,
 }) => {
   const reactionsOpen = openReactionFor === m.id;
   // 5-minute (300000ms) time threshold to disable edit/delete
@@ -85,7 +87,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               : "rounded-bl-md border-black/5 bg-white text-(--wine-900)"
           }`}
         >
-          {!mine ? (
+          {!mine && !hideName ? (
             <div className="mb-1 text-xs font-medium text-black/45">
               {otherDisplayName}
             </div>
@@ -158,6 +160,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           ) : (
             <div className="whitespace-pre-wrap wrap-break-word leading-5">
               {m.text}
+              {m.linkPreview && (
+                <a href={m.linkPreview.url} target="_blank" rel="noopener noreferrer" className={`block mt-3 rounded-lg overflow-hidden transition group ${mine ? 'bg-white/10 hover:bg-white/20 border border-white/20' : 'bg-black/5 hover:bg-black/10 border border-black/10'}`}>
+                  {m.linkPreview.image && <img src={m.linkPreview.image} alt="Preview" className="w-full h-32 object-cover" />}
+                  <div className="p-3">
+                    {m.linkPreview.title && <div className="font-semibold text-sm line-clamp-1">{m.linkPreview.title}</div>}
+                    {m.linkPreview.description && <div className="text-xs opacity-80 mt-1 line-clamp-2">{m.linkPreview.description}</div>}
+                    <div className="text-[10px] opacity-60 mt-1 truncate">{m.linkPreview.url}</div>
+                  </div>
+                </a>
+              )}
             </div>
           )}
 

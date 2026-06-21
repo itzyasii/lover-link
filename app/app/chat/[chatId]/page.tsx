@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { useInView } from "react-intersection-observer";
 import { apiFetch, uploadFile } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/stores/auth";
@@ -21,6 +22,7 @@ import {
   Square,
   Video,
 } from "lucide-react";
+import { VoiceNotePlayer } from "@/components/chat/VoiceNotePlayer";
 import { useCall } from "@/components/call/CallProvider";
 import { formatLastSeen } from "@/lib/time";
 import { MessageBubble } from "@/components/chat/MessageBubble";
@@ -748,6 +750,10 @@ export default function ChatPage() {
         ? formatLastSeen(presence.lastSeenAt)
         : "Private conversation";
 
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const { ref: loadMoreRef, inView } = useInView();
+
   useEffect(() => {
     if (!chatId || messages.length > 0) return; // Only fetch once if messages aren't already loaded
     void apiFetch<{ ok: true; messages: Msg[]; nextCursor: string | null }>(
@@ -755,10 +761,36 @@ export default function ChatPage() {
     ).then((data) => {
       if (data.ok) {
         setMessages(data.messages);
+        setNextCursor(data.nextCursor);
         markMessagesRead(data.messages);
       }
     });
   }, [chatId, messages.length, markMessagesRead]);
+
+  const fetchMore = useCallback(() => {
+    if (!nextCursor || isFetchingMore) return;
+    setIsFetchingMore(true);
+    apiFetch<{ ok: true; messages: Msg[]; nextCursor: string | null }>(
+      `/api/chats/${chatId}/messages?limit=50&before=${nextCursor}`,
+    ).then((data) => {
+      if (data.ok) {
+        setMessages((prev) => {
+          // Prepend older messages while avoiding duplicates
+          const existingIds = new Set(prev.map(m => m.id));
+          const newMessages = data.messages.filter(m => !existingIds.has(m.id));
+          return [...newMessages, ...prev];
+        });
+        setNextCursor(data.nextCursor);
+      }
+      setIsFetchingMore(false);
+    });
+  }, [nextCursor, isFetchingMore, chatId]);
+
+  useEffect(() => {
+    if (inView) {
+      fetchMore();
+    }
+  }, [inView, fetchMore]);
 
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -824,6 +856,7 @@ export default function ChatPage() {
         deletedAt: msg.deletedAt == null ? null : String(msg.deletedAt),
         reactions: normalizeReactions(msg.reactions),
         receipts: Array.isArray(msg.receipts) ? msg.receipts : [],
+        linkPreview: msg.linkPreview as Msg["linkPreview"],
       };
 
       setMessages((prev) => {
@@ -1084,37 +1117,6 @@ export default function ChatPage() {
 
   const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 
-  const VoiceNotePlayer = ({
-    url,
-    durationMs,
-    listened,
-    onListened,
-  }: {
-    url: string;
-    durationMs?: number;
-    listened: boolean;
-    onListened: () => void;
-  }) => {
-    return (
-      <div className="grid gap-2 rounded-[20px] bg-white/55 px-3 py-2">
-        <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-(--wine-900)/55">
-          <span>Voice message</span>
-          <span className="tabular-nums">
-            {durationMs ? formatElapsed(durationMs) : ""}
-          </span>
-        </div>
-        <audio
-          src={url}
-          controls
-          className="w-full"
-          onPlay={() => {
-            if (!listened) onListened();
-          }}
-        />
-      </div>
-    );
-  };
-
   const Attachment = ({
     item,
     message,
@@ -1230,38 +1232,62 @@ export default function ChatPage() {
         ref={messagesContainerRef}
         className="grow space-y-6 overflow-y-auto p-4"
       >
-        {messages.map((m) => {
+        {messages.length > 0 && nextCursor && (
+          <div ref={loadMoreRef} className="py-2 flex justify-center">
+            {isFetchingMore ? (
+              <LoaderCircle className="h-5 w-5 animate-spin text-gray-500" />
+            ) : null}
+          </div>
+        )}
+        {messages.map((m, i) => {
           const mine = m.from === me?.id;
+          const prevMessage = i > 0 ? messages[i - 1] : null;
+          
+          const prevDate = prevMessage ? new Date(prevMessage.createdAt).toLocaleDateString() : null;
+          const currentDate = new Date(m.createdAt).toLocaleDateString();
+          const showDateSeparator = currentDate !== prevDate;
+          
+          const hideName = !showDateSeparator && !!prevMessage && prevMessage.from === m.from;
+
           const reactionGroups = groupReactions(
             m.reactions ?? [],
             me?.id ?? "",
             reactionUserLabels,
           );
           return (
-            <MessageBubble
-              key={m.id}
-              m={m}
-              mine={mine}
-              meId={me?.id}
-              chatId={chatId}
-              otherUserId={otherUserId}
-              otherDisplayName={otherDisplayName}
-              editingId={editingId}
-              editDraft={editDraft}
-              setEditingId={setEditingId}
-              setEditDraft={setEditDraft}
-              openReactionFor={openReactionFor}
-              setOpenReactionFor={setOpenReactionFor}
-              emitReaction={emitReaction}
-              reactionGroups={reactionGroups}
-              reactionUserLabels={reactionUserLabels}
-              formatReactionUsers={formatReactionUsers}
-              setMessages={setMessages}
-              markVoiceListened={markVoiceListened}
-              Attachment={Attachment}
-              ReceiptMark={ReceiptMark}
-              QUICK_REACTIONS={QUICK_REACTIONS}
-            />
+            <Fragment key={m.id}>
+              {showDateSeparator && (
+                <div className="flex justify-center my-4">
+                  <span className="text-xs font-medium bg-black/5 text-gray-500 px-3 py-1 rounded-full">
+                    {currentDate === new Date().toLocaleDateString() ? "Today" : new Date(currentDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+              )}
+              <MessageBubble
+                m={m}
+                mine={mine}
+                meId={me?.id}
+                chatId={chatId}
+                otherUserId={otherUserId}
+                otherDisplayName={otherDisplayName}
+                editingId={editingId}
+                editDraft={editDraft}
+                setEditingId={setEditingId}
+                setEditDraft={setEditDraft}
+                openReactionFor={openReactionFor}
+                setOpenReactionFor={setOpenReactionFor}
+                emitReaction={emitReaction}
+                reactionGroups={reactionGroups}
+                reactionUserLabels={reactionUserLabels}
+                formatReactionUsers={formatReactionUsers}
+                setMessages={setMessages}
+                markVoiceListened={markVoiceListened}
+                Attachment={Attachment}
+                ReceiptMark={ReceiptMark}
+                QUICK_REACTIONS={QUICK_REACTIONS}
+                hideName={hideName}
+              />
+            </Fragment>
           );
         })}
         <div ref={bottomRef} />
