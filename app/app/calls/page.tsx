@@ -70,13 +70,11 @@ export default function CallsPage() {
   const me = useAuthStore((s) => s.user);
   const [labelsVersion, setLabelsVersion] = useState(0);
 
-  const { guaranteedData, isInstantlyAvailable, error, isLoading } =
-    usePrefetchedQuery({
-      queryKey: ["calls"],
-      queryFn: () =>
-        apiFetch<{ ok: true; calls: Call[] }>("/api/calls?limit=50"),
-      retry: false, // Don't retry on 404
-    });
+  const { guaranteedData, error, isLoading } = usePrefetchedQuery({
+    queryKey: ["calls"],
+    queryFn: () => apiFetch<{ ok: true; calls: Call[] }>("/api/calls?limit=50"),
+    retry: false, // Don't retry on 404
+  });
 
   const calls = guaranteedData?.calls ?? EMPTY_CALLS;
 
@@ -121,7 +119,7 @@ export default function CallsPage() {
           </p>
           <Link
             href="/app"
-            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-rose-500 to-rose-600 px-6 py-3 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
+            className="inline-flex items-center gap-2 rounded-full bg-linear-to-br from-rose-500 to-rose-600 px-6 py-3 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
           >
             <MessageCircle className="h-4 w-4" />
             Go to messages

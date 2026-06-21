@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { ChevronRight, MessageSquarePlus, MessageCircle } from "lucide-react";
@@ -99,40 +100,106 @@ export default function ChatsPage() {
   // Track online users via socket.io instead of REST polling (per FRONTEND_INTEGRATION.md)
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [lastSeen, setLastSeen] = useState<Map<string, string>>(new Map());
+  const queryClient = useQueryClient(); // For refetching data when tab becomes visible
+
+  // Refetch chats when page becomes visible (when returning from chat)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        // Refetch chats to get latest messages and updates
+        queryClient.invalidateQueries({ queryKey: ["chats"] });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [queryClient]);
 
   useEffect(() => {
     const s = getSocket();
     if (!s.connected) s.connect();
 
-    // Get initial online users list
-    s.emit("presence:list", (response: { ok: boolean; users: string[] }) => {
-      if (response.ok) {
-        setOnlineUsers(new Set(response.users));
-      }
-    });
+    // Get initial online users list and last seen data
+    s.emit(
+      "presence:list",
+      (response: {
+        ok: boolean;
+        users: string[];
+        lastSeen?: Record<string, string>;
+      }) => {
+        if (response.ok) {
+          setOnlineUsers(new Set(response.users));
+          // Update last seen map if server returns it
+          if (response.lastSeen) {
+            setLastSeen(new Map(Object.entries(response.lastSeen)));
+          }
+        }
+      },
+    );
 
     // Listen for presence updates (when users come online/go offline)
-    const handlePresenceUpdate = (data: { ok: boolean; users: string[] }) => {
+    const handlePresenceUpdate = (data: {
+      ok: boolean;
+      users: string[];
+      lastSeen?: Record<string, string>;
+    }) => {
       if (data.ok) {
         setOnlineUsers(new Set(data.users));
+        // Update last seen map if server returns it
+        if (data.lastSeen) {
+          setLastSeen(new Map(Object.entries(data.lastSeen)));
+        }
       }
     };
 
     // Initial online list on connect
-    const handlePresenceOnline = (data: { ok: boolean; users: string[] }) => {
+    const handlePresenceOnline = (data: {
+      ok: boolean;
+      users: string[];
+      lastSeen?: Record<string, string>;
+    }) => {
       if (data.ok) {
         setOnlineUsers(new Set(data.users));
+        // Update last seen map if server returns it
+        if (data.lastSeen) {
+          setLastSeen(new Map(Object.entries(data.lastSeen)));
+        }
+      }
+    };
+
+    // Listen for new messages to update chat list in realtime
+    interface Message {
+      id: string;
+      from: string;
+      chatId: string;
+      text?: string;
+      createdAt: string;
+    }
+
+    const handleNewMessage = (data: {
+      ok: boolean;
+      chatId: string;
+      message: Message;
+    }) => {
+      if (data.ok) {
+        // Invalidate queries to refresh chat list with new message
+        queryClient.invalidateQueries({ queryKey: ["chats"] });
       }
     };
 
     s.on("presence:update", handlePresenceUpdate);
     s.on("presence:online", handlePresenceOnline);
+    s.on("chat:message", handleNewMessage);
+    s.on("share:item", handleNewMessage);
 
     return () => {
       s.off("presence:update", handlePresenceUpdate);
       s.off("presence:online", handlePresenceOnline);
+      s.off("chat:message", handleNewMessage);
+      s.off("share:item", handleNewMessage);
     };
-  }, []);
+  }, [queryClient]);
 
   // Create presence map for easy access - just track online status, lastSeen can be cached
   const presenceByUserId = useMemo(() => {

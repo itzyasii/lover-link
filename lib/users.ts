@@ -6,6 +6,10 @@ type BasicUser = { id: string; username: string; email: string; lastSeenAt: stri
 
 const cache = new Map<string, BasicUser>();
 
+export function getCachedUser(id: string) {
+  return cache.get(id) ?? null;
+}
+
 export function getCachedUserLabel(id: string) {
   const u = cache.get(id);
   return u?.username ?? null;

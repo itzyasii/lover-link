@@ -3,7 +3,6 @@
 import { create } from "zustand";
 import { API_BASE_URL } from "@/lib/env";
 import { apiFetch } from "@/lib/api";
-import { unregisterFcmTokenFromBackend } from "@/lib/firebase";
 
 export type User = { id: string; email: string; username: string };
 
@@ -98,24 +97,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: json.user });
   },
   logout: async () => {
-    // Unregister FCM token before logging out
+    // Unregister FCM token in single API call to logout endpoint
     const currentFcmToken = get().fcmToken;
-    if (currentFcmToken) {
-      try {
-        console.log("[Auth] Unregistering FCM token during logout");
-        await unregisterFcmTokenFromBackend(currentFcmToken);
-      } catch (error) {
-        console.warn(
-          "[Auth] Failed to unregister FCM token during logout:",
-          error,
-        );
-      }
-    }
 
     try {
       await fetch(`${API_BASE_URL}/api/auth/logout`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        body: currentFcmToken
+          ? JSON.stringify({ fcmToken: currentFcmToken })
+          : undefined,
       });
     } catch (error) {
       console.warn(

@@ -16,101 +16,26 @@ import {
   LoaderCircle,
   Mic,
   Paperclip,
-  Pencil,
   Phone,
   Send,
-  SmilePlus,
   Square,
-  Trash2,
   Video,
-  X,
 } from "lucide-react";
-import { API_BASE_URL } from "@/lib/env";
 import { useCall } from "@/components/call/CallProvider";
 import { formatLastSeen } from "@/lib/time";
+import { MessageBubble } from "@/components/chat/MessageBubble";
+import {
+  Chat,
+  ChatMember,
+  Msg,
+  ReactionGroup,
+  ReactionUser,
+  ShareItem,
+} from "@/types/chat";
 import {
   RomanticImageAttachment,
   RomanticVideoAttachment,
 } from "@/components/chat/MediaAttachments";
-
-type Chat = {
-  id: string;
-  type: "dm";
-  members: ChatMember[];
-};
-
-type ChatMember = string | { id: string; email?: string; username?: string };
-
-type ShareItem = {
-  kind?: "file" | "image" | "video" | "audio";
-  url?: string;
-  legacyUrl?: string;
-  originalName?: string;
-  mime?: string;
-  size?: number;
-  meta?: Record<string, unknown>;
-} & Record<string, unknown>;
-
-type ReactionUser = {
-  id: string;
-  username?: string;
-  email?: string;
-};
-
-export type Msg = {
-  id: string;
-  chatId: string;
-  from: string;
-  type: "text" | "share" | "event";
-  text: string | null;
-  item: ShareItem | null;
-  event?: {
-    kind: "call_started" | "call_ended";
-    media: "audio" | "video";
-    callId: string;
-    by: string;
-    durationMs?: number;
-  } | null;
-  receipts: {
-    userId: string;
-    deliveredAt?: string;
-    readAt?: string;
-    listenedAt?: string;
-  }[];
-  reactions?: {
-    emoji: string;
-    userId: string;
-    createdAt: string;
-    user?: ReactionUser;
-  }[];
-  createdAt: string;
-  editedAt: string | null;
-  deletedAt: string | null;
-};
-
-const QUICK_REACTIONS = [
-  "\uD83D\uDC4D",
-  "\u2764\uFE0F",
-  "\uD83D\uDE02",
-  "\uD83D\uDE2E",
-  "\uD83D\uDE22",
-  "\uD83D\uDE21",
-  "\uD83D\uDC4E",
-] as const;
-
-type ReactionAck = {
-  ok: boolean;
-  action?: "added" | "removed";
-  user?: ReactionUser;
-};
-
-type ReactionGroup = {
-  emoji: string;
-  count: number;
-  me: boolean;
-  userIds: string[];
-  userLabels: string[];
-};
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (typeof v !== "object" || v == null) return null;
@@ -211,6 +136,76 @@ function applyReactionActionLocal(
       (reaction) => !(reaction.emoji === emoji && reaction.userId === userId),
     ),
   };
+}
+
+function toggleReactionLocal(
+  msg: Msg,
+  meId: string,
+  emoji: string,
+  user?: ReactionUser,
+): Msg {
+  const reactions = msg.reactions ?? [];
+  const exists = reactions.some((r) => r.emoji === emoji && r.userId === meId);
+  return exists
+    ? {
+        ...msg,
+        reactions: reactions.filter(
+          (r) => !(r.emoji === emoji && r.userId === meId),
+        ),
+      }
+    : {
+        ...msg,
+        reactions: [
+          ...reactions,
+          { emoji, userId: meId, createdAt: new Date().toISOString(), user },
+        ],
+      };
+}
+
+function groupReactions(
+  reactions: NonNullable<Msg["reactions"]>,
+  meId: string,
+  labels: Map<string, string>,
+): ReactionGroup[] {
+  const byEmoji = new Map<string, ReactionGroup>();
+  for (const reaction of reactions) {
+    const label =
+      reaction.userId === meId
+        ? "You"
+        : reaction.user?.username?.trim() ||
+          reaction.user?.email?.trim() ||
+          labels.get(reaction.userId) ||
+          "Unknown";
+    const prev = byEmoji.get(reaction.emoji);
+    if (!prev) {
+      byEmoji.set(reaction.emoji, {
+        emoji: reaction.emoji,
+        count: 1,
+        me: reaction.userId === meId,
+        userIds: [reaction.userId],
+        userLabels: [label],
+      });
+      continue;
+    }
+    prev.count += 1;
+    if (reaction.userId === meId) prev.me = true;
+    if (!prev.userIds.includes(reaction.userId))
+      prev.userIds.push(reaction.userId);
+    if (!prev.userLabels.includes(label)) prev.userLabels.push(label);
+  }
+  return [...byEmoji.values()].sort((a, b) => b.count - a.count);
+}
+
+function formatReactionUsers(userLabels: string[]) {
+  const unique = Array.from(new Set(userLabels.filter(Boolean))).sort(
+    (a, b) => {
+      if (a === "You") return -1;
+      if (b === "You") return 1;
+      return a.localeCompare(b);
+    },
+  );
+  if (unique.length <= 2) return unique.join(", ");
+  return `${unique[0]}, ${unique[1]} +${unique.length - 2}`;
 }
 
 function formatElapsed(ms: number) {
@@ -563,7 +558,13 @@ export default function ChatPage() {
     s.emit(
       "chat:react",
       { messageId, emoji },
-      (ack: ReactionAck & { error?: string }) => {
+      (
+        ack: {
+          ok: boolean;
+          action?: "added" | "removed";
+          user?: ReactionUser;
+        } & { error?: string },
+      ) => {
         if (settled) return;
         settled = true;
         window.clearTimeout(timeoutId);
@@ -681,6 +682,17 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!otherUserId) return;
+    import("@/lib/users").then(async ({ resolveUserLabels, getCachedUser }) => {
+      await resolveUserLabels([otherUserId]);
+      const u = getCachedUser(otherUserId);
+      if (u?.lastSeenAt) {
+        setOtherUserLastSeen(u.lastSeenAt);
+      }
+    });
+  }, [otherUserId]);
+
+  useEffect(() => {
+    if (!otherUserId) return;
 
     const s = getSocket();
     if (!s.connected) s.connect();
@@ -695,7 +707,12 @@ export default function ChatPage() {
     // Listen for presence updates (when users come online/go offline)
     const handlePresenceUpdate = (data: { ok: boolean; users: string[] }) => {
       if (data.ok) {
-        setIsOtherUserOnline(data.users.includes(otherUserId));
+        const isOnline = data.users.includes(otherUserId);
+        setIsOtherUserOnline(isOnline);
+        if (!isOnline) {
+          // They just went offline, fallback to "just now" or fetch real DB value
+          setOtherUserLastSeen(new Date().toISOString());
+        }
       }
     };
 
@@ -732,191 +749,117 @@ export default function ChatPage() {
         : "Private conversation";
 
   useEffect(() => {
-    if (!chatId) return;
+    if (!chatId || messages.length > 0) return; // Only fetch once if messages aren't already loaded
     void apiFetch<{ ok: true; messages: Msg[]; nextCursor: string | null }>(
       `/api/chats/${chatId}/messages?limit=50`,
-    )
-      .then((r) =>
-        setMessages(
-          r.messages.map((m) => ({
-            ...m,
-            reactions: normalizeReactions(m.reactions),
-            event: normalizeEvent(m.event),
-          })),
-        ),
-      )
-      .catch(() => setMessages([]));
-  }, [chatId]);
+    ).then((data) => {
+      if (data.ok) {
+        setMessages(data.messages);
+        markMessagesRead(data.messages);
+      }
+    });
+  }, [chatId, messages.length, markMessagesRead]);
+
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    markMessagesRead(messages);
-  }, [messages, markMessagesRead]);
+    const container = messagesContainerRef.current;
+    if (!container) return;
 
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") markMessagesRead(messages);
+    const handleScroll = () => {
+      // Simple scroll-to-bottom button logic
+      const isScrolledToBottom =
+        container.scrollHeight - container.clientHeight <=
+        container.scrollTop + 1;
+      // You can add a state here to show/hide a "scroll to bottom" button
     };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [messages, markMessagesRead]);
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
 
   useEffect(() => {
     const s = getSocket();
     if (!s.connected) s.connect();
-    typingAckFailedOnce.current = false;
 
     const onTyping = (p: unknown) => {
       const r = asRecord(p);
       if (!r) return;
-      if (String(r.chatId ?? "") !== chatId) return;
+      if (r.chatId !== chatId) return;
       const from = r.from == null ? null : String(r.from);
-      if (from && from !== me?.id) setTypingFrom(r.isTyping ? from : null);
+      if (!from) return;
+      setTypingFrom(from);
+      setTimeout(() => setTypingFrom(null), 3000);
     };
 
-    const onNew = (p: unknown) => {
+    const onMessage = (p: unknown) => {
       const r = asRecord(p);
       if (!r) return;
-      if (String(r.chatId ?? "") !== chatId) return;
-      const raw = r.message as Msg | undefined;
-      if (!raw || typeof raw.id !== "string") return;
-      const m = {
-        ...raw,
-        reactions: normalizeReactions(raw.reactions),
-        event: normalizeEvent(raw.event),
+      const msg = asRecord(r.message);
+      if (!msg) return;
+      if (msg.chatId !== chatId) return;
+
+      const normalized: Msg = {
+        id: msg.id == null ? "" : String(msg.id),
+        from: msg.from == null ? "" : String(msg.from),
+        chatId: msg.chatId == null ? "" : String(msg.chatId),
+        text: msg.text == null ? null : String(msg.text),
+        item: msg.item == null ? null : (msg.item as ShareItem),
+        event: normalizeEvent(msg.event),
+        type:
+          msg.type === "text" || msg.type === "share" || msg.type === "event"
+            ? msg.type
+            : "text",
+        createdAt:
+          msg.createdAt == null
+            ? new Date().toISOString()
+            : String(msg.createdAt),
+        editedAt: msg.editedAt == null ? null : String(msg.editedAt),
+        deletedAt: msg.deletedAt == null ? null : String(msg.deletedAt),
+        reactions: normalizeReactions(msg.reactions),
+        receipts: Array.isArray(msg.receipts) ? msg.receipts : [],
       };
-      setMessages((prev) =>
-        prev.some((x) => x.id === m.id) ? prev : [...prev, m],
-      );
-      if (m.from !== me?.id) {
-        if (
-          typeof document !== "undefined" &&
-          document.visibilityState === "visible"
-        ) {
-          s.emit("chat:read", { messageIds: [m.id] });
-        } else {
-          // Play sound if tab is in background
-          import("@/lib/sounds").then(({ playMessageSound }) =>
-            playMessageSound(),
-          );
+
+      setMessages((prev) => {
+        const existing = prev.find((m) => m.id === normalized.id);
+        if (existing) {
+          return prev.map((m) => (m.id === normalized.id ? normalized : m));
         }
-      }
+        return [...prev, normalized];
+      });
+      markMessagesRead([normalized]);
     };
 
-    const onEdited = (p: unknown) => {
+    const onMessageEdit = (p: unknown) => {
       const r = asRecord(p);
       if (!r) return;
-      if (String(r.chatId ?? "") !== chatId) return;
-      const m = r.message as Msg | undefined;
-      if (!m || typeof m.id !== "string") return;
+      const messageId = r.messageId == null ? null : String(r.messageId);
+      const text = r.text == null ? null : String(r.text);
+      const editedAt =
+        r.editedAt == null ? new Date().toISOString() : String(r.editedAt);
+      if (!messageId) return;
       setMessages((prev) =>
-        prev.map((x) => (x.id === m.id ? { ...x, ...m } : x)),
+        prev.map((m) => (m.id === messageId ? { ...m, text, editedAt } : m)),
       );
     };
 
-    const onDeleted = (p: unknown) => {
+    const onMessageDelete = (p: unknown) => {
       const r = asRecord(p);
       if (!r) return;
-      if (String(r.chatId ?? "") !== chatId) return;
-      const id = typeof r.messageId === "string" ? r.messageId : "";
-      if (!id) return;
+      const messageId = r.messageId == null ? null : String(r.messageId);
+      const deletedAt =
+        r.deletedAt == null ? new Date().toISOString() : String(r.deletedAt);
+      if (!messageId) return;
       setMessages((prev) =>
-        prev.map((x) =>
-          x.id === id
-            ? {
-                ...x,
-                text: null,
-                item: null,
-                reactions: [],
-                deletedAt: new Date().toISOString(),
-              }
-            : x,
+        prev.map((m) =>
+          m.id === messageId ? { ...m, text: null, deletedAt } : m,
         ),
-      );
-    };
-
-    const onReceipt = (p: unknown) => {
-      const r = asRecord(p);
-      if (!r) return;
-      if (String(r.chatId ?? "") !== chatId) return;
-      const ids: string[] = Array.isArray(r.messageIds)
-        ? (r.messageIds as string[])
-        : [];
-      const uid: string | undefined =
-        typeof r.userId === "string" ? r.userId : undefined;
-      const at: string =
-        typeof r.at === "string" ? r.at : new Date().toISOString();
-      const typ: "delivered" | "read" | undefined =
-        r.type === "delivered" || r.type === "read" ? r.type : undefined;
-      if (!uid || ids.length === 0 || !typ) return;
-
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (!ids.includes(m.id)) return m;
-          if (m.from !== me?.id) return m;
-          const existing = m.receipts?.find((r) => r.userId === uid);
-          const receipts = existing
-            ? m.receipts.map((r) =>
-                r.userId !== uid
-                  ? r
-                  : {
-                      ...r,
-                      deliveredAt: r.deliveredAt ?? at,
-                      readAt: typ === "read" ? at : r.readAt,
-                      listenedAt: r.listenedAt,
-                    },
-              )
-            : [
-                ...(m.receipts ?? []),
-                {
-                  userId: uid,
-                  deliveredAt: at,
-                  readAt: typ === "read" ? at : undefined,
-                  listenedAt: undefined,
-                },
-              ];
-          return { ...m, receipts };
-        }),
-      );
-    };
-
-    const onVoiceListened = (p: unknown) => {
-      const r = asRecord(p);
-      if (!r) return;
-      if (String(r.chatId ?? "") !== chatId) return;
-      const messageId = typeof r.messageId === "string" ? r.messageId : "";
-      const userId = typeof r.userId === "string" ? r.userId : "";
-      const at = typeof r.at === "string" ? r.at : new Date().toISOString();
-      if (!messageId || !userId) return;
-
-      setMessages((prev) =>
-        prev.map((message) => {
-          if (message.id !== messageId) return message;
-          const existing = message.receipts?.find(
-            (entry) => entry.userId === userId,
-          );
-          const receipts = existing
-            ? (message.receipts ?? []).map((entry) =>
-                entry.userId !== userId
-                  ? entry
-                  : {
-                      ...entry,
-                      deliveredAt: entry.deliveredAt ?? at,
-                      readAt: entry.readAt ?? at,
-                      listenedAt: entry.listenedAt ?? at,
-                    },
-              )
-            : [
-                ...(message.receipts ?? []),
-                {
-                  userId,
-                  deliveredAt: at,
-                  readAt: at,
-                  listenedAt: at,
-                },
-              ];
-          return { ...message, receipts };
-        }),
       );
     };
 
@@ -954,684 +897,188 @@ export default function ChatPage() {
       );
     };
 
+    const onRead = (p: unknown) => {
+      const r = asRecord(p);
+      if (!r) return;
+      const messageIds = Array.isArray(r.messageIds) ? r.messageIds : [];
+      const userId = r.userId == null ? null : String(r.userId);
+      const readAt =
+        r.readAt == null ? new Date().toISOString() : String(r.readAt);
+      if (!userId || !messageIds.length) return;
+
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (!messageIds.includes(m.id)) return m;
+          const receipts = m.receipts ?? [];
+          const existing = receipts.find((entry) => entry.userId === userId);
+          if (existing) {
+            return {
+              ...m,
+              receipts: receipts.map((entry) =>
+                entry.userId === userId
+                  ? { ...entry, readAt: entry.readAt ?? readAt }
+                  : entry,
+              ),
+            };
+          }
+          return {
+            ...m,
+            receipts: [...receipts, { userId, readAt }],
+          };
+        }),
+      );
+    };
+
+    const onDelivered = (p: unknown) => {
+      const r = asRecord(p);
+      if (!r) return;
+      const messageIds = Array.isArray(r.messageIds) ? r.messageIds : [];
+      const userId = r.userId == null ? null : String(r.userId);
+      const deliveredAt =
+        r.deliveredAt == null
+          ? new Date().toISOString()
+          : String(r.deliveredAt);
+      if (!userId || !messageIds.length) return;
+
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (!messageIds.includes(m.id)) return m;
+          const receipts = m.receipts ?? [];
+          const existing = receipts.find((entry) => entry.userId === userId);
+          if (existing) {
+            return {
+              ...m,
+              receipts: receipts.map((entry) =>
+                entry.userId === userId
+                  ? { ...entry, deliveredAt: entry.deliveredAt ?? deliveredAt }
+                  : entry,
+              ),
+            };
+          }
+          return {
+            ...m,
+            receipts: [...receipts, { userId, deliveredAt }],
+          };
+        }),
+      );
+    };
+
+    const onVoiceListened = (p: unknown) => {
+      const r = asRecord(p);
+      if (!r) return;
+      const messageId = r.messageId == null ? null : String(r.messageId);
+      const userId = r.userId == null ? null : String(r.userId);
+      const listenedAt =
+        r.listenedAt == null ? new Date().toISOString() : String(r.listenedAt);
+      if (!userId || !messageId) return;
+
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId) return m;
+          const receipts = m.receipts ?? [];
+          const existing = receipts.find((entry) => entry.userId === userId);
+          if (existing) {
+            return {
+              ...m,
+              receipts: receipts.map((entry) =>
+                entry.userId === userId
+                  ? { ...entry, listenedAt: entry.listenedAt ?? listenedAt }
+                  : entry,
+              ),
+            };
+          }
+          return {
+            ...m,
+            receipts: [...receipts, { userId, listenedAt }],
+          };
+        }),
+      );
+    };
+
     s.on("chat:typing", onTyping);
-    s.on("chat:message", onNew);
-    s.on("share:item", onNew);
-    s.on("chat:message:edited", onEdited);
-    s.on("chat:message:deleted", onDeleted);
-    s.on("chat:receipt", onReceipt);
+    s.on("chat:message", onMessage);
+    s.on("chat:edit", onMessageEdit);
+    s.on("chat:delete", onMessageDelete);
+    s.on("chat:react", onReaction);
+    s.on("chat:read", onRead);
+    s.on("chat:delivered", onDelivered);
     s.on("chat:voice:listened", onVoiceListened);
-    s.on("chat:reaction", onReaction);
 
     return () => {
       s.off("chat:typing", onTyping);
-      s.off("chat:message", onNew);
-      s.off("share:item", onNew);
-      s.off("chat:message:edited", onEdited);
-      s.off("chat:message:deleted", onDeleted);
-      s.off("chat:receipt", onReceipt);
+      s.off("chat:message", onMessage);
+      s.off("chat:edit", onMessageEdit);
+      s.off("chat:delete", onMessageDelete);
+      s.off("chat:react", onReaction);
+      s.off("chat:read", onRead);
+      s.off("chat:delivered", onDelivered);
       s.off("chat:voice:listened", onVoiceListened);
-      s.off("chat:reaction", onReaction);
     };
-  }, [chatId, me?.id, reactionUserDirectory]);
+  }, [chatId, markMessagesRead, reactionUserDirectory]);
 
-  // Auto-scroll to bottom logic - always stay at bottom like modern messaging apps
-  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
-  const shouldAutoScroll = useRef(true);
-
-  // Handle scroll events to detect if user is manually scrolling up
-  const handleScroll = useCallback(() => {
-    if (!messagesContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } =
-      messagesContainerRef.current;
-    // If user is within 100px of bottom, enable auto-scroll, otherwise disable
-    shouldAutoScroll.current = scrollHeight - scrollTop - clientHeight < 100;
-  }, []);
-
-  // Scroll to bottom whenever messages change, but only if shouldAutoScroll is true
-  useEffect(() => {
-    if (shouldAutoScroll.current && messagesContainerRef.current) {
-      // Use instant scroll for new messages to be snappier, smooth scroll can cause jank
-      messagesContainerRef.current.scrollTop =
-        messagesContainerRef.current.scrollHeight;
+  const sendMessage = () => {
+    if (!text.trim()) return;
+    const s = ensureSocket();
+    if (editingId) {
+      s.emit("chat:edit", { messageId: editingId, text });
+      setEditingId(null);
+      setEditDraft("");
+    } else {
+      s.emit("chat:message", { chatId, text });
     }
-    // Also scroll to bottom when initial messages load
-    if (messages.length > 0 && messagesContainerRef.current) {
-      setTimeout(() => {
-        if (messagesContainerRef.current) {
-          messagesContainerRef.current.scrollTop =
-            messagesContainerRef.current.scrollHeight;
-        }
-      }, 100);
+    setText("");
+    if (typingTimer.current) {
+      clearTimeout(typingTimer.current);
+      typingTimer.current = null;
+      emitTyping(false);
     }
-  }, [messages]);
+  };
 
-  // Force scroll to bottom when component mounts (initial load)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (messagesContainerRef.current) {
-        messagesContainerRef.current.scrollTop =
-          messagesContainerRef.current.scrollHeight;
-      }
-    }, 200);
-    return () => clearTimeout(timer);
-  }, []);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
 
-  useEffect(() => () => clearVoiceRecorder(), []);
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    setText(e.currentTarget.value);
+    if (!typingTimer.current) {
+      emitTyping(true);
+    } else {
+      clearTimeout(typingTimer.current);
+    }
+    typingTimer.current = window.setTimeout(() => {
+      emitTyping(false);
+      typingTimer.current = null;
+    }, 3000);
+  };
 
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-black/5 bg-white px-3 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <ChatAvatar
-            name={otherDisplayName}
-            online={Boolean(presence?.isOnline)}
-          />
-          <div className="min-w-0">
-            <div className="truncate text-base font-semibold text-[color:var(--wine-900)]">
-              {otherDisplayName}
-            </div>
-            <div className="mt-0.5 flex items-center gap-2 text-xs text-black/50">
-              {typingFrom ? (
-                <>
-                  <span
-                    className="typing-dots"
-                    aria-label="Typing"
-                    title="Typing"
-                  >
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                  <span>Typing</span>
-                </>
-              ) : (
-                <span>{conversationStatus}</span>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            className="focus-ring grid h-10 w-10 place-items-center rounded-xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
-            onClick={() => {
-              if (otherUserId) void startCall(otherUserId, "audio");
-            }}
-            title="Audio call"
-            type="button"
-          >
-            <Phone className="h-4 w-4" />
-          </button>
-          <button
-            className="focus-ring grid h-10 w-10 place-items-center rounded-xl bg-[color:var(--rose-600)] text-white hover:bg-[color:var(--rose-700)]"
-            onClick={() => {
-              if (otherUserId) void startCall(otherUserId, "video");
-            }}
-            title="Video call"
-            type="button"
-          >
-            <Video className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+  // const reactionGroups = useMemo(
+  //   () => (m: Msg) =>
+  //     groupReactions(m.reactions ?? [], me?.id ?? "", reactionUserLabels),
+  //   [me?.id, reactionUserLabels],
+  // );
 
-      <div className="flex min-h-0 flex-1 flex-col bg-[#fbf8fa]">
-        <div
-          ref={messagesContainerRef}
-          onScroll={handleScroll}
-          className="min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto px-3 py-4 scroll-smooth"
-        >
-          {messages.map((m) => {
-            if (m.type === "event") {
-              const label =
-                m.event?.kind === "call_started"
-                  ? `${m.event.media === "video" ? "Video" : "Audio"} call started`
-                  : m.event?.kind === "call_ended"
-                    ? `${m.event.media === "video" ? "Video" : "Audio"} call ended`
-                    : "Event";
-              const duration =
-                typeof m.event?.durationMs === "number" &&
-                m.event.durationMs > 0
-                  ? ` · ${formatElapsed(m.event.durationMs)}`
-                  : "";
-              return (
-                <div key={m.id} className="flex justify-center py-1">
-                  <div className="rounded-full border border-black/5 bg-white px-3 py-1 text-xs font-medium text-black/50">
-                    {label}
-                    <span className="tabular-nums">{duration}</span>
-                  </div>
-                </div>
-              );
-            }
+  const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 
-            const mine = m.from === me?.id;
-            const reactions = m.reactions ?? [];
-            const reactionGroups = groupReactions(
-              reactions,
-              me?.id ?? "",
-              reactionUserLabels,
-            );
-            const reactionSummary = reactionGroups
-              .map(
-                (reaction) =>
-                  reaction.emoji +
-                  " " +
-                  formatReactionUsers(reaction.userLabels),
-              )
-              .join(" · ");
-            const reactionsOpen = openReactionFor === m.id;
-            return (
-              <div
-                key={m.id}
-                className={`flex w-full ${mine ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`group relative flex max-w-[min(88%,42rem)] items-end gap-2 ${
-                    mine ? "flex-row-reverse" : ""
-                  }`}
-                >
-                  <div
-                    className={`min-w-0 rounded-2xl border px-3 py-2 text-sm shadow-sm ${
-                      mine
-                        ? "rounded-br-md border-[color:var(--rose-600)]/15 bg-[color:var(--rose-600)] text-white"
-                        : "rounded-bl-md border-black/5 bg-white text-[color:var(--wine-900)]"
-                    }`}
-                  >
-                    {!mine ? (
-                      <div className="mb-1 text-xs font-medium text-black/45">
-                        {otherDisplayName}
-                      </div>
-                    ) : null}
-
-                    {m.deletedAt ? (
-                      <span
-                        className={
-                          mine ? "italic text-white/70" : "italic text-black/45"
-                        }
-                      >
-                        Message deleted
-                      </span>
-                    ) : editingId === m.id ? (
-                      <div className="grid gap-2">
-                        <textarea
-                          className="focus-ring w-full resize-none rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-[color:var(--wine-900)]"
-                          rows={3}
-                          value={editDraft}
-                          onChange={(e) => setEditDraft(e.target.value)}
-                        />
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            className="focus-ring grid h-9 w-9 place-items-center rounded-xl bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
-                            onClick={() => {
-                              setEditingId(null);
-                              setEditDraft("");
-                            }}
-                            title="Cancel"
-                            type="button"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                          <button
-                            className="focus-ring grid h-9 w-9 place-items-center rounded-xl bg-[color:var(--rose-600)] text-white hover:bg-[color:var(--rose-700)]"
-                            onClick={async () => {
-                              const next = editDraft.trim();
-                              if (!next) return;
-                              await apiFetch(
-                                `/api/chats/${chatId}/messages/${m.id}`,
-                                {
-                                  method: "PATCH",
-                                  body: JSON.stringify({ text: next }),
-                                  trackLoading: false,
-                                },
-                              );
-                              setMessages((prev) =>
-                                prev.map((x) =>
-                                  x.id === m.id
-                                    ? {
-                                        ...x,
-                                        text: next,
-                                        editedAt: new Date().toISOString(),
-                                      }
-                                    : x,
-                                ),
-                              );
-                              setEditingId(null);
-                              setEditDraft("");
-                            }}
-                            title="Save"
-                            type="button"
-                          >
-                            <Check className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : m.type === "share" &&
-                      (m.item?.url || m.item?.legacyUrl) ? (
-                      <Attachment
-                        item={m.item}
-                        message={m}
-                        meId={me?.id}
-                        onVoiceListened={markVoiceListened}
-                      />
-                    ) : (
-                      <div className="whitespace-pre-wrap break-words leading-5">
-                        {m.text}
-                      </div>
-                    )}
-
-                    {reactionGroups.length ? (
-                      <div
-                        className={`mt-2 max-w-full rounded-xl px-2 py-1.5 ${
-                          mine ? "bg-white/15" : "bg-black/[0.03]"
-                        }`}
-                      >
-                        <div className="flex max-w-full flex-wrap gap-1">
-                          {reactionGroups.map((r) => (
-                            <button
-                              key={r.emoji}
-                              type="button"
-                              className={`inline-flex max-w-full items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-medium transition ${
-                                r.me
-                                  ? mine
-                                    ? "bg-white/25 text-white"
-                                    : "bg-[color:var(--rose-600)]/10 text-[color:var(--rose-700)]"
-                                  : mine
-                                    ? "bg-white/15 text-white/85"
-                                    : "bg-white text-black/65"
-                              }`}
-                              onClick={() => emitReaction(m.id, r.emoji)}
-                              title={formatReactionUsers(r.userLabels)}
-                              aria-label={formatReactionUsers(r.userLabels)}
-                            >
-                              <span className="text-[13px] leading-none">
-                                {r.emoji}
-                              </span>
-                              <span className="tabular-nums">{r.count}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div
-                      className={`mt-2 flex items-center gap-1.5 text-[11px] ${
-                        mine ? "text-gray-500" : "text-gray-400"
-                      }`}
-                    >
-                      {new Date(m.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      {mine ? (
-                        <span className="ml-1.5 inline-flex items-center">
-                          <ReceiptMark m={m} otherUserId={otherUserId} />
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {!m.deletedAt && editingId !== m.id ? (
-                    <div className="relative flex shrink-0 items-center gap-1 rounded-xl border border-black/5 bg-white p-1 opacity-100 shadow-sm md:opacity-0 md:transition md:group-hover:opacity-100">
-                      <button
-                        type="button"
-                        className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-[color:var(--wine-900)]/65 hover:bg-black/5"
-                        onClick={() =>
-                          setOpenReactionFor((cur) =>
-                            cur === m.id ? null : m.id,
-                          )
-                        }
-                        aria-label="Reactions"
-                        title="Reactions"
-                      >
-                        <SmilePlus className="h-3.5 w-3.5" />
-                      </button>
-
-                      <div
-                        className={`absolute top-10 z-10 max-w-[220px] flex-wrap items-center gap-1 rounded-xl border border-black/10 bg-white p-1 shadow-lg ${
-                          reactionsOpen ? "flex" : "hidden"
-                        } ${mine ? "right-0" : "left-0"}`}
-                      >
-                        {QUICK_REACTIONS.map((e) => (
-                          <button
-                            key={e}
-                            type="button"
-                            className="grid h-8 w-8 place-items-center rounded-lg transition hover:bg-black/5"
-                            onClick={() => emitReaction(m.id, e)}
-                            aria-label={`React ${e}`}
-                          >
-                            <span className="text-sm leading-none">{e}</span>
-                          </button>
-                        ))}
-                      </div>
-
-                      {mine ? (
-                        <>
-                          {m.type === "text" ? (
-                            <button
-                              className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-[color:var(--wine-900)]/65 hover:bg-black/5"
-                              onClick={() => {
-                                setEditingId(m.id);
-                                setEditDraft(m.text ?? "");
-                              }}
-                              type="button"
-                              aria-label="Edit"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                          ) : null}
-                          <button
-                            className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-[color:var(--wine-900)]/65 hover:bg-black/5"
-                            onClick={async () => {
-                              await apiFetch(
-                                `/api/chats/${chatId}/messages/${m.id}`,
-                                { method: "DELETE", trackLoading: false },
-                              );
-                              setMessages((prev) =>
-                                prev.map((x) =>
-                                  x.id === m.id
-                                    ? {
-                                        ...x,
-                                        text: null,
-                                        item: null,
-                                        reactions: [],
-                                        deletedAt: new Date().toISOString(),
-                                      }
-                                    : x,
-                                ),
-                              );
-                            }}
-                            type="button"
-                            aria-label="Delete"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-          {typingFrom ? (
-            <div className="flex justify-start">
-              <div className="inline-flex items-center gap-2 rounded-2xl border border-black/5 bg-white px-3 py-2 text-sm text-black/55 shadow-sm">
-                <span
-                  className="typing-dots"
-                  aria-label="Typing"
-                  title="Typing"
-                >
-                  <span />
-                  <span />
-                  <span />
-                </span>
-                <span>{otherDisplayName} is typing</span>
-              </div>
-            </div>
-          ) : null}
-          <div ref={bottomRef} />
-        </div>
-
-        <form
-          className="border-t border-black/5 bg-white p-3"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!otherUserId || !text.trim() || !me?.id) return;
-            const s = ensureSocket();
-            const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-
-            // Optimistically add message to local state immediately
-            const optimisticMessage: Msg = {
-              id: clientMessageId,
-              from: me.id,
-              chatId: chatId,
-              text: text.trim(),
-              createdAt: new Date().toISOString(),
-              deletedAt: null,
-              editedAt: null,
-              reactions: [],
-              receipts: [],
-              type: "text",
-              item: null,
-              event: null,
-            };
-            setMessages((prev) => [...prev, optimisticMessage]);
-
-            s.emit("chat:message", {
-              to: otherUserId,
-              text: text.trim(),
-              clientMessageId,
-            });
-            setText("");
-            // Force scroll to bottom after sending message
-            setTimeout(() => {
-              if (messagesContainerRef.current) {
-                messagesContainerRef.current.scrollTop =
-                  messagesContainerRef.current.scrollHeight;
-              }
-            }, 50);
-            emitTyping(false);
-          }}
-        >
-          <div className="flex items-end gap-2 rounded-2xl border border-black/10 bg-white p-2 shadow-sm">
-            <label className="focus-ring grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-xl bg-black/5 text-[color:var(--wine-900)] transition hover:bg-black/10">
-              <Paperclip className="h-3.5 w-3.5" />
-              <input
-                className="hidden"
-                type="file"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = "";
-                  if (!file || !otherUserId || !me?.id) return;
-                  const up = await uploadFile(file, false);
-                  const s = ensureSocket();
-                  const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-
-                  // Optimistically add file share to local state immediately
-                  const optimisticShare: Msg = {
-                    id: clientMessageId,
-                    from: me.id,
-                    chatId: chatId,
-                    item: up.item as ShareItem,
-                    createdAt: new Date().toISOString(),
-                    deletedAt: null,
-                    editedAt: null,
-                    reactions: [],
-                    receipts: [],
-                    type: "share",
-                    text: null,
-                    event: null,
-                  };
-                  setMessages((prev) => [...prev, optimisticShare]);
-
-                  s.emit("share:item", {
-                    to: otherUserId,
-                    item: up.item,
-                    clientMessageId,
-                  });
-
-                  // Force scroll to bottom after sending file
-                  setTimeout(() => {
-                    if (messagesContainerRef.current) {
-                      messagesContainerRef.current.scrollTop =
-                        messagesContainerRef.current.scrollHeight;
-                    }
-                  }, 50);
-                }}
-              />
-            </label>
-            <button
-              className={`focus-ring grid h-10 w-10 shrink-0 place-items-center rounded-xl transition ${
-                isRecordingVoice
-                  ? "bg-[color:var(--rose-600)] text-white shadow-[0_10px_24px_rgba(198,43,105,0.22)]"
-                  : "bg-black/5 text-[color:var(--wine-900)] hover:bg-black/10"
-              } ${isSendingVoice ? "cursor-wait opacity-70" : ""}`}
-              disabled={isSendingVoice}
-              onClick={() => {
-                if (isRecordingVoice) stopVoiceRecording();
-                else void startVoiceRecording();
-              }}
-              type="button"
-              title={
-                isRecordingVoice ? "Stop recording" : "Record voice message"
-              }
-            >
-              {isSendingVoice ? (
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              ) : isRecordingVoice ? (
-                <Square className="h-3.5 w-3.5" />
-              ) : (
-                <Mic className="h-3.5 w-3.5" />
-              )}
-            </button>
-            <div className="min-w-0 flex-1">
-              {isRecordingVoice ? (
-                <div className="mb-1 px-1 text-xs font-medium text-[color:var(--rose-700)]">
-                  Recording {formatElapsed(voiceDurationMs)}
-                </div>
-              ) : null}
-              <input
-                className="focus-ring w-full rounded-2xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-800 placeholder:text-gray-400 shadow-sm transition-all duration-200 focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
-                placeholder={
-                  isRecordingVoice
-                    ? "Tap stop to send voice message"
-                    : "Type a message..."
-                }
-                value={text}
-                disabled={isRecordingVoice}
-                onChange={(e) => {
-                  setText(e.target.value);
-                  emitTyping(true);
-                  if (typingTimer.current)
-                    window.clearTimeout(typingTimer.current);
-                  typingTimer.current = window.setTimeout(() => {
-                    emitTyping(false);
-                  }, 1200);
-                }}
-                onBlur={() => emitTyping(false)}
-              />
-            </div>
-            <button
-              className="focus-ring grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-rose-500 to-rose-600 text-white shadow-lg transition-all duration-200 hover:shadow-xl hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-              type="submit"
-              disabled={isRecordingVoice || !text.trim()}
-              title="Send message"
-            >
-              <Send className="h-4 w-4" />
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function toAbsoluteUrl(url: string) {
-  const trimmed = (url ?? "").trim();
-  if (!trimmed) return "";
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
-    return trimmed;
-  const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return `${API_BASE_URL}${path}`;
-}
-
-function ChatAvatar({ name, online }: { name: string; online: boolean }) {
-  const initials =
-    name
-      .trim()
-      .split(/[\s._-]+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() ?? "")
-      .join("") || "?";
-
-  return (
-    <div className="relative grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-black/5 bg-[color:var(--peach-200)]/55 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--rose-700)]">
-      {initials}
-      <span
-        className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${
-          online ? "bg-emerald-500" : "bg-black/25"
-        }`}
-      />
-    </div>
-  );
-}
-
-function formatBytes(n?: number) {
-  if (!n || n <= 0) return "";
-  const units = ["B", "KB", "MB", "GB"];
-  let v = n;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-function Attachment({
-  item,
-  message,
-  meId,
-  onVoiceListened,
-}: {
-  item: ShareItem;
-  message?: Msg;
-  meId?: string;
-  onVoiceListened?: (messageId: string) => void;
-}) {
-  const kind = String(item.kind ?? "file");
-  const mime = String(item.mime ?? item.contentType ?? "");
-  const url = toAbsoluteUrl(String(item.url ?? item.legacyUrl ?? ""));
-  const name = String(item.originalName ?? item.filename ?? "Attachment");
-  const size = typeof item.size === "number" ? item.size : undefined;
-  const meta = asRecord(item.meta);
-  const isVoiceNote = meta?.voiceNote === true;
-  const voiceDurationMs =
-    typeof meta?.durationMs === "number" ? meta.durationMs : undefined;
-
-  const lowerName = name.toLowerCase();
-  const isImageByExt = /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif)$/.test(
-    lowerName,
-  );
-  const isVideoByExt = /\.(mp4|webm|mov|m4v|mkv|avi)$/.test(lowerName);
-  const isAudioByExt = /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/.test(lowerName);
-
-  const effectiveKind =
-    kind !== "file"
-      ? kind
-      : mime.startsWith("image/")
-        ? "image"
-        : mime.startsWith("video/")
-          ? "video"
-          : mime.startsWith("audio/")
-            ? "audio"
-            : isImageByExt
-              ? "image"
-              : isVideoByExt
-                ? "video"
-                : isAudioByExt
-                  ? "audio"
-                  : "file";
-
-  if (effectiveKind === "image")
-    return <ImageAttachment url={url} name={name} size={size} />;
-
-  if (effectiveKind === "video") {
-    return <VideoAttachment url={url} name={name} size={size} />;
-  }
-
-  if (effectiveKind === "audio") {
+  const VoiceNotePlayer = ({
+    url,
+    durationMs,
+    listened,
+    onListened,
+  }: {
+    url: string;
+    durationMs?: number;
+    listened: boolean;
+    onListened: () => void;
+  }) => {
     return (
       <div className="grid gap-2 rounded-[20px] bg-white/55 px-3 py-2">
-        <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--wine-900)]/55">
-          <span>{isVoiceNote ? "Voice message" : "Audio attachment"}</span>
+        <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-(--wine-900)/55">
+          <span>Voice message</span>
           <span className="tabular-nums">
-            {voiceDurationMs
-              ? formatElapsed(voiceDurationMs)
-              : size
-                ? formatBytes(size)
-                : ""}
+            {durationMs ? formatElapsed(durationMs) : ""}
           </span>
         </div>
         <audio
@@ -1639,183 +1086,230 @@ function Attachment({
           controls
           className="w-full"
           onPlay={() => {
-            if (!isVoiceNote || !message?.id || !meId || message.from === meId)
-              return;
-            onVoiceListened?.(message.id);
+            if (!listened) onListened();
           }}
         />
+      </div>
+    );
+  };
+
+  const Attachment = ({
+    item,
+    message,
+    meId,
+    onVoiceListened,
+  }: {
+    item: unknown;
+    message: Msg;
+    meId: string | undefined;
+    onVoiceListened: (id: string) => void;
+  }) => {
+    const r = asRecord(item);
+    if (!r) return null;
+    const kind = typeof r.kind === "string" ? r.kind : null;
+    const url = typeof r.url === "string" ? r.url : "";
+    const name = typeof r.name === "string" ? r.name : "attachment";
+    const size = typeof r.size === "number" ? r.size : undefined;
+    const meta = asRecord(r.meta);
+    const isVoiceNote = meta?.voiceNote === true;
+    const durationMs =
+      typeof meta?.durationMs === "number" ? meta.durationMs : undefined;
+
+    if (kind === "image" && url) {
+      return <RomanticImageAttachment url={url} name={name} size={size} />;
+    }
+    if (kind === "video" && url) {
+      return <RomanticVideoAttachment url={url} name={name} size={size} />;
+    }
+    if (kind === "audio" && url && isVoiceNote) {
+      return (
+        <VoiceNotePlayer
+          url={url}
+          durationMs={durationMs}
+          listened={
+            message.from !== meId &&
+            !!message.receipts?.find((r) => r.userId === meId)?.listenedAt
+          }
+          onListened={() => onVoiceListened(message.id)}
+        />
+      );
+    }
+
+    return (
+      <div className="flex items-center gap-3 rounded-2xl border border-black/10 bg-black/5 px-4 py-3">
+        {kind === "file" ? (
+          <FileText className="h-6 w-6 shrink-0 text-gray-500" />
+        ) : (
+          <FileIcon className="h-6 w-6 shrink-0 text-gray-500" />
+        )}
+        <div className="grow">
+          <div className="font-semibold">{name}</div>
+          {size ? (
+            <div className="text-xs text-gray-500">
+              {(size / 1024 / 1024).toFixed(2)} MB
+            </div>
+          ) : null}
+        </div>
         <a
-          className="text-[10px] underline text-black/55"
           href={url}
           target="_blank"
           rel="noreferrer"
+          className="focus-ring grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white hover:bg-gray-100"
         >
-          {isVoiceNote ? "Open original recording" : name}
+          <Download className="h-5 w-5" />
         </a>
-        {isVoiceNote && message && message.from === meId ? (
-          <div className="text-[10px] text-black/55">
-            {(() => {
-              const status = voiceListenStatus(message, meId);
-              if (status === "listened") return "Played";
-              if (status === "read") return "Seen";
-              if (status === "delivered") return "Delivered";
-              return "Sent";
-            })()}
-          </div>
-        ) : null}
       </div>
     );
-  }
+  };
+
+  const ReceiptMark = ({
+    m,
+    otherUserId,
+  }: {
+    m: Msg;
+    otherUserId: string | null;
+  }) => {
+    if (!otherUserId)
+      return <CheckCheck className="h-4 w-4 text-[--sky-500]" />;
+    const receipt = m.receipts?.find((r) => r.userId === otherUserId);
+    if (receipt?.readAt)
+      return <CheckCheck className="h-4 w-4 text-[--sky-500]" />;
+    if (receipt?.deliveredAt)
+      return <CheckCheck className="h-4 w-4 text-gray-400" />;
+    return <Check className="h-4 w-4 text-gray-400" />;
+  };
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="block rounded-2xl bg-white/70 px-3 py-2 hover:bg-white"
-    >
-      <div className="flex items-center gap-2">
-        {mime.includes("pdf") || name.toLowerCase().endsWith(".pdf") ? (
-          <FileText className="h-4 w-4 text-black/45" />
-        ) : (
-          <FileIcon className="h-4 w-4 text-black/45" />
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-[color:var(--wine-900)]">
-            {name}
-          </div>
-          <div className="text-[10px] text-black/55">
-            {size ? formatBytes(size) : "File"}
+    <div className="flex h-full flex-col">
+      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-black/10 p-4">
+        <div className="grow">
+          <h1 className="font-bold">{otherDisplayName}</h1>
+          <p className="text-xs text-gray-500">{conversationStatus}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            className="focus-ring grid h-10 w-10 place-items-center rounded-full"
+            onClick={() => startCall(otherUserId!, "audio")}
+          >
+            <Phone className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            className="focus-ring grid h-10 w-10 place-items-center rounded-full"
+            onClick={() => startCall(otherUserId!, "video")}
+          >
+            <Video className="h-5 w-5" />
+          </button>
+        </div>
+      </header>
+
+      <div
+        ref={messagesContainerRef}
+        className="grow space-y-6 overflow-y-auto p-4"
+      >
+        {messages.map((m) => {
+          const mine = m.from === me?.id;
+          const reactionGroups = groupReactions(
+            m.reactions ?? [],
+            me?.id ?? "",
+            reactionUserLabels,
+          );
+          return (
+            <MessageBubble
+              key={m.id}
+              m={m}
+              mine={mine}
+              meId={me?.id}
+              chatId={chatId}
+              otherUserId={otherUserId}
+              otherDisplayName={otherDisplayName}
+              editingId={editingId}
+              editDraft={editDraft}
+              setEditingId={setEditingId}
+              setEditDraft={setEditDraft}
+              openReactionFor={openReactionFor}
+              setOpenReactionFor={setOpenReactionFor}
+              emitReaction={emitReaction}
+              reactionGroups={reactionGroups}
+              reactionUserLabels={reactionUserLabels}
+              formatReactionUsers={formatReactionUsers}
+              setMessages={setMessages}
+              markVoiceListened={markVoiceListened}
+              Attachment={Attachment}
+              ReceiptMark={ReceiptMark}
+              QUICK_REACTIONS={QUICK_REACTIONS}
+            />
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+
+      <footer className="shrink-0 border-t border-black/10 p-4">
+        <div className="relative">
+          {isRecordingVoice || isSendingVoice ? (
+            <div className="flex h-[h-18] items-center justify-between gap-4 rounded-2xl bg-white px-4">
+              {isSendingVoice ? (
+                <>
+                  <LoaderCircle className="h-5 w-5 shrink-0 animate-spin text-gray-500" />
+                  <div className="grow text-center text-sm font-semibold text-gray-600">
+                    Sending voice message...
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="focus-ring grid h-10 w-10 shrink-0 place-items-center rounded-full bg-red-500 text-white"
+                    onClick={stopVoiceRecording}
+                  >
+                    <Square className="h-5 w-5" />
+                  </button>
+                  <div className="flex grow items-center justify-center gap-2">
+                    <div className="h-2 w-2 animate-pulse rounded-full bg-red-500 [animation-duration:1.5s]" />
+                    <div className="font-mono text-sm font-semibold text-gray-700">
+                      {formatElapsed(voiceDurationMs)}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <textarea
+              rows={1}
+              className="w-full resize-none rounded-2xl border border-transparent bg-gray-100 px-4 py-3 pr-24 focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-0"
+              placeholder="Type a message..."
+              value={text}
+              onKeyDown={handleKeyDown}
+              onInput={handleInput}
+            />
+          )}
+
+          <div className="absolute bottom-1 right-1 top-1 flex items-center">
+            <button
+              type="button"
+              className="focus-ring grid h-10 w-10 place-items-center rounded-full text-gray-500 hover:text-gray-800"
+              onClick={startVoiceRecording}
+            >
+              <Mic className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className="focus-ring grid h-10 w-10 place-items-center rounded-full text-gray-500 hover:text-gray-800"
+            >
+              <Paperclip className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className="focus-ring grid h-10 w-10 place-items-center rounded-full bg-rose-500 text-white disabled:opacity-50"
+              onClick={sendMessage}
+              disabled={!text.trim()}
+            >
+              <Send className="h-5 w-5" />
+            </button>
           </div>
         </div>
-        <Download className="h-4 w-4 text-black/45" />
-      </div>
-    </a>
+      </footer>
+    </div>
   );
-}
-
-function ImageAttachment({
-  url,
-  name,
-  size,
-}: {
-  url: string;
-  name: string;
-  size?: number;
-}) {
-  return <RomanticImageAttachment url={url} name={name} size={size} />;
-}
-
-function VideoAttachment({
-  url,
-  name,
-  size,
-}: {
-  url: string;
-  name: string;
-  size?: number;
-}) {
-  return <RomanticVideoAttachment url={url} name={name} size={size} />;
-}
-
-function receiptStatus(m: Msg, otherUserId: string | null) {
-  if (!otherUserId) return "sent" as const;
-  const r = m.receipts?.find((x) => x.userId === otherUserId);
-  if (!r) return "sent" as const;
-  if (r.readAt) return "read" as const;
-  if (r.deliveredAt) return "delivered" as const;
-  return "sent" as const;
-}
-
-function ReceiptMark({
-  m,
-  otherUserId,
-}: {
-  m: Msg;
-  otherUserId: string | null;
-}) {
-  const s = receiptStatus(m, otherUserId);
-  if (s === "sent") return <Check className="h-3.5 w-3.5 text-black/40" />;
-  if (s === "delivered")
-    return <CheckCheck className="h-3.5 w-3.5 text-black/40" />;
-  return <CheckCheck className="h-3.5 w-3.5 text-[color:var(--rose-700)]" />;
-}
-
-function voiceListenStatus(m: Msg, meId: string) {
-  const otherReceipt = m.receipts?.find((entry) => entry.userId !== meId);
-  if (!otherReceipt) return "sent" as const;
-  if (otherReceipt.listenedAt) return "listened" as const;
-  if (otherReceipt.readAt) return "read" as const;
-  if (otherReceipt.deliveredAt) return "delivered" as const;
-  return "sent" as const;
-}
-
-function groupReactions(
-  reactions: NonNullable<Msg["reactions"]>,
-  meId: string,
-  labels: Map<string, string>,
-): ReactionGroup[] {
-  const byEmoji = new Map<string, ReactionGroup>();
-  for (const reaction of reactions) {
-    const label =
-      reaction.userId === meId
-        ? "You"
-        : reaction.user?.username?.trim() ||
-          reaction.user?.email?.trim() ||
-          labels.get(reaction.userId) ||
-          "Unknown";
-    const prev = byEmoji.get(reaction.emoji);
-    if (!prev) {
-      byEmoji.set(reaction.emoji, {
-        emoji: reaction.emoji,
-        count: 1,
-        me: reaction.userId === meId,
-        userIds: [reaction.userId],
-        userLabels: [label],
-      });
-      continue;
-    }
-    prev.count += 1;
-    if (reaction.userId === meId) prev.me = true;
-    if (!prev.userIds.includes(reaction.userId))
-      prev.userIds.push(reaction.userId);
-    if (!prev.userLabels.includes(label)) prev.userLabels.push(label);
-  }
-  return [...byEmoji.values()].sort((a, b) => b.count - a.count);
-}
-
-function formatReactionUsers(userLabels: string[]) {
-  const unique = Array.from(new Set(userLabels.filter(Boolean))).sort(
-    (a, b) => {
-      if (a === "You") return -1;
-      if (b === "You") return 1;
-      return a.localeCompare(b);
-    },
-  );
-  if (unique.length <= 2) return unique.join(", ");
-  return `${unique[0]}, ${unique[1]} +${unique.length - 2}`;
-}
-
-function toggleReactionLocal(
-  msg: Msg,
-  meId: string,
-  emoji: string,
-  user?: ReactionUser,
-): Msg {
-  const reactions = msg.reactions ?? [];
-  const exists = reactions.some((r) => r.emoji === emoji && r.userId === meId);
-  return exists
-    ? {
-        ...msg,
-        reactions: reactions.filter(
-          (r) => !(r.emoji === emoji && r.userId === meId),
-        ),
-      }
-    : {
-        ...msg,
-        reactions: [
-          ...reactions,
-          { emoji, userId: meId, createdAt: new Date().toISOString(), user },
-        ],
-      };
 }
