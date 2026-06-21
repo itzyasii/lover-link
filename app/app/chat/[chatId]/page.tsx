@@ -752,6 +752,7 @@ export default function ChatPage() {
 
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const isFetchingMoreRef = useRef(false);
   const { ref: loadMoreRef, inView } = useInView();
 
   useEffect(() => {
@@ -768,23 +769,33 @@ export default function ChatPage() {
   }, [chatId, messages.length, markMessagesRead]);
 
   const fetchMore = useCallback(() => {
-    if (!nextCursor || isFetchingMore) return;
+    if (!nextCursor || isFetchingMoreRef.current) return;
+    isFetchingMoreRef.current = true;
     setIsFetchingMore(true);
+    const container = messagesContainerRef.current;
+    const scrollHeightBefore = container?.scrollHeight ?? 0;
+    const scrollTopBefore = container?.scrollTop ?? 0;
     apiFetch<{ ok: true; messages: Msg[]; nextCursor: string | null }>(
       `/api/chats/${chatId}/messages?limit=50&before=${nextCursor}`,
     ).then((data) => {
       if (data.ok) {
         setMessages((prev) => {
-          // Prepend older messages while avoiding duplicates
           const existingIds = new Set(prev.map(m => m.id));
           const newMessages = data.messages.filter(m => !existingIds.has(m.id));
           return [...newMessages, ...prev];
         });
         setNextCursor(data.nextCursor);
+        // Restore scroll position so it doesn't jump to top after prepend
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight - scrollHeightBefore + scrollTopBefore;
+          }
+        });
       }
       setIsFetchingMore(false);
+      isFetchingMoreRef.current = false;
     });
-  }, [nextCursor, isFetchingMore, chatId]);
+  }, [nextCursor, chatId]);
 
   useEffect(() => {
     if (inView) {
@@ -810,10 +821,23 @@ export default function ChatPage() {
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Only auto-scroll to bottom when NEW messages are appended (not when loading older ones)
+  const prevMessageCountRef = useRef(0);
+  const prevLastIdRef = useRef("");
   useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    const count = messages.length;
+    const lastId = messages[count - 1]?.id ?? "";
+    const wasAtBottom = (() => {
+      const c = messagesContainerRef.current;
+      if (!c) return true;
+      return c.scrollHeight - c.clientHeight <= c.scrollTop + 150;
+    })();
+    // Only scroll to bottom if: a new message was appended (last id changed) AND we were near bottom
+    if (count > prevMessageCountRef.current && lastId !== prevLastIdRef.current && wasAtBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
+    prevMessageCountRef.current = count;
+    prevLastIdRef.current = lastId;
   }, [messages]);
 
   useEffect(() => {
@@ -830,42 +854,65 @@ export default function ChatPage() {
       setTimeout(() => setTypingFrom(null), 3000);
     };
 
+    const normalizeMsg = (msg: Record<string, unknown>): Msg => ({
+      id: msg.id == null ? "" : String(msg.id),
+      from: msg.from == null ? "" : String(msg.from),
+      chatId: msg.chatId == null ? "" : String(msg.chatId),
+      text: msg.text == null ? null : String(msg.text),
+      item: msg.item == null ? null : (msg.item as ShareItem),
+      event: normalizeEvent(msg.event),
+      type:
+        msg.type === "text" || msg.type === "share" || msg.type === "event"
+          ? msg.type
+          : "text",
+      clientMessageId: msg.clientMessageId == null ? undefined : String(msg.clientMessageId),
+      createdAt:
+        msg.createdAt == null
+          ? new Date().toISOString()
+          : String(msg.createdAt),
+      editedAt: msg.editedAt == null ? null : String(msg.editedAt),
+      deletedAt: msg.deletedAt == null ? null : String(msg.deletedAt),
+      reactions: normalizeReactions(msg.reactions),
+      receipts: Array.isArray(msg.receipts) ? msg.receipts : [],
+      linkPreview: msg.linkPreview as Msg["linkPreview"],
+    });
+
+    const upsertMessage = (normalized: Msg) => {
+      setMessages((prev) => {
+        // Dedup by real id OR by clientMessageId (replaces optimistic)
+        const existingIdx = prev.findIndex(
+          (m) =>
+            m.id === normalized.id ||
+            (normalized.clientMessageId && m.id === normalized.clientMessageId),
+        );
+        if (existingIdx !== -1) {
+          const updated = [...prev];
+          updated[existingIdx] = normalized;
+          return updated;
+        }
+        return [...prev, normalized];
+      });
+    };
+
     const onMessage = (p: unknown) => {
       const r = asRecord(p);
       if (!r) return;
       const msg = asRecord(r.message);
       if (!msg) return;
       if (msg.chatId !== chatId) return;
+      const normalized = normalizeMsg(msg);
+      upsertMessage(normalized);
+      markMessagesRead([normalized]);
+    };
 
-      const normalized: Msg = {
-        id: msg.id == null ? "" : String(msg.id),
-        from: msg.from == null ? "" : String(msg.from),
-        chatId: msg.chatId == null ? "" : String(msg.chatId),
-        text: msg.text == null ? null : String(msg.text),
-        item: msg.item == null ? null : (msg.item as ShareItem),
-        event: normalizeEvent(msg.event),
-        type:
-          msg.type === "text" || msg.type === "share" || msg.type === "event"
-            ? msg.type
-            : "text",
-        createdAt:
-          msg.createdAt == null
-            ? new Date().toISOString()
-            : String(msg.createdAt),
-        editedAt: msg.editedAt == null ? null : String(msg.editedAt),
-        deletedAt: msg.deletedAt == null ? null : String(msg.deletedAt),
-        reactions: normalizeReactions(msg.reactions),
-        receipts: Array.isArray(msg.receipts) ? msg.receipts : [],
-        linkPreview: msg.linkPreview as Msg["linkPreview"],
-      };
-
-      setMessages((prev) => {
-        const existing = prev.find((m) => m.id === normalized.id);
-        if (existing) {
-          return prev.map((m) => (m.id === normalized.id ? normalized : m));
-        }
-        return [...prev, normalized];
-      });
+    const onShareItem = (p: unknown) => {
+      const r = asRecord(p);
+      if (!r) return;
+      const msg = asRecord(r.message);
+      if (!msg) return;
+      if (msg.chatId !== chatId) return;
+      const normalized = normalizeMsg(msg);
+      upsertMessage(normalized);
       markMessagesRead([normalized]);
     };
 
@@ -1030,8 +1077,9 @@ export default function ChatPage() {
 
     s.on("chat:typing", onTyping);
     s.on("chat:message", onMessage);
+    s.on("share:item", onShareItem);
     s.on("chat:edit", onMessageEdit);
-    s.on("chat:delete", onMessageDelete);
+    s.on("chat:message:deleted", onMessageDelete);
     s.on("chat:react", onReaction);
     s.on("chat:read", onRead);
     s.on("chat:delivered", onDelivered);
@@ -1040,8 +1088,9 @@ export default function ChatPage() {
     return () => {
       s.off("chat:typing", onTyping);
       s.off("chat:message", onMessage);
+      s.off("share:item", onShareItem);
       s.off("chat:edit", onMessageEdit);
-      s.off("chat:delete", onMessageDelete);
+      s.off("chat:message:deleted", onMessageDelete);
       s.off("chat:react", onReaction);
       s.off("chat:read", onRead);
       s.off("chat:delivered", onDelivered);
@@ -1248,6 +1297,7 @@ export default function ChatPage() {
           const showDateSeparator = currentDate !== prevDate;
           
           const hideName = !showDateSeparator && !!prevMessage && prevMessage.from === m.from;
+          const isLast = i === messages.length - 1 || i === messages.length - 2;
 
           const reactionGroups = groupReactions(
             m.reactions ?? [],
@@ -1286,6 +1336,7 @@ export default function ChatPage() {
                 ReceiptMark={ReceiptMark}
                 QUICK_REACTIONS={QUICK_REACTIONS}
                 hideName={hideName}
+                isLast={isLast}
               />
             </Fragment>
           );

@@ -233,12 +233,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <CallProvider>
       <RealtimeListener />
-      <div className="mx-auto grid h-dvh min-h-0 max-w-7xl grid-cols-1 overflow-hidden p-3 md:grid-cols-[240px_1fr] md:gap-3 md:p-4">
-        <aside className="flex min-h-0 flex-col border-black/5 bg-white/70 p-3 shadow-sm md:h-full md:rounded-2xl md:border">
-          <div className="hidden md:block">
+      <div className="mx-auto flex h-dvh max-w-7xl flex-col overflow-hidden bg-gray-50 md:flex-row md:gap-4 md:p-4">
+        {/* Mobile: Main content area first so it fills vertical space above nav */}
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white shadow-sm md:mt-0 md:rounded-2xl md:border md:border-black/5 md:bg-white/70">
+          <div className="min-h-0 flex-1 overflow-auto">
+            {children}
+          </div>
+        </main>
+
+        <aside className="flex shrink-0 flex-row items-center justify-around border-t border-black/5 bg-white p-2 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] md:order-first md:h-full md:w-[260px] md:flex-col md:items-stretch md:justify-start md:rounded-2xl md:border md:bg-white/70 md:p-4 md:shadow-sm">
+          <div className="hidden md:mb-8 md:block">
             <Brand />
           </div>
-          <nav className="grid grid-cols-3 gap-1 md:mt-6 md:grid-cols-1">
+          <nav className="flex w-full justify-around md:w-auto md:flex-col md:gap-2">
             {nav.map((item) => {
               const active =
                 item.href === "/app"
@@ -251,33 +258,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "focus-ring flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold md:justify-start transition-colors",
+                    "focus-ring flex flex-col items-center justify-center gap-1 rounded-2xl px-4 py-2 text-[10px] font-semibold transition-all md:flex-row md:justify-start md:gap-3 md:px-4 md:py-3 md:text-sm",
                     active
-                      ? "bg-[color:var(--rose-600)] text-white"
-                      : "text-black/65 hover:bg-[color:var(--rose-600)]/10 hover:text-[color:var(--rose-600)]",
+                      ? "text-(--rose-600) md:bg-(--rose-600) md:text-white"
+                      : "text-gray-500 hover:bg-black/5 hover:text-gray-900",
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
+                  <Icon className={cn("h-6 w-6 md:h-5 md:w-5", active ? "scale-110 md:scale-100" : "")} />
+                  <span className={cn(active ? "font-bold" : "")}>{item.label}</span>
                 </Link>
               );
             })}
           </nav>
 
           <button
-            className="focus-ring mt-auto flex w-full items-center justify-center gap-2 rounded-xl bg-black/5 px-4 py-3 text-sm font-semibold text-wine-900 hover:bg-black/10"
+            className="focus-ring mt-auto hidden w-full items-center justify-center gap-2 rounded-xl bg-black/5 px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-black/10 hover:text-gray-900 md:flex"
             onClick={() => void logout().then(() => router.push("/"))}
             type="button"
           >
             <LogOut className="h-4 w-4" /> Log out
           </button>
         </aside>
-
-        <main className="mt-3 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-black/5 bg-white/70 shadow-sm md:mt-0">
-          <div className="min-h-0 flex-1 overflow-auto p-3 md:p-4">
-            {children}
-          </div>
-        </main>
       </div>
       <CallOverlay />
       <NotificationPermission />

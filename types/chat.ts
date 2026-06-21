@@ -26,6 +26,7 @@ export type ReactionUser = {
 
 export type Msg = {
   id: string;
+  clientMessageId?: string;
   chatId: string;
   from: string;
   type: "text" | "share" | "event";

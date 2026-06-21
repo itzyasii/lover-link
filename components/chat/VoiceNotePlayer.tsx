@@ -18,6 +18,13 @@ export const VoiceNotePlayer = ({
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const onListenedRef = useRef(onListened);
+  const listenedRef = useRef(listened);
+
+  useEffect(() => {
+    onListenedRef.current = onListened;
+    listenedRef.current = listened;
+  }, [onListened, listened]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -36,7 +43,9 @@ export const VoiceNotePlayer = ({
 
     ws.on("play", () => {
       setIsPlaying(true);
-      if (!listened) onListened();
+      if (!listenedRef.current) {
+        onListenedRef.current();
+      }
     });
     ws.on("pause", () => setIsPlaying(false));
     ws.on("timeupdate", (time) => setCurrentTime(time * 1000));
@@ -47,7 +56,7 @@ export const VoiceNotePlayer = ({
     return () => {
       ws.destroy();
     };
-  }, [url, listened, onListened]);
+  }, [url]);
 
   const handleTogglePlay = () => {
     wavesurferRef.current?.playPause();

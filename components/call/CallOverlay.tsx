@@ -108,6 +108,12 @@ export function CallOverlay() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (state.kind === "incoming" || state.kind === "outgoing") {
+      setMinimized(false);
+    }
+  }, [state.kind]);
+
   if (state.kind === "idle") {
     return null;
   }
@@ -208,37 +214,39 @@ export function CallOverlay() {
             )}
           </div>
           <div className={minimized ? "h-14 bg-gray-800 flex items-center justify-around px-2 shrink-0" : "absolute bottom-10 left-0 right-0 flex justify-center items-center gap-6 px-4"}>
-            <button className={`focus-ring inline-flex items-center justify-center rounded-full text-white ${minimized ? 'h-10 w-10' : 'h-16 w-16 bg-gray-800/80 hover:bg-gray-700/80'} ${minimized && !micEnabled ? 'bg-red-500' : ''}`} onClick={toggleMic} type="button" title={micEnabled ? "Mute microphone" : "Unmute microphone"} onMouseDown={e => e.stopPropagation()}>
+            <button className={`focus-ring inline-flex items-center justify-center rounded-full text-white ${minimized ? 'h-10 w-10' : 'h-16 w-16 bg-gray-800/80 hover:bg-gray-700/80'} ${minimized && !micEnabled ? 'bg-red-500' : ''}`} onClick={toggleMic} type="button" title={micEnabled ? "Mute microphone" : "Unmute microphone"} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
               {micEnabled ? <Mic className={minimized ? "h-5 w-5" : "h-7 w-7"} /> : <MicOff className={minimized ? "h-5 w-5" : "h-7 w-7"} />}
             </button>
             {state.media === "video" && !minimized && (
-              <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={toggleCam} type="button" title={camEnabled ? "Turn camera off" : "Turn camera on"}>
+              <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={toggleCam} type="button" title={camEnabled ? "Turn camera off" : "Turn camera on"} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
                 {camEnabled ? <Video className="h-7 w-7" /> : <VideoOff className="h-7 w-7" />}
               </button>
             )}
             {state.media === "video" && !minimized && (
-              <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={toggleCameraFlip} type="button" title="Flip camera">
+              <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={toggleCameraFlip} type="button" title="Flip camera" onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
                 <RotateCcw className="h-7 w-7" />
               </button>
             )}
             {!minimized && (
               <>
-                <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={toggleSpeaker} type="button" title={speakerEnabled ? "Turn speaker off" : "Turn speaker on"}>
+                <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={toggleSpeaker} type="button" title={speakerEnabled ? "Turn speaker off" : "Turn speaker on"} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
                   {speakerEnabled ? <Volume2 className="h-7 w-7" /> : <VolumeX className="h-7 w-7" />}
                 </button>
-                <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={() => setShowDeviceSelector(!showDeviceSelector)} type="button" title="Select audio output">
+                <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={() => setShowDeviceSelector(!showDeviceSelector)} type="button" title="Select audio output" onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </button>
                 {showDeviceSelector && (
-                  <select value={localCurrentOutputDevice} onChange={(e) => { switchOutputDevice(e.target.value); setShowDeviceSelector(false); }} className="ml-2 bg-gray-800 text-white rounded absolute bottom-28">
-                    {localOutputDevices.map((d) => (
-                      <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId}</option>
-                    ))}
-                  </select>
+                  <div onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+                    <select value={localCurrentOutputDevice} onChange={(e) => { switchOutputDevice(e.target.value); setShowDeviceSelector(false); }} className="ml-2 bg-gray-800 text-white rounded absolute bottom-28">
+                      {localOutputDevices.map((d) => (
+                        <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId}</option>
+                      ))}
+                    </select>
+                  </div>
                 )}
               </>
             )}
-            <button className={`focus-ring inline-flex items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600 ${minimized ? 'h-10 w-10' : 'h-16 w-16'}`} onClick={() => void hangup()} type="button" onMouseDown={e => e.stopPropagation()}>
+            <button className={`focus-ring inline-flex items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600 ${minimized ? 'h-10 w-10' : 'h-16 w-16'}`} onClick={() => void hangup()} type="button" onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
               <PhoneOff className={minimized ? "h-5 w-5" : "h-7 w-7"} />
             </button>
           </div>

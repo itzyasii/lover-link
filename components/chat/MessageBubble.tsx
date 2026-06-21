@@ -32,6 +32,7 @@ interface MessageBubbleProps {
   ReceiptMark: React.FC<{ m: Msg; otherUserId: string | null }>;
   QUICK_REACTIONS: readonly string[];
   hideName?: boolean;
+  isLast?: boolean;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -56,6 +57,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   ReceiptMark,
   QUICK_REACTIONS,
   hideName,
+  isLast,
 }) => {
   const reactionsOpen = openReactionFor === m.id;
   // 5-minute (300000ms) time threshold to disable edit/delete
@@ -102,25 +104,55 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           ) : editingId === m.id ? (
             <div className="grid gap-2">
               <textarea
-                className="focus-ring w-full resize-none rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-(--wine-900)"
-                rows={3}
+                autoFocus
+                className="w-full resize-none rounded-xl border border-white/20 bg-black/5 p-2 text-sm outline-none placeholder:text-white/50"
+                rows={2}
                 value={editDraft}
                 onChange={(e) => setEditDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    const next = editDraft.trim();
+                    if (!next) return;
+                    void apiFetch(`/api/chats/${chatId}/messages/${m.id}`, {
+                      method: "PATCH",
+                      body: JSON.stringify({ text: next }),
+                      trackLoading: false,
+                    });
+                    setMessages((prev) =>
+                      prev.map((x) =>
+                        x.id === m.id
+                          ? {
+                              ...x,
+                              text: next,
+                              editedAt: new Date().toISOString(),
+                            }
+                          : x,
+                      ),
+                    );
+                    setEditingId(null);
+                    setEditDraft("");
+                  }
+                  if (e.key === "Escape") {
+                    setEditingId(null);
+                    setEditDraft("");
+                  }
+                }}
               />
               <div className="flex items-center justify-end gap-2">
                 <button
-                  className="focus-ring grid h-9 w-9 place-items-center rounded-xl bg-black/5 text-(--wine-900) hover:bg-black/10"
+                  type="button"
+                  className="focus-ring grid h-7 w-7 place-items-center rounded-full bg-white/20 hover:bg-white/30"
                   onClick={() => {
                     setEditingId(null);
                     setEditDraft("");
                   }}
-                  title="Cancel"
-                  type="button"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-3.5 w-3.5" />
                 </button>
                 <button
-                  className="focus-ring grid h-9 w-9 place-items-center rounded-xl bg-(--rose-600) text-white hover:bg-(--rose-700)"
+                  type="button"
+                  className="focus-ring grid h-7 w-7 place-items-center rounded-full bg-white text-(--rose-600) hover:bg-white/90"
                   onClick={async () => {
                     const next = editDraft.trim();
                     if (!next) return;
@@ -143,10 +175,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     setEditingId(null);
                     setEditDraft("");
                   }}
-                  title="Save"
-                  type="button"
                 >
-                  <Check className="h-4 w-4" />
+                  <Check className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
@@ -161,12 +191,33 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             <div className="whitespace-pre-wrap wrap-break-word leading-5">
               {m.text}
               {m.linkPreview && (
-                <a href={m.linkPreview.url} target="_blank" rel="noopener noreferrer" className={`block mt-3 rounded-lg overflow-hidden transition group ${mine ? 'bg-white/10 hover:bg-white/20 border border-white/20' : 'bg-black/5 hover:bg-black/10 border border-black/10'}`}>
-                  {m.linkPreview.image && <img src={m.linkPreview.image} alt="Preview" className="w-full h-32 object-cover" />}
+                <a
+                  href={m.linkPreview.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`mt-2 block overflow-hidden rounded-xl border ${mine ? "border-white/20 bg-white/10 text-white hover:bg-white/20" : "border-black/10 bg-black/5 text-(--wine-900) hover:bg-black/10"} transition-colors`}
+                >
+                  {m.linkPreview.image && (
+                    <img
+                      src={m.linkPreview.image}
+                      alt={m.linkPreview.title || "Link preview"}
+                      className="h-32 w-full object-cover"
+                    />
+                  )}
                   <div className="p-3">
-                    {m.linkPreview.title && <div className="font-semibold text-sm line-clamp-1">{m.linkPreview.title}</div>}
-                    {m.linkPreview.description && <div className="text-xs opacity-80 mt-1 line-clamp-2">{m.linkPreview.description}</div>}
-                    <div className="text-[10px] opacity-60 mt-1 truncate">{m.linkPreview.url}</div>
+                    {m.linkPreview.title && (
+                      <div className="font-semibold line-clamp-1">
+                        {m.linkPreview.title}
+                      </div>
+                    )}
+                    {m.linkPreview.description && (
+                      <div className="mt-1 text-xs opacity-80 line-clamp-2">
+                        {m.linkPreview.description}
+                      </div>
+                    )}
+                    <div className="mt-1 text-[10px] uppercase tracking-wider opacity-60">
+                      {new URL(m.linkPreview.url).hostname.replace(/^www\./, "")}
+                    </div>
                   </div>
                 </a>
               )}
@@ -175,7 +226,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
           {reactionGroups.length ? (
             <div
-              className={`mt-2 max-w-full rounded-xl px-2 py-1.5 ${
+              className={`mt-2 inline-flex flex-wrap items-center gap-1 rounded-xl px-1 py-1 ${
                 mine ? "bg-white/15" : "bg-black/3"
               }`}
             >
@@ -184,21 +235,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   <button
                     key={r.emoji}
                     type="button"
-                    className={`inline-flex max-w-full items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-medium transition ${
+                    className={`focus-ring inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs transition-colors ${
                       r.me
                         ? mine
-                          ? "bg-white/25 text-white"
-                          : "bg-(--rose-600)/10 text-(--rose-700)"
+                          ? "bg-white text-(--rose-600)"
+                          : "bg-(--rose-100) text-(--rose-700)"
                         : mine
-                          ? "bg-white/15 text-white/85"
-                          : "bg-white text-black/65"
+                          ? "hover:bg-white/20"
+                          : "hover:bg-black/5"
                     }`}
                     onClick={() => emitReaction(m.id, r.emoji)}
                     title={formatReactionUsers(r.userLabels)}
-                    aria-label={formatReactionUsers(r.userLabels)}
                   >
-                    <span className="text-[13px] leading-none">{r.emoji}</span>
-                    <span className="tabular-nums">{r.count}</span>
+                    <span>{r.emoji}</span>
+                    <span className="font-medium">{r.count}</span>
                   </button>
                 ))}
               </div>
@@ -206,14 +256,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           ) : null}
 
           <div
-            className={`mt-2 flex items-center gap-1.5 text-[11px] ${
-              mine ? "text-gray-500" : "text-gray-400"
+            className={`mt-2 flex items-center gap-1.5 text-[11px] font-medium tracking-wide ${
+              mine ? "text-white/60" : "text-black/35"
             }`}
           >
             {new Date(m.createdAt).toLocaleTimeString([], {
               hour: "2-digit",
               minute: "2-digit",
             })}
+            {m.editedAt ? " • Edited" : ""}
             {mine ? (
               <span className="ml-1.5 inline-flex items-center">
                 <ReceiptMark m={m} otherUserId={otherUserId} />
@@ -226,7 +277,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <div className="relative flex shrink-0 items-center gap-1 rounded-xl border border-black/5 bg-white p-1 opacity-100 shadow-sm md:opacity-0 md:transition md:group-hover:opacity-100">
             <button
               type="button"
-              className="focus-ring grid h-8 w-8 place-items-center rounded-lg text-(--wine-900)/65 hover:bg-black/5"
+              className="focus-ring grid h-7 w-7 place-items-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900"
               onClick={() =>
                 setOpenReactionFor((cur: string | null) =>
                   cur === m.id ? null : m.id,
@@ -239,7 +290,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             </button>
 
             {reactionsOpen && (
-              <div className={`absolute top-10 z-50 shadow-lg ${mine ? "right-0" : "left-0"}`}>
+              <div className={`absolute z-50 shadow-lg ${isLast ? "bottom-[110%]" : "top-10"} ${mine ? "right-0" : "left-0"}`}>
                 <EmojiPicker
                   onEmojiClick={(emojiData) => {
                     emitReaction(m.id, emojiData.emoji);
