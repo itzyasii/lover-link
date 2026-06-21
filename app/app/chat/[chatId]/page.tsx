@@ -1018,20 +1018,42 @@ export default function ChatPage() {
 
   const sendMessage = () => {
     if (!text.trim()) return;
+    if (!otherUserId) return;
+    
     const s = ensureSocket();
-    if (editingId) {
-      s.emit("chat:edit", { messageId: editingId, text });
-      setEditingId(null);
-      setEditDraft("");
-    } else {
-      s.emit("chat:message", { chatId, text });
-    }
+    const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    
+    const optimisticMessage: Msg = {
+      id: clientMessageId,
+      from: me!.id,
+      chatId: chatId,
+      text: text.trim(),
+      item: null,
+      type: "text",
+      createdAt: new Date().toISOString(),
+      deletedAt: null,
+      editedAt: null,
+      reactions: [],
+      receipts: [],
+      event: null,
+    };
+    
+    setMessages((prev) => [...prev, optimisticMessage]);
+    s.emit("chat:message", { to: otherUserId, text: text.trim(), clientMessageId });
+    
     setText("");
     if (typingTimer.current) {
       clearTimeout(typingTimer.current);
       typingTimer.current = null;
       emitTyping(false);
     }
+    
+    setTimeout(() => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop =
+          messagesContainerRef.current.scrollHeight;
+      }
+    }, 50);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

@@ -62,4 +62,10 @@ export type CallState =
       localStream: MediaStream;
       remoteStream: MediaStream;
       mediaStream?: MediaStream;
+    }
+  | {
+      kind: "answered_elsewhere";
+      callId: string;
+      peerLabel: string;
+      connectedAt: string;
     };

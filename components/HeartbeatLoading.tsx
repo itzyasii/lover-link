@@ -1,14 +1,13 @@
 "use client";
 
-import { useIsFetching, useIsMutating } from "@tanstack/react-query";
+import { useIsMutating } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useLoadingStore } from "@/stores/loading";
 
 export function HeartbeatLoading() {
-  const fetching = useIsFetching();
   const mutating = useIsMutating();
   const manual = useLoadingStore((s) => s.count);
-  const busy = fetching + mutating + manual > 0;
+  const busy = mutating + manual > 0;
 
   const [visible, setVisible] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);

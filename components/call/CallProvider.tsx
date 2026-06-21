@@ -336,8 +336,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     pc.onconnectionstatechange = () => {
       if (
         pc.connectionState === "failed" ||
-        pc.connectionState === "closed" ||
-        pc.connectionState === "disconnected"
+        pc.connectionState === "closed"
       ) {
         cleanup();
       }
@@ -753,7 +752,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const r = asRecord(p);
       const callId = typeof r?.callId === "string" ? r.callId : "";
       if (callId && callId !== current.callId) return;
-      cleanupRef.current?.();
+      
+      const reason = typeof r?.reason === "string" ? r.reason : "";
+      if (reason === "answered_elsewhere" && current.kind === "incoming") {
+        stopNetworkMonitor();
+        pcRef.current?.close();
+        pcRef.current = null;
+        localStreamRef.current?.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+        remoteStreamRef.current = null;
+        pendingIce.current = [];
+        stopCallSound();
+        
+        setState({
+          kind: "answered_elsewhere",
+          callId: current.callId,
+          peerLabel: current.fromLabel,
+          connectedAt: new Date().toISOString(),
+        } as CallState);
+      } else {
+        cleanupRef.current?.();
+      }
     };
 
     const onMissed = (p: unknown) => {

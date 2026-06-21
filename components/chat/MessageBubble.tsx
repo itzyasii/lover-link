@@ -2,6 +2,7 @@ import { Msg, ReactionGroup, ShareItem } from "@/types/chat";
 import { Check, Pencil, SmilePlus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import EmojiPicker from 'emoji-picker-react';
 
 interface MessageBubbleProps {
   m: Msg;
@@ -225,23 +226,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               <SmilePlus className="h-3.5 w-3.5" />
             </button>
 
-            <div
-              className={`absolute top-10 z-10 max-w-55 flex-wrap items-center gap-1 rounded-xl border border-black/10 bg-white p-1 shadow-lg ${
-                reactionsOpen ? "flex" : "hidden"
-              } ${mine ? "right-0" : "left-0"}`}
-            >
-              {QUICK_REACTIONS.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  className="grid h-8 w-8 place-items-center rounded-lg transition hover:bg-black/5"
-                  onClick={() => emitReaction(m.id, e)}
-                  aria-label={`React ${e}`}
-                >
-                  <span className="text-sm leading-none">{e}</span>
-                </button>
-              ))}
-            </div>
+            {reactionsOpen && (
+              <div className={`absolute top-10 z-50 shadow-lg ${mine ? "right-0" : "left-0"}`}>
+                <EmojiPicker
+                  onEmojiClick={(emojiData) => {
+                    emitReaction(m.id, emojiData.emoji);
+                  }}
+                  previewConfig={{ showPreview: false }}
+                  skinTonesDisabled
+                  lazyLoadEmojis
+                  width={300}
+                  height={350}
+                />
+              </div>
+            )}
 
             {mine && canEditOrDelete ? (
               <>

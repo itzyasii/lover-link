@@ -47,7 +47,7 @@ export function CallOverlay() {
 
 
   const toggleCameraFlip = async () => {
-    if (state.kind !== "idle" && state.mediaStream) {
+    if ("mediaStream" in state && state.mediaStream) {
       const videoTrack = state.mediaStream.getVideoTracks()[0];
       if (videoTrack) {
         const newFacing = usingFrontCamera ? "environment" : "user";
@@ -163,7 +163,7 @@ export function CallOverlay() {
             </div>
           )}
             {state.media === "video" && state.mediaStream && (
-            <div className={`absolute top-4 right-4 w-[30%] overflow-hidden rounded-xl border-2 border-white/30 bg-black/40 shadow-lg aspect-9/16 ${usingFrontCamera ? "" : "scale-x-[-1]"}`}>
+            <div className={`absolute top-4 right-4 w-[30%] overflow-hidden rounded-xl border-2 border-white/30 bg-black/40 shadow-lg aspect-9/16 ${usingFrontCamera ? "scale-x-[-1]" : ""}`}>
                 <video
                   ref={(el) => {
                     if (el && state.mediaStream && el.srcObject !== state.mediaStream) {
@@ -211,6 +211,18 @@ export function CallOverlay() {
             <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600" onClick={() => void hangup()} type="button">
               <PhoneOff className="h-7 w-7" />
             </button>
+          </div>
+        </div>
+      )}
+      {state.kind === "answered_elsewhere" && (
+        <div className="flex flex-col items-center justify-center h-full w-full px-8 py-12">
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <div className="grid h-36 w-36 place-items-center rounded-full bg-rose-100 text-4xl font-semibold text-rose-600 shadow-lg mb-6">
+              {initials(state.peerLabel)}
+            </div>
+            <h3 className="text-3xl font-semibold text-white mb-2">{state.peerLabel}</h3>
+            <p className="text-gray-400 text-lg">In call with {state.peerLabel}</p>
+            <p className="text-gray-500 text-sm mt-2 text-center">Active on another device</p>
           </div>
         </div>
       )}
