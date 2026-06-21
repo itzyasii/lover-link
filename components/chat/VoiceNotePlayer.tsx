@@ -18,6 +18,7 @@ export const VoiceNotePlayer = ({
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [error, setError] = useState(false);
   const onListenedRef = useRef(onListened);
   const listenedRef = useRef(listened);
 
@@ -27,40 +28,75 @@ export const VoiceNotePlayer = ({
   }, [onListened, listened]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || error) return;
 
-    const ws = WaveSurfer.create({
-      container: containerRef.current,
-      waveColor: "#fda4af", // rose-300
-      progressColor: "#e11d48", // rose-600
-      cursorColor: "#9f1239", // rose-900
-      barWidth: 2,
-      barGap: 2,
-      barRadius: 2,
-      height: 40,
-      url: url,
-    });
+    try {
+      const ws = WaveSurfer.create({
+        container: containerRef.current,
+        waveColor: "#fda4af", // rose-300
+        progressColor: "#e11d48", // rose-600
+        cursorColor: "#9f1239", // rose-900
+        barWidth: 2,
+        barGap: 2,
+        barRadius: 2,
+        height: 40,
+        url: url,
+        fetchParams: { mode: "cors" },
+      });
 
-    ws.on("play", () => {
-      setIsPlaying(true);
-      if (!listenedRef.current) {
-        onListenedRef.current();
+      ws.on("play", () => {
+        setIsPlaying(true);
+        if (!listenedRef.current) {
+          onListenedRef.current();
+        }
+      });
+      ws.on("pause", () => setIsPlaying(false));
+      ws.on("timeupdate", (time) => setCurrentTime(time * 1000));
+      ws.on("finish", () => setIsPlaying(false));
+      ws.on("error", (err) => {
+        console.error("WaveSurfer error:", err);
+        setError(true);
+      });
+
+      wavesurferRef.current = ws;
+
+      return () => {
+        ws.destroy();
+      };
+    } catch (err) {
+      console.error("WaveSurfer init error:", err);
+      setError(true);
+    }
+  }, [url, error]);
+
+  const handleTogglePlay = async () => {
+    if (wavesurferRef.current) {
+      try {
+        await wavesurferRef.current.playPause();
+      } catch (err) {
+        console.error("WaveSurfer play error:", err);
+        setError(true);
       }
-    });
-    ws.on("pause", () => setIsPlaying(false));
-    ws.on("timeupdate", (time) => setCurrentTime(time * 1000));
-    ws.on("finish", () => setIsPlaying(false));
-
-    wavesurferRef.current = ws;
-
-    return () => {
-      ws.destroy();
-    };
-  }, [url]);
-
-  const handleTogglePlay = () => {
-    wavesurferRef.current?.playPause();
+    }
   };
+
+  if (error) {
+    return (
+      <div className="grid gap-2 rounded-[20px] bg-white/55 px-3 py-2 w-64 shadow-sm border border-black/5">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-(--wine-900)/55">
+          <span>Voice message</span>
+        </div>
+        <audio 
+          controls 
+          src={url} 
+          className="w-full h-8 outline-none" 
+          onPlay={() => {
+            if (!listened) onListened();
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-2 rounded-[20px] bg-white/55 px-3 py-2 w-64 shadow-sm border border-black/5">

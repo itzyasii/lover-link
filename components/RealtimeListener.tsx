@@ -11,6 +11,7 @@ import { onMessageListener } from "@/lib/firebase";
 import { MessagePayload } from "firebase/messaging";
 import { useTypingStore } from "@/stores/typing";
 import { playMessageSound } from "@/lib/sounds";
+import { useChatsStore } from "@/stores/chats";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (typeof v !== "object" || v == null) return null;
@@ -49,15 +50,19 @@ export function RealtimeListener() {
     () => activeChatIdFromPath(pathname),
     [pathname],
   );
-  const [unreadByChat, setUnreadByChat] = useState<Record<string, number>>({});
+  const unreadCounts = useChatsStore((s) => s.unreadCounts);
+  const incrementUnread = useChatsStore((s) => s.incrementUnread);
+  const resetUnread = useChatsStore((s) => s.resetUnread);
+  const updateChatLastMessage = useChatsStore((s) => s.updateChatLastMessage);
+  const chats = useChatsStore((s) => s.chats);
   const activeChatRef = useRef<string | null>(activeChatId);
   const defaultTitleRef = useRef("LoverLink");
   const blinkIntervalRef = useRef<number | null>(null);
   const blinkToggleRef = useRef(false);
 
   const totalUnread = useMemo(
-    () => Object.values(unreadByChat).reduce((sum, count) => sum + count, 0),
-    [unreadByChat],
+    () => Object.values(unreadCounts).reduce((sum, count) => sum + count, 0),
+    [unreadCounts],
   );
 
   useEffect(() => {
@@ -109,12 +114,7 @@ export function RealtimeListener() {
     if (!activeChatId || typeof document === "undefined") return;
     if (document.visibilityState !== "visible") return;
     const timer = window.setTimeout(() => {
-      setUnreadByChat((prev) => {
-        if (!prev[activeChatId]) return prev;
-        const next = { ...prev };
-        delete next[activeChatId];
-        return next;
-      });
+      resetUnread(activeChatId);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [activeChatId]);
@@ -140,13 +140,6 @@ export function RealtimeListener() {
       typeof document !== "undefined" &&
       document.visibilityState === "visible" &&
       activeChatRef.current === chatId;
-
-    const incrementUnread = (chatId: string) => {
-      setUnreadByChat((prev) => ({
-        ...prev,
-        [chatId]: (prev[chatId] ?? 0) + 1,
-      }));
-    };
 
     const notify = (title: string, message: string) => {
       toast({ title, message });
@@ -174,13 +167,20 @@ export function RealtimeListener() {
       if (!messageId || !from || from === me?.id) return;
       s.emit("chat:delivered", { messageIds: [messageId] });
 
+      updateChatLastMessage(chatId, message);
+
       if (!chatId || isChatVisible(chatId)) return;
 
-      incrementUnread(chatId);
-      playMessageSound();
-      void resolveUserLabel(from).then((label) => {
-        notify(label ?? "New message", previewMessage(message ?? {}));
-      });
+      const chat = useChatsStore.getState().chats.find(c => c.id === chatId);
+      const isMuted = chat?.isMuted ?? false;
+
+      if (!isMuted) {
+        incrementUnread(chatId);
+        playMessageSound();
+        void resolveUserLabel(from).then((label) => {
+          notify(label ?? "New message", previewMessage(message ?? {}));
+        });
+      }
     };
 
     const onReaction = (p: unknown) => {
@@ -213,12 +213,7 @@ export function RealtimeListener() {
         return;
       const currentChatId = activeChatRef.current;
       if (!currentChatId) return;
-      setUnreadByChat((prev) => {
-        if (!prev[currentChatId]) return prev;
-        const next = { ...prev };
-        delete next[currentChatId];
-        return next;
-      });
+      resetUnread(currentChatId);
     };
 
     s.on("chat:typing", onTyping);

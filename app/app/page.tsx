@@ -10,23 +10,10 @@ import { useAuthStore } from "@/stores/auth";
 import { useTypingStore } from "@/stores/typing";
 import { formatLastSeen } from "@/lib/time";
 import { usePrefetchedQuery } from "@/hooks/usePrefetchedQuery";
+import { useChatsStore, Chat } from "@/stores/chats";
+import { Pin, BellOff, MoreVertical, PinOff, Bell } from "lucide-react";
 
-type Chat = {
-  id: string;
-  type: "dm";
-  members: ChatMember[];
-  lastMessage?: {
-    id: string;
-    type: "text" | "share" | "event";
-    text: string | null;
-    itemKind: "file" | "image" | "video" | "audio" | null;
-    eventKind: "call_started" | "call_ended" | null;
-    eventMedia: "audio" | "video" | null;
-    from: string;
-    createdAt: string;
-  } | null;
-  updatedAt: string;
-};
+
 
 type ChatMember = string | { id: string; email?: string; username?: string };
 
@@ -86,7 +73,30 @@ export default function ChatsPage() {
       queryFn: () => apiFetch<{ ok: true; chats: Chat[] }>("/api/chats"),
     });
 
-  const chats = useMemo(() => guaranteedData?.chats ?? [], [guaranteedData]);
+  const setChats = useChatsStore((s) => s.setChats);
+  const chatsStore = useChatsStore((s) => s.chats);
+  const unreadCounts = useChatsStore((s) => s.unreadCounts);
+  const togglePinStore = useChatsStore((s) => s.togglePin);
+  const toggleMuteStore = useChatsStore((s) => s.toggleMute);
+
+  // Sync prefetched data with store
+  useEffect(() => {
+    if (guaranteedData?.chats) {
+      setChats(guaranteedData.chats);
+    }
+  }, [guaranteedData, setChats]);
+
+  const chats = useMemo(() => {
+    const arr = [...chatsStore];
+    return arr.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      const timeA = new Date(a.lastMessage?.createdAt || a.updatedAt).getTime();
+      const timeB = new Date(b.lastMessage?.createdAt || b.updatedAt).getTime();
+      return timeB - timeA;
+    });
+  }, [chatsStore]);
+
   const otherMembers = useMemo(
     () =>
       chats
@@ -217,6 +227,45 @@ export default function ChatsPage() {
     return map;
   }, [otherMembers, onlineUsers, lastSeen]);
 
+  const handlePin = async (e: React.MouseEvent, chatId: string, isPinned: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    togglePinStore(chatId);
+    try {
+      if (isPinned) {
+        await apiFetch(`/api/chats/${chatId}/pin`, { method: "DELETE" });
+      } else {
+        await apiFetch(`/api/chats/${chatId}/pin`, { method: "POST" });
+      }
+    } catch {
+      togglePinStore(chatId); // revert on error
+    }
+  };
+
+  const handleMute = async (e: React.MouseEvent, chatId: string, isMuted: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleMuteStore(chatId);
+    try {
+      if (isMuted) {
+        await apiFetch(`/api/chats/${chatId}/mute`, { method: "DELETE" });
+      } else {
+        await apiFetch(`/api/chats/${chatId}/mute`, { method: "POST" });
+      }
+    } catch {
+      toggleMuteStore(chatId); // revert on error
+    }
+  };
+
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  // Close menu on click outside
+  useEffect(() => {
+    const handleDocClick = () => setOpenMenuId(null);
+    document.addEventListener("click", handleDocClick);
+    return () => document.removeEventListener("click", handleDocClick);
+  }, []);
+
   return (
     <div>
       <div className="flex items-center justify-between gap-4">
@@ -272,8 +321,10 @@ export default function ChatsPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center justify-between gap-3">
-                      <div className="truncate text-base font-semibold text-gray-800">
-                        {name}
+                      <div className="flex items-center gap-2 truncate text-base font-semibold text-gray-800">
+                        {c.isPinned && <Pin className="h-3 w-3 shrink-0 text-gray-400" />}
+                        <span className="truncate">{name}</span>
+                        {c.isMuted && <BellOff className="h-3 w-3 shrink-0 text-gray-400" />}
                       </div>
                       <span className="shrink-0 text-[11px] text-gray-400">
                         {presence?.isOnline
@@ -327,8 +378,48 @@ export default function ChatsPage() {
                       })()}
                     </div>
                   </div>
+                  
+                  <div className="flex shrink-0 items-center gap-2 ml-2">
+                    {unreadCounts[c.id] > 0 && (
+                      <div className="grid h-5 min-w-[20px] place-items-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white shadow-sm">
+                        {unreadCounts[c.id]}
+                      </div>
+                    )}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setOpenMenuId(openMenuId === c.id ? null : c.id);
+                        }}
+                        className="focus-ring rounded-full p-2 text-gray-400 hover:bg-black/5 hover:text-gray-600"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </button>
+                      {openMenuId === c.id && (
+                        <div className="absolute right-0 top-full z-10 mt-1 w-32 rounded-xl border border-black/5 bg-white py-1 shadow-lg">
+                          <button
+                            type="button"
+                            onClick={(e) => { setOpenMenuId(null); handlePin(e, c.id, c.isPinned ?? false); }}
+                            className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {c.isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                            {c.isPinned ? "Unpin" : "Pin"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { setOpenMenuId(null); handleMute(e, c.id, c.isMuted ?? false); }}
+                            className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {c.isMuted ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+                            {c.isMuted ? "Unmute" : "Mute"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <ChevronRight className="h-4 w-4 text-black/40" />
               </Link>
             );
           })}

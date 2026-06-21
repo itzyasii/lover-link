@@ -233,10 +233,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <CallProvider>
       <RealtimeListener />
-      <div className="mx-auto flex h-dvh max-w-7xl flex-col overflow-hidden bg-gray-50 md:flex-row md:gap-4 md:p-4">
+      <div className="mx-auto flex h-dvh max-w-7xl flex-col overflow-hidden bg-gray-50 md:flex-row md:gap-4 md:p-4 pt-safe sm:pt-4 md:pt-0">
         {/* Mobile: Main content area first so it fills vertical space above nav */}
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white shadow-sm md:mt-0 md:rounded-2xl md:border md:border-black/5 md:bg-white/70">
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="min-h-0 flex-1 overflow-auto pt-4 md:pt-0">
             {children}
           </div>
         </main>
