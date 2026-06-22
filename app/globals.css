@@ -1,81 +1,115 @@
 @import "tailwindcss";
 
-:root {
-  --bg0: #fff7fb;
-  --bg1: #fff1f7;
-  --card: rgba(255, 255, 255, 0.72);
-  --card-border: rgba(198, 43, 105, 0.14);
-  --text: #1b0b14;
-  --muted: rgba(27, 11, 20, 0.66);
+@layer theme {
+  :root {
+    --bg0: #fff9fc;
+    --bg1: #ffedf5;
+    
+    /* Modern Glassmorphic Cards */
+    --card: rgba(255, 255, 255, 0.85);
+    --card-hover: rgba(255, 255, 255, 0.95);
+    --card-border: rgba(220, 38, 127, 0.12);
+    
+    /* Typography */
+    --text-primary: #1a0b12;
+    --text-secondary: rgba(26, 11, 18, 0.6);
+    --text-tertiary: rgba(26, 11, 18, 0.4);
 
-  --rose-600: #c62b69;
-  --rose-700: #a81f56;
-  --wine-900: #3b0a22;
-  --peach-200: #ffd7e7;
+    /* Accents (Neon Rose / Pink) */
+    --accent-primary: #e63946;
+    --accent-secondary: #ff4d6d;
+    --accent-glow: rgba(230, 57, 70, 0.35);
 
-  --ring: rgba(198, 43, 105, 0.35);
-  --shadow: 0 18px 48px rgba(59, 10, 34, 0.14);
+    /* Interactions */
+    --ring: rgba(230, 57, 70, 0.35);
+    --shadow-sm: 0 4px 20px rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 12px 32px rgba(230, 57, 70, 0.08);
+    --shadow-lg: 0 24px 64px rgba(230, 57, 70, 0.12);
+  }
 }
 
 body {
   min-height: 100vh;
-  background:
-    radial-gradient(
-      1200px 600px at 20% 10%,
-      rgba(198, 43, 105, 0.12),
-      transparent 55%
-    ),
-    radial-gradient(
-      900px 500px at 80% 20%,
-      rgba(255, 215, 231, 0.65),
-      transparent 50%
-    ),
-    linear-gradient(180deg, var(--bg0), var(--bg1));
-  color: var(--text);
+  min-height: 100dvh;
+  /* Complex, fluid background */
+  background: 
+    radial-gradient(circle at 15% 50%, rgba(255, 181, 167, 0.25), transparent 40%),
+    radial-gradient(circle at 85% 20%, rgba(255, 200, 221, 0.3), transparent 40%),
+    radial-gradient(circle at 50% 90%, rgba(205, 180, 219, 0.2), transparent 50%),
+    linear-gradient(135deg, var(--bg0), var(--bg1));
+  color: var(--text-primary);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  /* Prevent overscroll bounce on mobile to feel like a native app */
+  overscroll-behavior-y: none;
 }
 
+/* Mobile App Specific Adjustments */
 * {
   -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
 }
 
-.glass {
+/* Hide scrollbar for a cleaner look, especially on mobile */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.glass-panel {
   background: var(--card);
   border: 1px solid var(--card-border);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .focus-ring:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 4px var(--ring);
+  box-shadow: 0 0 0 3px var(--ring);
 }
 
-@keyframes loverlink-typing {
-  0%,
-  80%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.45;
-  }
-  40% {
-    transform: translateY(-3px);
-    opacity: 0.95;
-  }
+/* Base Animations */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes typingDots {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+  40% { transform: translateY(-4px); opacity: 1; }
 }
 
 .typing-dots > span {
   display: inline-block;
-  width: 0.34rem;
-  height: 0.34rem;
-  border-radius: 9999px;
-  background: rgba(27, 11, 20, 0.55);
-  animation: loverlink-typing 1.1s infinite ease-in-out;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: var(--accent-primary);
+  animation: typingDots 1.4s infinite ease-in-out both;
 }
 
-.typing-dots > span:nth-child(2) {
-  animation-delay: 0.12s;
-}
+.typing-dots > span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots > span:nth-child(2) { animation-delay: -0.16s; }
 
-.typing-dots > span:nth-child(3) {
-  animation-delay: 0.24s;
-}
+/* Dynamic safe area paddings for notch support */
+.pt-safe { padding-top: env(safe-area-inset-top); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.pl-safe { padding-left: env(safe-area-inset-left); }
+.pr-safe { padding-right: env(safe-area-inset-right); }

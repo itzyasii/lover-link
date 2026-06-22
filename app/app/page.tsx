@@ -5,15 +5,13 @@ import { useMemo, useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
-import { ChevronRight, MessageSquarePlus, MessageCircle } from "lucide-react";
+import { MessageSquarePlus } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useTypingStore } from "@/stores/typing";
 import { formatLastSeen } from "@/lib/time";
 import { usePrefetchedQuery } from "@/hooks/usePrefetchedQuery";
 import { useChatsStore, Chat } from "@/stores/chats";
-import { Pin, BellOff, MoreVertical, PinOff, Bell } from "lucide-react";
-
-
+import { ChatListItem } from "@/components/chat/ChatListItem";
 
 type ChatMember = string | { id: string; email?: string; username?: string };
 
@@ -61,13 +59,13 @@ function formatLastMessagePreview(
     return `${prefix}Sent a ${label}`;
   }
   const t = (m.text ?? "").trim();
-  return prefix + (t || "â€¦");
+  return prefix + (t || "...");
 }
 
 export default function ChatsPage() {
   const me = useAuthStore((s) => s.user);
   const typingByChatId = useTypingStore((s) => s.byChatId);
-  const { guaranteedData, isInstantlyAvailable, error, isLoading } =
+  const { guaranteedData, error, isLoading } =
     usePrefetchedQuery({
       queryKey: ["chats"],
       queryFn: () => apiFetch<{ ok: true; chats: Chat[] }>("/api/chats"),
@@ -79,7 +77,6 @@ export default function ChatsPage() {
   const togglePinStore = useChatsStore((s) => s.togglePin);
   const toggleMuteStore = useChatsStore((s) => s.toggleMute);
 
-  // Sync prefetched data with store
   useEffect(() => {
     if (guaranteedData?.chats) {
       setChats(guaranteedData.chats);
@@ -107,20 +104,17 @@ export default function ChatsPage() {
         .filter(Boolean) as NonNullable<Chat["members"][number]>[],
     [chats, me?.id],
   );
-  // Track online users via socket.io instead of REST polling (per FRONTEND_INTEGRATION.md)
+
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [lastSeen, setLastSeen] = useState<Map<string, string>>(new Map());
-  const queryClient = useQueryClient(); // For refetching data when tab becomes visible
+  const queryClient = useQueryClient(); 
 
-  // Refetch chats when page becomes visible (when returning from chat)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        // Refetch chats to get latest messages and updates
         queryClient.invalidateQueries({ queryKey: ["chats"] });
       }
     };
-
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -130,7 +124,6 @@ export default function ChatsPage() {
     const s = getSocket();
     if (!s.connected) s.connect();
 
-    // Get initial online users list and last seen data
     s.emit(
       "presence:list",
       (response: {
@@ -140,7 +133,6 @@ export default function ChatsPage() {
       }) => {
         if (response.ok) {
           setOnlineUsers(new Set(response.users));
-          // Update last seen map if server returns it
           if (response.lastSeen) {
             setLastSeen(new Map(Object.entries(response.lastSeen)));
           }
@@ -148,7 +140,6 @@ export default function ChatsPage() {
       },
     );
 
-    // Listen for presence updates (when users come online/go offline)
     const handlePresenceUpdate = (data: {
       ok: boolean;
       users: string[];
@@ -156,62 +147,31 @@ export default function ChatsPage() {
     }) => {
       if (data.ok) {
         setOnlineUsers(new Set(data.users));
-        // Update last seen map if server returns it
         if (data.lastSeen) {
           setLastSeen(new Map(Object.entries(data.lastSeen)));
         }
       }
     };
 
-    // Initial online list on connect
-    const handlePresenceOnline = (data: {
-      ok: boolean;
-      users: string[];
-      lastSeen?: Record<string, string>;
-    }) => {
+    const handleNewMessage = (data: { ok: boolean; chatId: string }) => {
       if (data.ok) {
-        setOnlineUsers(new Set(data.users));
-        // Update last seen map if server returns it
-        if (data.lastSeen) {
-          setLastSeen(new Map(Object.entries(data.lastSeen)));
-        }
-      }
-    };
-
-    // Listen for new messages to update chat list in realtime
-    interface Message {
-      id: string;
-      from: string;
-      chatId: string;
-      text?: string;
-      createdAt: string;
-    }
-
-    const handleNewMessage = (data: {
-      ok: boolean;
-      chatId: string;
-      message: Message;
-    }) => {
-      if (data.ok) {
-        // Invalidate queries to refresh chat list with new message
         queryClient.invalidateQueries({ queryKey: ["chats"] });
       }
     };
 
     s.on("presence:update", handlePresenceUpdate);
-    s.on("presence:online", handlePresenceOnline);
+    s.on("presence:online", handlePresenceUpdate);
     s.on("chat:message", handleNewMessage);
     s.on("share:item", handleNewMessage);
 
     return () => {
       s.off("presence:update", handlePresenceUpdate);
-      s.off("presence:online", handlePresenceOnline);
+      s.off("presence:online", handlePresenceUpdate);
       s.off("chat:message", handleNewMessage);
       s.off("share:item", handleNewMessage);
     };
   }, [queryClient]);
 
-  // Create presence map for easy access - just track online status, lastSeen can be cached
   const presenceByUserId = useMemo(() => {
     const map = new Map<
       string,
@@ -227,9 +187,7 @@ export default function ChatsPage() {
     return map;
   }, [otherMembers, onlineUsers, lastSeen]);
 
-  const handlePin = async (e: React.MouseEvent, chatId: string, isPinned: boolean) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handlePin = async (chatId: string, isPinned: boolean) => {
     togglePinStore(chatId);
     try {
       if (isPinned) {
@@ -238,13 +196,11 @@ export default function ChatsPage() {
         await apiFetch(`/api/chats/${chatId}/pin`, { method: "POST" });
       }
     } catch {
-      togglePinStore(chatId); // revert on error
+      togglePinStore(chatId); 
     }
   };
 
-  const handleMute = async (e: React.MouseEvent, chatId: string, isMuted: boolean) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleMute = async (chatId: string, isMuted: boolean) => {
     toggleMuteStore(chatId);
     try {
       if (isMuted) {
@@ -253,47 +209,44 @@ export default function ChatsPage() {
         await apiFetch(`/api/chats/${chatId}/mute`, { method: "POST" });
       }
     } catch {
-      toggleMuteStore(chatId); // revert on error
+      toggleMuteStore(chatId); 
     }
   };
 
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-
-  // Close menu on click outside
-  useEffect(() => {
-    const handleDocClick = () => setOpenMenuId(null);
-    document.addEventListener("click", handleDocClick);
-    return () => document.removeEventListener("click", handleDocClick);
-  }, []);
-
   return (
-    <div>
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="font-[family-name:var(--font-serif)] text-2xl text-[color:var(--wine-900)]">
+    <div className="flex flex-col h-full bg-[#fbfbfe]">
+      {/* Header Sticky Area */}
+      <div className="sticky top-0 z-30 bg-[#fbfbfe]/80 backdrop-blur-xl px-5 pt-8 pb-4 border-b border-black/5 flex items-center justify-between">
+        <h1 className="text-[28px] font-bold text-gray-900 tracking-tight">
           Chats
         </h1>
         <Link
-          className="focus-ring inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-rose-500 to-rose-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
+          className="focus-ring flex h-10 w-10 items-center justify-center rounded-full bg-(--accent-primary) text-white shadow-lg shadow-(--accent-glow) hover:scale-105 active:scale-95 transition-all duration-300"
           href="/app/friends"
         >
-          <MessageSquarePlus className="h-4 w-4" />
-          New message
+          <MessageSquarePlus className="h-5 w-5" />
         </Link>
       </div>
 
-      {isLoading ? (
-        <div className="mt-6 text-sm text-black/60">Loading…</div>
-      ) : error ? (
-        <div className="mt-6 rounded-2xl bg-red-500/10 px-4 py-3 text-sm text-red-700">
-          Could not load chats.
-        </div>
-      ) : chats.length === 0 ? (
-        <div className="mt-6 rounded-3xl bg-white/60 p-6 text-sm text-black/70">
-          No chats yet. Add a friend and start a conversation.
-        </div>
-      ) : (
-        <div className="mt-6 grid gap-2">
-          {chats.map((c) => {
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2.5">
+        {isLoading ? (
+          <div className="flex justify-center p-8">
+            <div className="h-6 w-6 rounded-full border-2 border-(--accent-primary) border-t-transparent animate-spin"></div>
+          </div>
+        ) : error ? (
+          <div className="rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-600 border border-red-100">
+            Could not load chats.
+          </div>
+        ) : chats.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-center p-8 mt-10">
+            <div className="h-24 w-24 rounded-full bg-pink-50 flex items-center justify-center mb-4">
+              <MessageSquarePlus className="h-10 w-10 text-pink-200" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No messages yet</h3>
+            <p className="text-sm text-gray-500 max-w-[200px]">Start a conversation with a friend to see it here.</p>
+          </div>
+        ) : (
+          chats.map((c) => {
             const otherMember =
               c.members.find((m) => memberId(m) !== me?.id) ?? null;
             const presence = otherMember
@@ -301,147 +254,31 @@ export default function ChatsPage() {
               : null;
             const name = memberName(otherMember);
 
+            const t = typingByChatId[c.id];
+            const active = t && Date.now() - t.at < 6500;
+            const isTyping = Boolean(active && t?.from && t.from !== me?.id);
+
             return (
-              <Link
+              <ChatListItem
                 key={c.id}
-                href={`/app/chat/${c.id}`}
-                className="focus-ring flex items-center justify-between rounded-3xl bg-white/70 px-4 py-4 shadow-sm hover:bg-white hover:shadow-md hover:scale-[1.02] transition-all duration-200"
-              >
-                <div className="flex min-w-0 items-center gap-4">
-                  <div className="relative shrink-0">
-                    <ChatAvatar name={name} />
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 border-white ${
-                        presence?.isOnline ? "bg-green-500" : "bg-slate-400"
-                      }`}
-                      title={
-                        presence?.isOnline ? "Online now" : "Last seen recently"
-                      }
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 truncate text-base font-semibold text-gray-800">
-                        {c.isPinned && <Pin className="h-3 w-3 shrink-0 text-gray-400" />}
-                        <span className="truncate">{name}</span>
-                        {c.isMuted && <BellOff className="h-3 w-3 shrink-0 text-gray-400" />}
-                      </div>
-                      <span className="shrink-0 text-[11px] text-gray-400">
-                        {presence?.isOnline
-                          ? "Online now"
-                          : presence?.lastSeenAt
-                            ? formatLastSeen(presence.lastSeenAt)
-                            : "Offline"}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex min-w-0 items-center justify-between gap-4 text-sm text-gray-500">
-                      {(() => {
-                        const t = typingByChatId[c.id];
-                        const active = t && Date.now() - t.at < 6500;
-                        const otherTyping =
-                          active && t?.from && t.from !== me?.id;
-                        if (otherTyping) {
-                          return (
-                            <div className="flex min-w-0 items-center justify-between gap-3">
-                              <div className="inline-flex min-w-0 items-center gap-2 truncate font-semibold text-[color:var(--rose-700)]">
-                                Typing
-                                <span
-                                  className="typing-dots"
-                                  aria-hidden="true"
-                                >
-                                  <span />
-                                  <span />
-                                  <span />
-                                </span>
-                              </div>
-                              <div className="shrink-0 tabular-nums text-black/35" />
-                            </div>
-                          );
-                        }
-                        return (
-                          <>
-                            <div className="min-w-0 truncate">
-                              {formatLastMessagePreview(
-                                c.lastMessage ?? null,
-                                me?.id,
-                              )}
-                            </div>
-                            <div className="shrink-0 tabular-nums">
-                              {formatChatTime(
-                                (c.lastMessage?.createdAt as
-                                  | string
-                                  | undefined) ?? c.updatedAt,
-                              )}
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  
-                  <div className="flex shrink-0 items-center gap-2 ml-2">
-                    {unreadCounts[c.id] > 0 && (
-                      <div className="grid h-5 min-w-[20px] place-items-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white shadow-sm">
-                        {unreadCounts[c.id]}
-                      </div>
-                    )}
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setOpenMenuId(openMenuId === c.id ? null : c.id);
-                        }}
-                        className="focus-ring rounded-full p-2 text-gray-400 hover:bg-black/5 hover:text-gray-600"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </button>
-                      {openMenuId === c.id && (
-                        <div className="absolute right-0 top-full z-10 mt-1 w-32 rounded-xl border border-black/5 bg-white py-1 shadow-lg">
-                          <button
-                            type="button"
-                            onClick={(e) => { setOpenMenuId(null); handlePin(e, c.id, c.isPinned ?? false); }}
-                            className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                          >
-                            {c.isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-                            {c.isPinned ? "Unpin" : "Pin"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { setOpenMenuId(null); handleMute(e, c.id, c.isMuted ?? false); }}
-                            className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                          >
-                            {c.isMuted ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
-                            {c.isMuted ? "Unmute" : "Mute"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </Link>
+                chat={c}
+                name={name}
+                presence={presence}
+                otherMemberId={otherMember ? memberId(otherMember) : null}
+                meId={me?.id}
+                unreadCount={unreadCounts[c.id] || 0}
+                isTyping={isTyping}
+                previewText={formatLastMessagePreview(c.lastMessage ?? null, me?.id)}
+                timeText={formatChatTime(
+                  (c.lastMessage?.createdAt as string | undefined) ?? c.updatedAt
+                )}
+                onPin={(isPinned) => handlePin(c.id, isPinned)}
+                onMute={(isMuted) => handleMute(c.id, isMuted)}
+              />
             );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ChatAvatar({ name }: { name: string }) {
-  const initials =
-    name
-      .trim()
-      .split(/[\s._-]+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase() ?? "")
-      .join("") || "?";
-
-  return (
-    <div className="grid h-11 w-11 place-items-center rounded-2xl border border-white/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(255,229,238,0.88))] text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--rose-700)] shadow-sm">
-      {initials}
+          })
+        )}
+      </div>
     </div>
   );
 }

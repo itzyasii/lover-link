@@ -1,270 +1,390 @@
-// "use client"
+"use client";
 
-// Removed unused CallState import
 import {
-  Mic,
-  MicOff,
-  Phone,
-  PhoneOff,
-  Volume2,
-  VolumeX,
-  Video,
-  VideoOff,
-  RotateCcw,
-  Minimize2,
-  Maximize2,
+  Mic, MicOff, Phone, PhoneOff, Volume2, VolumeX,
+  Video, VideoOff, RotateCcw, Maximize2, Minimize2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { initials, formatElapsed } from "@/lib/utils";
 import Draggable from "react-draggable";
 import { useCall } from "@/components/call/CallProvider";
+
+// ─── sub-components ──────────────────────────────────────────────────────────
+
+function Avatar({ label, size = "lg" }: { label: string; size?: "sm" | "lg" }) {
+  const sz = size === "lg" ? "h-32 w-32 text-4xl" : "h-20 w-20 text-2xl";
+  return (
+    <div className={`relative ${sz} shrink-0`}>
+      {/* Pulsing glow rings (incoming / outgoing only) */}
+      <div className="absolute inset-0 rounded-full bg-rose-400/20 animate-ping [animation-duration:2s]" />
+      <div className="absolute inset-2 rounded-full bg-rose-400/15 animate-ping [animation-duration:2.5s] [animation-delay:0.5s]" />
+      <div className={`relative grid place-items-center rounded-full bg-gradient-to-br from-rose-100 to-pink-200 font-bold text-rose-600 shadow-xl border-4 border-white/30 ${sz}`}>
+        {initials(label)}
+      </div>
+    </div>
+  );
+}
+
+function ControlButton({
+  onClick, active, danger, disabled = false,
+  children, size = "md", title,
+}: {
+  onClick: () => void; active?: boolean; danger?: boolean;
+  disabled?: boolean; children: React.ReactNode; size?: "sm" | "md" | "lg"; title?: string;
+}) {
+  const sizeClass = size === "sm" ? "h-11 w-11" : size === "lg" ? "h-18 w-18" : "h-14 w-14";
+  const iconSize = size === "sm" ? "h-5 w-5" : size === "lg" ? "h-8 w-8" : "h-6 w-6";
+
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      className={`
+        focus-ring inline-flex items-center justify-center rounded-full
+        backdrop-blur-md border border-white/10
+        transition-all duration-200 active:scale-90
+        ${sizeClass}
+        ${danger
+          ? "bg-red-500 hover:bg-red-400 text-white shadow-lg shadow-red-500/40"
+          : active === false
+            ? "bg-white/10 text-white/40"
+            : "bg-white/15 hover:bg-white/25 text-white"
+        }
+        disabled:opacity-40 disabled:cursor-not-allowed
+      `}
+    >
+      <span className={iconSize}>{children}</span>
+    </button>
+  );
+}
+
+// ─── main component ───────────────────────────────────────────────────────────
 
 export function CallOverlay() {
   const localRef = useRef<HTMLVideoElement>(null);
   const remoteRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
-  const deviceSelectorRef = useRef<HTMLDivElement>(null);
 
+  const {
+    state, accept, decline, hangup,
+    toggleMic, toggleCam, toggleSpeaker,
+    micEnabled, camEnabled, speakerEnabled,
+    switchOutputDevice,
+  } = useCall();
 
-  const { state, accept, decline, hangup, toggleMic, toggleCam, toggleSpeaker, micEnabled, camEnabled, speakerEnabled, switchOutputDevice } = useCall();
   const [usingFrontCamera, setUsingFrontCamera] = useState(() => {
-    const stored = localStorage.getItem('usingFrontCamera');
-    return stored !== null ? JSON.parse(stored) : true;
+    try { return JSON.parse(localStorage.getItem("usingFrontCamera") ?? "true") as boolean; }
+    catch { return true; }
   });
-
-  const [localOutputDevices, setLocalOutputDevices] = useState<MediaDeviceInfo[]>([]);
-  const [localCurrentOutputDevice, setLocalCurrentOutputDevice] = useState<string>("");
-  const [showDeviceSelector, setShowDeviceSelector] = useState(false);
-  const [tick, setTick] = useState(() => Date.now());
+  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [currentOutputDevice, setCurrentOutputDevice] = useState<string>("");
+  const [showDevicePicker, setShowDevicePicker] = useState(false);
   const [minimized, setMinimized] = useState(false);
+  const [tick, setTick] = useState(Date.now);
   const nodeRef = useRef<HTMLDivElement>(null);
 
-  const getElapsedMs = () => {
-    if (state.kind !== "inCall") return 0;
-    return tick - new Date(state.connectedAt).getTime();
-  };
+  const elapsedMs = state.kind === "inCall" ? tick - new Date(state.connectedAt).getTime() : 0;
 
-  // mic toggle now handled via context hook
-// Removed local toggle functions; using context functions directly
-
-
-  const toggleCameraFlip = async () => {
-    if ("mediaStream" in state && state.mediaStream) {
-      const videoTrack = state.mediaStream.getVideoTracks()[0];
-      if (videoTrack) {
-        const newFacing = usingFrontCamera ? "environment" : "user";
-        try {
-          await videoTrack.applyConstraints({ facingMode: newFacing });
-          setUsingFrontCamera(!usingFrontCamera);
-        } catch (err) {
-          console.error("Failed to flip camera", err);
-        }
-      }
-    }
-  };
-
-// Using context switchOutputDevice directly; local handling removed
-
-
+  // Enumerate output devices
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (deviceSelectorRef.current && !deviceSelectorRef.current.contains(e.target as Node)) {
-        setShowDeviceSelector(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    navigator.mediaDevices.enumerateDevices().then((devices) => {
+      const outputs = devices.filter((d) => d.kind === "audiooutput");
+      setOutputDevices(outputs);
+      if (outputs[0]) setCurrentOutputDevice(outputs[0].deviceId);
+    });
   }, []);
 
+  // Stream bindings
   useEffect(() => {
-    if (state.kind === "inCall") {
-      if (localRef.current && state.localStream) {
-        localRef.current.srcObject = state.localStream;
-      }
-      if (remoteRef.current && state.remoteStream) {
-        remoteRef.current.srcObject = state.remoteStream;
-      }
-      if (remoteAudioRef.current && state.remoteStream && state.media !== "video") {
-        remoteAudioRef.current.srcObject = state.remoteStream;
-      }
+    if (state.kind !== "inCall") return;
+    if (localRef.current && state.localStream) localRef.current.srcObject = state.localStream;
+    if (remoteRef.current && state.remoteStream) remoteRef.current.srcObject = state.remoteStream;
+    if (remoteAudioRef.current && state.remoteStream && state.media !== "video") {
+      remoteAudioRef.current.srcObject = state.remoteStream;
     }
-    navigator.mediaDevices.enumerateDevices().then((devices) => {
-      const audioOutputs = devices.filter((d) => d.kind === "audiooutput");
-      setLocalOutputDevices(audioOutputs);
-      if (audioOutputs.length > 0) {
-        setLocalCurrentOutputDevice(audioOutputs[0].deviceId);
-      }
-    });
   }, [state]);
 
+  // Auto-expand on incoming/outgoing
   useEffect(() => {
-// Removed effect that set usingFrontCamera; initialization handled above.
-
-  }, []);
-
-  // Tick interval – runs for all states
-  useEffect(() => {
-    const interval = setInterval(() => setTick(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (state.kind === "incoming" || state.kind === "outgoing") {
-      setMinimized(false);
-    }
+    if (state.kind === "incoming" || state.kind === "outgoing") setMinimized(false);
   }, [state.kind]);
 
-  if (state.kind === "idle") {
-    return null;
-  }
-  return (
-    <Draggable disabled={!minimized} bounds="body" nodeRef={nodeRef} position={minimized ? undefined : {x:0, y:0}}>
-      <div ref={nodeRef} className={minimized 
-        ? "fixed bottom-20 right-6 z-[100] w-64 h-[22rem] bg-gray-900 shadow-2xl rounded-2xl overflow-hidden cursor-move flex flex-col ring-1 ring-white/10" 
-        : "fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-md"}>
-        
-        {state.kind !== "answered_elsewhere" && (
-          <button 
-            className={`absolute z-50 p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-opacity ${minimized ? 'top-2 right-2' : 'top-6 right-6'}`}
-            onClick={(e) => { e.stopPropagation(); setMinimized(!minimized); }}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-            title={minimized ? "Maximize" : "Minimize"}
-          >
-            {minimized ? <Maximize2 className="w-5 h-5" /> : <Minimize2 className="w-5 h-5" />}
-          </button>
-        )}
+  // 1-second clock tick
+  useEffect(() => {
+    const id = setInterval(() => setTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
-      {state.kind === "incoming" && (
-        <div className={`flex flex-col items-center justify-center h-full w-full ${minimized ? 'p-4' : 'px-8 py-12'}`}>
-          <div className="flex-1 flex flex-col items-center justify-center">
-            <div className={`grid place-items-center rounded-full bg-rose-100 font-semibold text-rose-600 shadow-lg ${minimized ? 'h-20 w-20 text-2xl mb-4' : 'h-36 w-36 text-4xl mb-6'}`}>
-              {initials(state.fromLabel)}
-            </div>
-            <h3 className={`font-semibold text-white mb-1 text-center ${minimized ? 'text-xl' : 'text-3xl'}`}>{state.fromLabel}</h3>
-            {!minimized && <p className="text-gray-400 text-lg">{state.media === "video" ? "Incoming video call" : "Incoming voice call"}</p>}
-          </div>
-          <div className={`flex justify-center ${minimized ? 'gap-6 mb-2' : 'gap-16 mb-8'}`}>
-            <button className={`focus-ring inline-flex items-center justify-center rounded-full bg-red-500 text-white shadow-lg hover:scale-105 transition-transform ${minimized ? 'h-12 w-12' : 'h-20 w-20'}`} onClick={() => void decline()} type="button">
-              <PhoneOff className={minimized ? "h-6 w-6" : "h-10 w-10"} />
-            </button>
-            <button className={`focus-ring inline-flex items-center justify-center rounded-full bg-green-500 text-white shadow-lg hover:scale-105 transition-transform ${minimized ? 'h-12 w-12' : 'h-20 w-20'}`} onClick={() => void accept()} type="button">
-              <Phone className={minimized ? "h-6 w-6" : "h-10 w-10"} />
-            </button>
-          </div>
-        </div>
-      )}
-      {state.kind === "outgoing" && (
-        <div className={`flex flex-col items-center justify-center h-full w-full ${minimized ? 'p-4' : 'px-8 py-12'}`}>
-          <div className="flex-1 flex flex-col items-center justify-center">
-            <div className={`grid place-items-center rounded-full bg-rose-100 font-semibold text-rose-600 shadow-lg ${minimized ? 'h-20 w-20 text-2xl mb-4' : 'h-36 w-36 text-4xl mb-6'}`}>
-              {initials(state.toLabel)}
-            </div>
-            <h3 className={`font-semibold text-white mb-1 text-center ${minimized ? 'text-xl' : 'text-3xl'}`}>{state.toLabel}</h3>
-            <p className="text-gray-400 text-sm">Calling...</p>
-            {!minimized && <p className="text-gray-500 text-sm mt-2 text-center max-w-xs">If this takes too long, they might be offline or busy.</p>}
-          </div>
-          <div className={`flex justify-center ${minimized ? 'mb-2' : 'mb-8'}`}>
-            <button className={`focus-ring inline-flex items-center justify-center rounded-full bg-red-500 text-white shadow-lg hover:scale-105 transition-transform ${minimized ? 'h-12 w-12' : 'h-20 w-20'}`} onClick={() => void hangup()} type="button">
-              <PhoneOff className={minimized ? "h-6 w-6" : "h-10 w-10"} />
-            </button>
-          </div>
-        </div>
-      )}
-      {state.kind === "inCall" && (
-        <div className="w-full h-full relative flex flex-col">
-          <div className="flex-1 relative bg-gray-900 overflow-hidden">
-            {state.media === "video" ? (
-              <video ref={remoteRef} autoPlay playsInline className="w-full h-full object-cover" />
+  const flipCamera = useCallback(async () => {
+    if (!("mediaStream" in state) || !state.mediaStream) return;
+    const track = state.mediaStream.getVideoTracks()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({ facingMode: usingFrontCamera ? "environment" : "user" });
+      const next = !usingFrontCamera;
+      setUsingFrontCamera(next);
+      localStorage.setItem("usingFrontCamera", String(next));
+    } catch (err) {
+      console.error("Camera flip failed:", err);
+    }
+  }, [state, usingFrontCamera]);
+
+  if (state.kind === "idle") return null;
+
+  // ─── PIP (minimized) shell ────────────────────────────────────────────────
+  if (minimized) {
+    return (
+      <Draggable bounds="body" nodeRef={nodeRef}>
+        <div
+          ref={nodeRef}
+          className="fixed bottom-24 right-4 z-[200] w-[180px] rounded-3xl overflow-hidden shadow-2xl ring-1 ring-white/20 cursor-grab active:cursor-grabbing select-none"
+          style={{ background: "linear-gradient(135deg,#1a1a2e,#16213e)" }}
+        >
+          {/* Video / Avatar area */}
+          <div className="relative h-[240px] bg-gray-900 overflow-hidden">
+            {state.kind === "inCall" && state.media === "video" ? (
+              <>
+                <video ref={remoteRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" />
+                {state.mediaStream && (
+                  <div className={`absolute bottom-2 right-2 w-[44px] rounded-xl overflow-hidden border border-white/20 aspect-[9/16] ${usingFrontCamera ? "scale-x-[-1]" : ""}`}>
+                    <video
+                      autoPlay playsInline muted
+                      ref={(el) => { if (el && state.mediaStream && el.srcObject !== state.mediaStream) el.srcObject = state.mediaStream; }}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+              </>
             ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900">
-                <audio ref={remoteAudioRef} autoPlay playsInline />
-                <div className={`grid place-items-center rounded-full bg-rose-100 font-semibold text-rose-600 shadow-lg ${minimized ? 'h-20 w-20 text-2xl mb-4' : 'h-36 w-36 text-4xl mb-6'}`}>
-                  {initials(state.peerLabel)}
+              <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-gray-900 to-gray-800">
+                {state.kind === "inCall" && <audio ref={remoteAudioRef} autoPlay playsInline />}
+                <div className="h-16 w-16 grid place-items-center rounded-full bg-gradient-to-br from-rose-200 to-pink-300 text-2xl font-bold text-rose-600 shadow-lg">
+                  {initials(state.kind === "inCall" ? state.peerLabel : state.kind === "incoming" ? state.fromLabel : state.kind === "outgoing" ? state.toLabel : "?")}
                 </div>
-                {!minimized && <h3 className="text-3xl font-semibold text-white mb-2">{state.peerLabel}</h3>}
-                <p className="text-gray-400">{state.kind === "inCall" ? formatElapsed(getElapsedMs()) : "0:00"}</p>
+                {state.kind === "inCall" && (
+                  <p className="font-mono text-xs font-semibold text-white/70">{formatElapsed(elapsedMs)}</p>
+                )}
               </div>
             )}
-            {state.media === "video" && state.mediaStream && (
-              <div className={`absolute ${minimized ? 'bottom-2 right-2 w-1/3' : 'top-4 right-4 w-[30%]'} overflow-hidden rounded-xl border-2 border-white/30 bg-black/40 shadow-lg aspect-[9/16] ${usingFrontCamera ? "scale-x-[-1]" : ""}`}>
+            {/* Expand button */}
+            <button
+              className="absolute top-2 left-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+              onClick={(e) => { e.stopPropagation(); setMinimized(false); }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Mini controls */}
+          <div className="flex items-center justify-around py-2.5 px-2 bg-gray-900/90">
+            {state.kind === "incoming" ? (
+              <>
+                <button type="button" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={() => void decline()} className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500 text-white active:scale-90 transition-transform">
+                  <PhoneOff className="h-4 w-4" />
+                </button>
+                <button type="button" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={() => void accept()} className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500 text-white active:scale-90 transition-transform">
+                  <Phone className="h-4 w-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={toggleMic} className={`flex h-9 w-9 items-center justify-center rounded-full text-white transition-all ${micEnabled ? "bg-white/15" : "bg-red-500"}`}>
+                  {micEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+                </button>
+                <button type="button" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={() => void hangup()} className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500 text-white active:scale-90 transition-transform">
+                  <PhoneOff className="h-4 w-4" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </Draggable>
+    );
+  }
+
+  // ─── Full-screen overlay ──────────────────────────────────────────────────
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: "linear-gradient(160deg,#0f0f1a 0%,#1a0d22 50%,#0d1a1a 100%)" }}>
+      {/* Minimize button */}
+      {state.kind !== "answered_elsewhere" && (
+        <button
+          className="absolute top-12 right-5 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm transition-colors"
+          onClick={() => setMinimized(true)}
+        >
+          <Minimize2 className="h-5 w-5" />
+        </button>
+      )}
+
+      {/* ── Incoming call ── */}
+      {state.kind === "incoming" && (
+        <div className="flex flex-col items-center justify-between h-full px-8 pt-20 pb-16">
+          <div className="flex flex-col items-center gap-4 flex-1 justify-center">
+            <Avatar label={state.fromLabel} size="lg" />
+            <div className="text-center mt-2">
+              <h2 className="text-3xl font-bold text-white tracking-tight">{state.fromLabel}</h2>
+              <p className="mt-2 text-gray-400 text-base">{state.media === "video" ? "Incoming video call…" : "Incoming voice call…"}</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-center gap-16 w-full">
+            <div className="flex flex-col items-center gap-2">
+              <button type="button" onClick={() => void decline()} className="h-20 w-20 flex items-center justify-center rounded-full bg-red-500 shadow-2xl shadow-red-500/40 active:scale-90 transition-transform">
+                <PhoneOff className="h-9 w-9 text-white" />
+              </button>
+              <span className="text-xs text-gray-400 font-medium">Decline</span>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <button type="button" onClick={() => void accept()} className="h-20 w-20 flex items-center justify-center rounded-full bg-green-500 shadow-2xl shadow-green-500/40 active:scale-90 transition-transform">
+                <Phone className="h-9 w-9 text-white" />
+              </button>
+              <span className="text-xs text-gray-400 font-medium">Accept</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Outgoing call ── */}
+      {state.kind === "outgoing" && (
+        <div className="flex flex-col items-center justify-between h-full px-8 pt-20 pb-16">
+          <div className="flex flex-col items-center gap-4 flex-1 justify-center">
+            <Avatar label={state.toLabel} size="lg" />
+            <div className="text-center mt-2">
+              <h2 className="text-3xl font-bold text-white tracking-tight">{state.toLabel}</h2>
+              <p className="mt-2 text-gray-400 text-base animate-pulse">Calling…</p>
+            </div>
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <button type="button" onClick={() => void hangup()} className="h-20 w-20 flex items-center justify-center rounded-full bg-red-500 shadow-2xl shadow-red-500/40 active:scale-90 transition-transform">
+              <PhoneOff className="h-9 w-9 text-white" />
+            </button>
+            <span className="text-xs text-gray-400 font-medium">Cancel</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── In call ── */}
+      {state.kind === "inCall" && (
+        <div className="flex flex-col h-full w-full relative">
+          {/* Remote video / audio visual */}
+          <div className="flex-1 relative overflow-hidden">
+            {state.media === "video" ? (
+              <video ref={remoteRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
+                <audio ref={remoteAudioRef} autoPlay playsInline />
+                {/* Animated audio visualiser rings */}
+                <div className="relative flex items-center justify-center">
+                  <div className="absolute h-48 w-48 rounded-full border-2 border-white/5 animate-ping [animation-duration:2s]" />
+                  <div className="absolute h-36 w-36 rounded-full border-2 border-white/8 animate-ping [animation-duration:2.4s] [animation-delay:0.5s]" />
+                  <div className="h-28 w-28 grid place-items-center rounded-full bg-gradient-to-br from-rose-200 to-pink-300 text-4xl font-bold text-rose-600 shadow-2xl">
+                    {initials(state.peerLabel)}
+                  </div>
+                </div>
+                <h2 className="mt-6 text-2xl font-bold text-white">{state.peerLabel}</h2>
+                <p className="mt-1 font-mono text-lg text-white/60">{formatElapsed(elapsedMs)}</p>
+              </div>
+            )}
+
+            {/* Local video PIP */}
+            {state.media === "video" && state.localStream && (
+              <div className={`absolute top-14 right-4 w-[90px] rounded-2xl overflow-hidden border-2 border-white/30 shadow-xl aspect-[9/16] ${usingFrontCamera ? "scale-x-[-1]" : ""}`}>
                 <video
-                  ref={(el) => {
-                    if (el && state.mediaStream && el.srcObject !== state.mediaStream) {
-                      el.srcObject = state.mediaStream;
-                    }
-                  }}
-                  autoPlay
-                  playsInline
-                  muted
+                  autoPlay playsInline muted
+                  ref={(el) => { if (el && state.localStream && el.srcObject !== state.localStream) el.srcObject = state.localStream; }}
                   className="w-full h-full object-cover"
                 />
               </div>
             )}
-            {!minimized && (
-              <div className="absolute top-6 left-6 text-white bg-black/40 px-4 py-2 rounded-2xl backdrop-blur-sm">
-                <h3 className="text-2xl font-semibold">{state.peerLabel}</h3>
-                <p className="text-gray-300 font-mono">{state.kind === "inCall" ? formatElapsed(getElapsedMs()) : "0:00"}</p>
-              </div>
-            )}
-            {minimized && state.media === "video" && (
-              <div className="absolute top-2 left-2 p-1 bg-black/40 rounded-lg text-white text-xs px-2 truncate max-w-[120px]">
-                {state.peerLabel}
+
+            {/* Top info overlay for video */}
+            {state.media === "video" && (
+              <div className="absolute top-5 left-5 flex items-center gap-3 bg-black/40 backdrop-blur-xl px-4 py-2.5 rounded-2xl">
+                <div className="h-8 w-8 grid place-items-center rounded-full bg-rose-100 text-xs font-bold text-rose-600">{initials(state.peerLabel)}</div>
+                <div>
+                  <p className="text-sm font-semibold text-white leading-none">{state.peerLabel}</p>
+                  <p className="text-xs font-mono text-white/50 mt-0.5">{formatElapsed(elapsedMs)}</p>
+                </div>
               </div>
             )}
           </div>
-          <div className={minimized ? "h-14 bg-gray-800 flex items-center justify-around px-2 shrink-0" : "absolute bottom-10 left-0 right-0 flex justify-center items-center gap-6 px-4"}>
-            <button className={`focus-ring inline-flex items-center justify-center rounded-full text-white ${minimized ? 'h-10 w-10' : 'h-16 w-16 bg-gray-800/80 hover:bg-gray-700/80'} ${minimized && !micEnabled ? 'bg-red-500' : ''}`} onClick={toggleMic} type="button" title={micEnabled ? "Mute microphone" : "Unmute microphone"} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-              {micEnabled ? <Mic className={minimized ? "h-5 w-5" : "h-7 w-7"} /> : <MicOff className={minimized ? "h-5 w-5" : "h-7 w-7"} />}
-            </button>
-            {state.media === "video" && !minimized && (
-              <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={toggleCam} type="button" title={camEnabled ? "Turn camera off" : "Turn camera on"} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                {camEnabled ? <Video className="h-7 w-7" /> : <VideoOff className="h-7 w-7" />}
-              </button>
+
+          {/* Controls bar */}
+          <div className="shrink-0 pb-safe pt-5 pb-10 flex flex-col items-center gap-4 bg-gradient-to-t from-black/80 to-transparent absolute bottom-0 left-0 right-0">
+            {/* Status chip */}
+            {!micEnabled && (
+              <div className="flex items-center gap-1.5 rounded-full bg-red-500/20 border border-red-500/30 px-4 py-1.5 text-xs font-semibold text-red-300 backdrop-blur-sm">
+                <MicOff className="h-3.5 w-3.5" /> Microphone muted
+              </div>
             )}
-            {state.media === "video" && !minimized && (
-              <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={toggleCameraFlip} type="button" title="Flip camera" onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                <RotateCcw className="h-7 w-7" />
-              </button>
-            )}
-            {!minimized && (
-              <>
-                <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={toggleSpeaker} type="button" title={speakerEnabled ? "Turn speaker off" : "Turn speaker on"} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                  {speakerEnabled ? <Volume2 className="h-7 w-7" /> : <VolumeX className="h-7 w-7" />}
-                </button>
-                <button className="focus-ring inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-800/80 text-white hover:bg-gray-700/80" onClick={() => setShowDeviceSelector(!showDeviceSelector)} type="button" title="Select audio output" onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-                </button>
-                {showDeviceSelector && (
-                  <div onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                    <select value={localCurrentOutputDevice} onChange={(e) => { switchOutputDevice(e.target.value); setShowDeviceSelector(false); }} className="ml-2 bg-gray-800 text-white rounded absolute bottom-28">
-                      {localOutputDevices.map((d) => (
-                        <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId}</option>
+
+            <div className="flex items-center justify-center gap-4 flex-wrap px-8">
+              <ControlButton onClick={toggleMic} active={micEnabled} title={micEnabled ? "Mute mic" : "Unmute mic"}>
+                {micEnabled ? <Mic /> : <MicOff />}
+              </ControlButton>
+
+              {state.media === "video" && (
+                <>
+                  <ControlButton onClick={toggleCam} active={camEnabled} title={camEnabled ? "Turn camera off" : "Turn camera on"}>
+                    {camEnabled ? <Video /> : <VideoOff />}
+                  </ControlButton>
+                  <ControlButton onClick={flipCamera} title="Flip camera">
+                    <RotateCcw />
+                  </ControlButton>
+                </>
+              )}
+
+              <ControlButton onClick={toggleSpeaker} active={speakerEnabled} title={speakerEnabled ? "Turn speaker off" : "Turn speaker on"}>
+                {speakerEnabled ? <Volume2 /> : <VolumeX />}
+              </ControlButton>
+
+              {outputDevices.length > 1 && (
+                <div className="relative">
+                  <ControlButton onClick={() => setShowDevicePicker(!showDevicePicker)} title="Select audio output">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  </ControlButton>
+                  {showDevicePicker && (
+                    <div
+                      className="absolute bottom-full mb-2 right-0 bg-gray-900 border border-white/10 rounded-2xl overflow-hidden shadow-2xl min-w-[180px]"
+                      onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}
+                    >
+                      {outputDevices.map((d) => (
+                        <button
+                          key={d.deviceId}
+                          type="button"
+                          className={`w-full text-left px-4 py-3 text-sm transition-colors ${currentOutputDevice === d.deviceId ? "text-white bg-white/10 font-semibold" : "text-gray-400 hover:bg-white/5"}`}
+                          onClick={() => { switchOutputDevice(d.deviceId); setCurrentOutputDevice(d.deviceId); setShowDevicePicker(false); }}
+                        >
+                          {d.label || `Speaker ${d.deviceId.slice(0, 6)}`}
+                        </button>
                       ))}
-                    </select>
-                  </div>
-                )}
-              </>
-            )}
-            <button className={`focus-ring inline-flex items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-600 ${minimized ? 'h-10 w-10' : 'h-16 w-16'}`} onClick={() => void hangup()} type="button" onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-              <PhoneOff className={minimized ? "h-5 w-5" : "h-7 w-7"} />
-            </button>
-          </div>
-        </div>
-      )}
-      {state.kind === "answered_elsewhere" && (
-        <div className="flex flex-col items-center justify-center h-full w-full px-8 py-12">
-          <div className="flex-1 flex flex-col items-center justify-center">
-            <div className="grid h-36 w-36 place-items-center rounded-full bg-rose-100 text-4xl font-semibold text-rose-600 shadow-lg mb-6">
-              {initials(state.peerLabel)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <ControlButton onClick={() => void hangup()} danger title="End call" size="lg">
+                <PhoneOff />
+              </ControlButton>
             </div>
-            <h3 className="text-3xl font-semibold text-white mb-2">{state.peerLabel}</h3>
-            <p className="text-gray-400 text-lg">In call with {state.peerLabel}</p>
-            <p className="text-gray-500 text-sm mt-2 text-center">Active on another device</p>
           </div>
         </div>
       )}
-      </div>
-    </Draggable>
+
+      {/* ── Answered elsewhere ── */}
+      {state.kind === "answered_elsewhere" && (
+        <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
+          <div className="h-24 w-24 grid place-items-center rounded-full bg-gradient-to-br from-rose-100 to-pink-200 text-3xl font-bold text-rose-600 shadow-xl">
+            {initials(state.peerLabel)}
+          </div>
+          <h2 className="text-2xl font-bold text-white">{state.peerLabel}</h2>
+          <p className="text-gray-400">In call on another device</p>
+        </div>
+      )}
+    </div>
   );
 }

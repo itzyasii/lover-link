@@ -4,15 +4,7 @@ import { apiFetch } from "@/lib/api";
 import { getCachedUserLabel, resolveUserLabels } from "@/lib/users";
 import { useAuthStore } from "@/stores/auth";
 import { usePrefetchedQuery } from "@/hooks/usePrefetchedQuery";
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Clock,
-  MessageCircle,
-  Phone,
-  PhoneOff,
-  Video,
-} from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Clock, MessageCircle, Phone, PhoneOff, Video } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -22,14 +14,7 @@ type Call = {
   callerId: string;
   calleeId: string;
   media?: "audio" | "video";
-  status:
-    | "ringing"
-    | "answered"
-    | "ended"
-    | "missed"
-    | "declined"
-    | "cancelled"
-    | string;
+  status: "ringing" | "answered" | "ended" | "missed" | "declined" | "cancelled" | string;
   offeredAt: string;
   answeredAt?: string | null;
   endedAt?: string | null;
@@ -60,20 +45,100 @@ function safeMs(a?: string | null, b?: string | null) {
 }
 
 function callDuration(call: Call) {
-  if (typeof call.duration === "number")
-    return formatDuration(call.duration * 1000);
+  if (typeof call.duration === "number") return formatDuration(call.duration * 1000);
   const ms = safeMs(call.answeredAt, call.endedAt);
   return ms == null ? "" : formatDuration(ms);
+}
+
+function formatCallTime(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+interface EnrichedCall {
+  call: Call;
+  isOutgoing: boolean;
+  otherLabel: string;
+  missed: boolean;
+}
+
+function CallCard({ call, isOutgoing, otherLabel, labelsVersion: _ }: EnrichedCall & { labelsVersion: number }) {
+  const missed = call.status === "missed" || call.status === "declined" || call.status === "cancelled" || !call.answeredAt;
+  const duration = callDuration(call);
+  const media = call.media === "video" ? "video" : "audio";
+  const statusLabel = missed
+    ? call.status === "declined" ? "Declined" : call.status === "cancelled" ? "Cancelled" : "Missed"
+    : duration || "Ended";
+
+  return (
+    <div className="flex items-center gap-4 rounded-[22px] bg-white/85 backdrop-blur-sm px-4 py-4 shadow-sm border border-white/60 hover:shadow-md transition-all duration-200">
+      <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${missed ? "bg-red-50 text-red-500" : "bg-green-50 text-green-600"}`}>
+        {isOutgoing ? <ArrowUpRight className="h-5 w-5" /> : <ArrowDownLeft className="h-5 w-5" />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className={`text-[15px] font-semibold truncate ${missed ? "text-red-600" : "text-gray-900"}`}>{otherLabel}</span>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${media === "video" ? "bg-blue-50 text-blue-500" : "bg-gray-100 text-gray-500"}`}>
+            {media === "video" ? <Video className="h-2.5 w-2.5" /> : <Phone className="h-2.5 w-2.5" />}
+            {media}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <span>{isOutgoing ? "Outgoing" : "Incoming"}</span>
+          <span>·</span>
+          <span className="tabular-nums">{formatCallTime(call.offeredAt)}</span>
+          {duration && (
+            <>
+              <span>·</span>
+              <span className="inline-flex items-center gap-0.5"><Clock className="h-3 w-3" /><span className="tabular-nums">{duration}</span></span>
+            </>
+          )}
+        </div>
+      </div>
+      <div className={`shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold ${missed ? "bg-red-50 text-red-500" : "bg-green-50 text-green-600"}`}>
+        {missed && <PhoneOff className="h-3 w-3" />}
+        {statusLabel}
+      </div>
+    </div>
+  );
+}
+
+function CallList({ calls, labelsVersion, isMissedTab }: { calls: EnrichedCall[]; labelsVersion: number; isMissedTab?: boolean }) {
+  if (calls.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <div className="h-16 w-16 rounded-full bg-pink-50 flex items-center justify-center mb-3">
+          {isMissedTab ? <PhoneOff className="h-7 w-7 text-pink-200" /> : <Phone className="h-7 w-7 text-pink-200" />}
+        </div>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">{isMissedTab ? "No missed calls" : "No calls yet"}</h3>
+        <p className="text-xs text-gray-400">{isMissedTab ? "You're all caught up!" : "Your call history will appear here."}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2.5">
+      {calls.map(({ call, isOutgoing, otherLabel, missed }) => (
+        <CallCard key={call.id} call={call} isOutgoing={isOutgoing} otherLabel={otherLabel} missed={missed} labelsVersion={labelsVersion} />
+      ))}
+    </div>
+  );
 }
 
 export default function CallsPage() {
   const me = useAuthStore((s) => s.user);
   const [labelsVersion, setLabelsVersion] = useState(0);
+  const [activeTab, setActiveTab] = useState<"all" | "missed">("all");
 
   const { guaranteedData, error, isLoading } = usePrefetchedQuery({
     queryKey: ["calls"],
     queryFn: () => apiFetch<{ ok: true; calls: Call[] }>("/api/calls?limit=50"),
-    retry: false, // Don't retry on 404
+    retry: false,
   });
 
   const calls = guaranteedData?.calls ?? EMPTY_CALLS;
@@ -89,145 +154,70 @@ export default function CallsPage() {
 
   useEffect(() => {
     if (allUserIds.length === 0) return;
-    void resolveUserLabels(allUserIds)
-      .then(() => setLabelsVersion((x) => x + 1))
-      .catch(() => {});
+    void resolveUserLabels(allUserIds).then(() => setLabelsVersion((x) => x + 1)).catch(() => {});
   }, [allUserIds]);
 
+  const enrichedCalls: EnrichedCall[] = useMemo(() => calls.map((call) => {
+    const isOutgoing = Boolean(me?.id) && call.callerId === me?.id;
+    const otherId = isOutgoing ? call.calleeId : call.callerId;
+    const otherLabel = getCachedUserLabel(otherId) ?? otherId;
+    const missed = call.status === "missed" || call.status === "declined" || call.status === "cancelled" || !call.answeredAt;
+    return { call, isOutgoing, otherLabel, missed };
+  }), [calls, me?.id, labelsVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const missedCalls = enrichedCalls.filter((c) => c.missed);
+
   return (
-    <div className="mx-auto max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-800">
-          Calls
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Recent voice and video calls.
-        </p>
+    <div className="flex flex-col h-full bg-[#fbfbfe]">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-30 bg-[#fbfbfe]/80 backdrop-blur-xl px-5 pt-8 pb-0 border-b border-black/5">
+        <h1 className="text-[28px] font-bold text-gray-900 tracking-tight mb-4">Calls</h1>
+
+        {!error && (
+          <div className="flex gap-1 rounded-2xl bg-black/5 p-1 mb-0">
+            {(["all", "missed"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex-1 rounded-xl py-2.5 text-[13px] font-semibold transition-all ${
+                  activeTab === tab
+                    ? tab === "missed"
+                      ? "bg-white text-red-500 shadow-sm"
+                      : "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500"
+                }`}
+              >
+                {tab === "all" ? `All (${enrichedCalls.length})` : `Missed${missedCalls.length > 0 ? ` (${missedCalls.length})` : ""}`}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="mt-6 text-sm text-gray-500">Loading your calls...</div>
-      ) : error ? (
-        <div className="mt-6 rounded-3xl bg-white/80 px-6 py-10 text-center shadow-sm">
-          <Phone className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-medium text-gray-800 mb-2">
-            Call history coming soon
-          </h3>
-          <p className="text-gray-500 mb-6 max-w-md mx-auto">
-            Your recent voice and video calls will appear here once the feature
-            is fully enabled.
-          </p>
-          <Link
-            href="/app"
-            className="inline-flex items-center gap-2 rounded-full bg-linear-to-br from-rose-500 to-rose-600 px-6 py-3 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
-          >
-            <MessageCircle className="h-4 w-4" />
-            Go to messages
-          </Link>
-        </div>
-      ) : (
-        <div className="mt-5 grid gap-3">
-          {calls.map((call) => {
-            const isOutgoing = Boolean(me?.id) && call.callerId === me?.id;
-            const otherId = isOutgoing ? call.calleeId : call.callerId;
-            const otherLabel = getCachedUserLabel(otherId) ?? otherId;
-            const media = call.media === "video" ? "video" : "audio";
-            const duration = callDuration(call);
-            const missed =
-              call.status === "missed" ||
-              call.status === "declined" ||
-              call.status === "cancelled" ||
-              !call.answeredAt;
-            const statusLabel = missed
-              ? call.status === "declined"
-                ? "You declined"
-                : call.status === "cancelled"
-                  ? "Cancelled"
-                  : "Missed call"
-              : duration || "Call ended";
-
-            return (
-              <div
-                key={call.id}
-                className="flex items-center justify-between gap-4 rounded-3xl border border-gray-100 bg-white/80 px-4 py-4 shadow-sm hover:shadow-md hover:scale-[1.01] transition-all duration-200"
-              >
-                <div className="flex min-w-0 items-center gap-4">
-                  <div
-                    className={`grid h-14 w-14 shrink-0 place-items-center rounded-2xl ${
-                      missed
-                        ? "bg-red-100 text-red-600"
-                        : "bg-green-100 text-green-600"
-                    }`}
-                    aria-hidden="true"
-                  >
-                    {isOutgoing ? (
-                      <ArrowUpRight className="h-6 w-6" />
-                    ) : (
-                      <ArrowDownLeft className="h-6 w-6" />
-                    )}
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="truncate text-base font-semibold text-gray-800">
-                        {otherLabel}
-                      </div>
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
-                        {media === "video" ? (
-                          <Video className="h-3.5 w-3.5" />
-                        ) : (
-                          <Phone className="h-3.5 w-3.5" />
-                        )}
-                        {media === "video" ? "Video call" : "Voice call"}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-sm text-gray-500">
-                      <span>{isOutgoing ? "You called" : "Called you"}</span>
-                      <span>•</span>
-                      <span className="tabular-nums">
-                        {new Date(call.offeredAt).toLocaleString()}
-                      </span>
-                      {duration && (
-                        <>
-                          <span>•</span>
-                          <span className="inline-flex items-center gap-1">
-                            <Clock className="h-4 w-4" />
-                            <span className="tabular-nums">{duration}</span>
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ${
-                    missed
-                      ? "bg-red-100 text-red-600"
-                      : "bg-green-100 text-green-700"
-                  }`}
-                  title={call.reason ?? call.status}
-                >
-                  {missed ? <PhoneOff className="h-4 w-4" /> : null}
-                  {statusLabel}
-                </div>
-              </div>
-            );
-          })}
-
-          {!error && calls.length === 0 ? (
-            <div className="rounded-3xl bg-white/80 px-6 py-12 text-center shadow-sm">
-              <Phone className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-              <h3 className="text-lg font-medium text-gray-800 mb-2">
-                No calls yet
-              </h3>
-              <p className="text-gray-500">
-                Your voice and video call history will appear here.
-              </p>
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        {isLoading ? (
+          <div className="flex justify-center p-8">
+            <div className="h-6 w-6 rounded-full border-2 border-(--accent-primary) border-t-transparent animate-spin" />
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="h-20 w-20 rounded-full bg-pink-50 flex items-center justify-center mb-4">
+              <Phone className="h-9 w-9 text-pink-200" />
             </div>
-          ) : null}
-        </div>
-      )}
+            <h3 className="text-base font-semibold text-gray-800 mb-1">Call history coming soon</h3>
+            <p className="text-sm text-gray-500 max-w-[220px] mb-6">Your recent voice and video calls will appear here.</p>
+            <Link href="/app" className="inline-flex items-center gap-2 rounded-full bg-(--accent-primary) px-6 py-3 text-sm font-bold text-white shadow-md hover:scale-105 active:scale-95 transition-all">
+              <MessageCircle className="h-4 w-4" /> Go to messages
+            </Link>
+          </div>
+        ) : (
+          <CallList
+            calls={activeTab === "missed" ? missedCalls : enrichedCalls}
+            labelsVersion={labelsVersion}
+            isMissedTab={activeTab === "missed"}
+          />
+        )}
+      </div>
 
       <span className="sr-only">{labelsVersion}</span>
     </div>
