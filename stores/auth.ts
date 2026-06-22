@@ -97,17 +97,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: json.user });
   },
   logout: async () => {
-    // Unregister FCM token in single API call to logout endpoint
     const currentFcmToken = get().fcmToken;
+    if (currentFcmToken) {
+      try {
+        await apiFetch("/api/notifications/fcm/unregister", {
+          method: "POST",
+          body: JSON.stringify({ token: currentFcmToken }),
+        });
+      } catch (error) {
+        console.warn(
+          "[Auth] FCM unregistration failed, but proceeding with logout:",
+          error,
+        );
+      }
+    }
 
     try {
-      await fetch(`${API_BASE_URL}/api/auth/logout`, {
+      await apiFetch("/api/auth/logout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: currentFcmToken
-          ? JSON.stringify({ fcmToken: currentFcmToken })
-          : undefined,
+        body: JSON.stringify({ token: currentFcmToken }),
       });
     } catch (error) {
       console.warn(
