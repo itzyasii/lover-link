@@ -96,7 +96,7 @@ export default function CallsPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <div className="mb-6">
+      <div className="mb-6 px-2">
         <h1 className="text-2xl font-semibold tracking-tight text-gray-800">
           Calls
         </h1>

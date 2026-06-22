@@ -13,8 +13,6 @@ import { usePrefetchedQuery } from "@/hooks/usePrefetchedQuery";
 import { useChatsStore, Chat } from "@/stores/chats";
 import { Pin, BellOff, MoreVertical, PinOff, Bell } from "lucide-react";
 
-
-
 type ChatMember = string | { id: string; email?: string; username?: string };
 
 function memberId(member: ChatMember) {
@@ -227,9 +225,7 @@ export default function ChatsPage() {
     return map;
   }, [otherMembers, onlineUsers, lastSeen]);
 
-  const handlePin = async (e: React.MouseEvent, chatId: string, isPinned: boolean) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handlePin = async (chatId: string, isPinned: boolean) => {
     togglePinStore(chatId);
     try {
       if (isPinned) {
@@ -242,9 +238,7 @@ export default function ChatsPage() {
     }
   };
 
-  const handleMute = async (e: React.MouseEvent, chatId: string, isMuted: boolean) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleMute = async (chatId: string, isMuted: boolean) => {
     toggleMuteStore(chatId);
     try {
       if (isMuted) {
@@ -261,15 +255,16 @@ export default function ChatsPage() {
 
   // Close menu on click outside
   useEffect(() => {
+    if (!openMenuId) return;
     const handleDocClick = () => setOpenMenuId(null);
     document.addEventListener("click", handleDocClick);
     return () => document.removeEventListener("click", handleDocClick);
-  }, []);
+  }, [openMenuId]);
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="font-[family-name:var(--font-serif)] text-2xl text-[color:var(--wine-900)]">
+      <div className="flex items-center justify-between gap-4 px-2">
+        <h1 className="font-[family-name:var(--font-serif)] px-2 text-2xl text-[color:var(--wine-900)]">
           Chats
         </h1>
         <Link
@@ -322,9 +317,13 @@ export default function ChatsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center justify-between gap-3">
                       <div className="flex items-center gap-2 truncate text-base font-semibold text-gray-800">
-                        {c.isPinned && <Pin className="h-3 w-3 shrink-0 text-gray-400" />}
+                        {c.isPinned && (
+                          <Pin className="h-3 w-3 shrink-0 text-gray-400" />
+                        )}
                         <span className="truncate">{name}</span>
-                        {c.isMuted && <BellOff className="h-3 w-3 shrink-0 text-gray-400" />}
+                        {c.isMuted && (
+                          <BellOff className="h-3 w-3 shrink-0 text-gray-400" />
+                        )}
                       </div>
                       <span className="shrink-0 text-[11px] text-gray-400">
                         {presence?.isOnline
@@ -378,7 +377,7 @@ export default function ChatsPage() {
                       })()}
                     </div>
                   </div>
-                  
+
                   <div className="flex shrink-0 items-center gap-2 ml-2">
                     {unreadCounts[c.id] > 0 && (
                       <div className="grid h-5 min-w-[20px] place-items-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white shadow-sm">
@@ -401,18 +400,36 @@ export default function ChatsPage() {
                         <div className="absolute right-0 top-full z-10 mt-1 w-32 rounded-xl border border-black/5 bg-white py-1 shadow-lg">
                           <button
                             type="button"
-                            onClick={(e) => { setOpenMenuId(null); handlePin(e, c.id, c.isPinned ?? false); }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setOpenMenuId(null);
+                              handlePin(c.id, c.isPinned ?? false);
+                            }}
                             className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                           >
-                            {c.isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                            {c.isPinned ? (
+                              <PinOff className="h-4 w-4" />
+                            ) : (
+                              <Pin className="h-4 w-4" />
+                            )}
                             {c.isPinned ? "Unpin" : "Pin"}
                           </button>
                           <button
                             type="button"
-                            onClick={(e) => { setOpenMenuId(null); handleMute(e, c.id, c.isMuted ?? false); }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setOpenMenuId(null);
+                              handleMute(c.id, c.isMuted ?? false);
+                            }}
                             className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                           >
-                            {c.isMuted ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+                            {c.isMuted ? (
+                              <Bell className="h-4 w-4" />
+                            ) : (
+                              <BellOff className="h-4 w-4" />
+                            )}
                             {c.isMuted ? "Unmute" : "Mute"}
                           </button>
                         </div>
