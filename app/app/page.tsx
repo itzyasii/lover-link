@@ -5,12 +5,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
-import {
-  ChevronRight,
-  MessageSquarePlus,
-  MessageCircle,
-  LogOut,
-} from "lucide-react";
+import { MessageSquarePlus, LogOut } from "lucide-react"; // removed unused ChevronRight, MessageCircle
 import { useAuthStore } from "@/stores/auth";
 import { useTypingStore } from "@/stores/typing";
 import { formatLastSeen } from "@/lib/time";
@@ -65,7 +60,8 @@ function formatLastMessagePreview(
     return `${prefix}Sent a ${label}`;
   }
   const t = (m.text ?? "").trim();
-  return prefix + (t || "â€¦");
+  // FIX: was "â€¦" — corrupted UTF-8 encoding of the ellipsis character
+  return prefix + (t || "…");
 }
 
 export default function ChatsPage() {
@@ -113,20 +109,19 @@ export default function ChatsPage() {
         .filter(Boolean) as NonNullable<Chat["members"][number]>[],
     [chats, me?.id],
   );
-  // Track online users via socket.io instead of REST polling (per FRONTEND_INTEGRATION.md)
+
+  // Track online users via socket.io instead of REST polling
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [lastSeen, setLastSeen] = useState<Map<string, string>>(new Map());
-  const queryClient = useQueryClient(); // For refetching data when tab becomes visible
+  const queryClient = useQueryClient();
 
   // Refetch chats when page becomes visible (when returning from chat)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        // Refetch chats to get latest messages and updates
         queryClient.invalidateQueries({ queryKey: ["chats"] });
       }
     };
-
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -136,7 +131,6 @@ export default function ChatsPage() {
     const s = getSocket();
     if (!s.connected) s.connect();
 
-    // Get initial online users list and last seen data
     s.emit(
       "presence:list",
       (response: {
@@ -146,7 +140,6 @@ export default function ChatsPage() {
       }) => {
         if (response.ok) {
           setOnlineUsers(new Set(response.users));
-          // Update last seen map if server returns it
           if (response.lastSeen) {
             setLastSeen(new Map(Object.entries(response.lastSeen)));
           }
@@ -154,7 +147,6 @@ export default function ChatsPage() {
       },
     );
 
-    // Listen for presence updates (when users come online/go offline)
     const handlePresenceUpdate = (data: {
       ok: boolean;
       users: string[];
@@ -162,14 +154,12 @@ export default function ChatsPage() {
     }) => {
       if (data.ok) {
         setOnlineUsers(new Set(data.users));
-        // Update last seen map if server returns it
         if (data.lastSeen) {
           setLastSeen(new Map(Object.entries(data.lastSeen)));
         }
       }
     };
 
-    // Initial online list on connect
     const handlePresenceOnline = (data: {
       ok: boolean;
       users: string[];
@@ -177,14 +167,12 @@ export default function ChatsPage() {
     }) => {
       if (data.ok) {
         setOnlineUsers(new Set(data.users));
-        // Update last seen map if server returns it
         if (data.lastSeen) {
           setLastSeen(new Map(Object.entries(data.lastSeen)));
         }
       }
     };
 
-    // Listen for new messages to update chat list in realtime
     interface Message {
       id: string;
       from: string;
@@ -199,7 +187,6 @@ export default function ChatsPage() {
       message: Message;
     }) => {
       if (data.ok) {
-        // Invalidate queries to refresh chat list with new message
         queryClient.invalidateQueries({ queryKey: ["chats"] });
       }
     };
@@ -217,14 +204,16 @@ export default function ChatsPage() {
     };
   }, [queryClient]);
 
-  // Create presence map for easy access - just track online status, lastSeen can be cached
   const presenceByUserId = useMemo(() => {
     const map = new Map<
       string,
       { isOnline: boolean; lastSeenAt: string | null }
     >();
-    otherMembers.forEach((memberId) => {
-      const userId = typeof memberId === "string" ? memberId : memberId.id;
+    // FIX: renamed parameter from 'memberId' to 'member' — it was shadowing the
+    // outer memberId() helper function, making it impossible to call that function
+    // from inside this callback.
+    otherMembers.forEach((member) => {
+      const userId = typeof member === "string" ? member : member.id;
       map.set(userId, {
         isOnline: onlineUsers.has(userId),
         lastSeenAt: lastSeen.get(userId) || null,
