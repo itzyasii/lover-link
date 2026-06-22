@@ -24,16 +24,22 @@ async function refreshOnce() {
     const result = await refreshPromise;
     if (!result) {
       // Only set permanent failure and redirect if no other refresh is in progress
-      if (!isRefreshing) {
-        refreshFailedPermanently = true;
-        // Log user out if refresh fails
-        await useAuthStore.getState().logout();
-        if (typeof window !== "undefined") {
-          window.location.href = "/login";
-        }
+      refreshFailedPermanently = true;
+      // Log user out if refresh fails
+      await useAuthStore.getState().logout();
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
       }
     }
     return result;
+  } catch (error) {
+    console.error("Refresh failed with error:", error);
+    refreshFailedPermanently = true;
+    await useAuthStore.getState().logout();
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    return false;
   } finally {
     isRefreshing = false;
     refreshPromise = null;

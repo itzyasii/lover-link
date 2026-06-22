@@ -271,7 +271,7 @@ export default function ChatsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4 px-2">
+      <div className="flex items-center justify-between gap-4 px-2 pt-4">
         <h1 className="font-[family-name:var(--font-serif)] px-2 text-2xl text-[color:var(--wine-900)]">
           Chats
         </h1>

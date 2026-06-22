@@ -763,7 +763,11 @@ export default function ChatPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const isFetchingMoreRef = useRef(false);
-  const { ref: loadMoreRef, inView } = useInView();
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const { ref: loadMoreRef, inView } = useInView({
+    threshold: 0,
+    rootMargin: "200px 0px 0px 0px", // Start loading even earlier
+  });
 
   useEffect(() => {
     if (!chatId || messages.length > 0) return; // Only fetch once if messages aren't already loaded
@@ -811,23 +815,20 @@ export default function ChatPage() {
   }, [nextCursor, chatId]);
 
   useEffect(() => {
-    if (inView) {
+    if (inView && nextCursor && !isFetchingMoreRef.current) {
       fetchMore();
     }
-  }, [inView, fetchMore]);
-
-  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  }, [inView, fetchMore, nextCursor]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
     const handleScroll = () => {
-      // Simple scroll-to-bottom button logic
+      // Scroll-to-bottom logic only
       const isScrolledToBottom =
         container.scrollHeight - container.clientHeight <=
         container.scrollTop + 1;
-      // You can add a state here to show/hide a "scroll to bottom" button
     };
 
     container.addEventListener("scroll", handleScroll, { passive: true });
@@ -837,15 +838,29 @@ export default function ChatPage() {
   // Only auto-scroll to bottom when NEW messages are appended (not when loading older ones)
   const prevMessageCountRef = useRef(0);
   const prevLastIdRef = useRef("");
+  const initialScrollDone = useRef(false);
   useEffect(() => {
     const count = messages.length;
     const lastId = messages[count - 1]?.id ?? "";
+
+    // Always scroll to bottom on initial load (first time messages are loaded)
+    if (!initialScrollDone.current && count > 0) {
+      // Use setTimeout to ensure DOM has rendered all messages first
+      setTimeout(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "auto" });
+        initialScrollDone.current = true;
+      }, 0);
+      prevMessageCountRef.current = count;
+      prevLastIdRef.current = lastId;
+      return;
+    }
+
+    // For subsequent updates, only scroll to bottom if: a new message was appended (last id changed) AND we were near bottom
     const wasAtBottom = (() => {
       const c = messagesContainerRef.current;
       if (!c) return true;
       return c.scrollHeight - c.clientHeight <= c.scrollTop + 150;
     })();
-    // Only scroll to bottom if: a new message was appended (last id changed) AND we were near bottom
     if (
       count > prevMessageCountRef.current &&
       lastId !== prevLastIdRef.current &&

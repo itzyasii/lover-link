@@ -14,6 +14,26 @@ export function stopAllVoiceNotes(): void {
   }
 }
 
+// Add custom CSS animation for waveform
+if (typeof document !== "undefined") {
+  const styleId = "voice-note-wave-animation";
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+      @keyframes wave {
+        0%, 100% { transform: scaleY(1); }
+        50% { transform: scaleY(1.6); }
+      }
+      .animate-wave {
+        animation: wave 0.6s ease-in-out infinite;
+        transform-origin: bottom;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
 export const VoiceNotePlayer = ({
   url,
   durationMs,
@@ -36,12 +56,13 @@ export const VoiceNotePlayer = ({
 
   // Handle cleanup when component unmounts
   useEffect(() => {
+    const audio = audioRef.current;
     return () => {
-      if (audioRef.current) {
-        if (currentlyPlaying === audioRef.current) {
+      if (audio) {
+        if (currentlyPlaying === audio) {
           currentlyPlaying = null;
         }
-        audioRef.current.pause();
+        audio.pause();
       }
     };
   }, []);
@@ -151,24 +172,49 @@ export const VoiceNotePlayer = ({
             <Play className="h-5 w-5 fill-current ml-0.5" />
           )}
         </button>
-        <div className="grow h-10 flex flex-col justify-center overflow-hidden">
-          {/* Progress bar with seek functionality */}
-          <div
-            className="w-full h-2 bg-rose-200 rounded-full overflow-hidden cursor-pointer"
-            onClick={(e) => {
-              if (audioRef.current && totalDuration > 0) {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const clickPosition = (e.clientX - rect.left) / rect.width;
-                audioRef.current.currentTime =
-                  clickPosition * (totalDuration / 1000);
-                setCurrentTime(clickPosition * totalDuration);
-              }
-            }}
-          >
+        <div className="grow">
+          {/* Enhanced waveform with intuitive progress and hover effects */}
+          <div className="relative">
             <div
-              className="h-full bg-rose-600 transition-all duration-100"
-              style={{ width: `${progressPercent}%` }}
-            />
+              className="flex items-center gap-0.5 h-10 cursor-pointer overflow-hidden px-3 group max-w-full"
+              onClick={(e) => {
+                if (audioRef.current && totalDuration > 0) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const clickPosition = (e.clientX - rect.left) / rect.width;
+                  audioRef.current.currentTime =
+                    clickPosition * (totalDuration / 1000);
+                  setCurrentTime(clickPosition * totalDuration);
+                }
+              }}
+            >
+              {/* Removed background/progress lines - waveform bars show progress directly */}
+
+              {Array.from({ length: 28 }).map((_, i) => {
+                const isPlayed = i / 28 < progressPercent / 100;
+                return (
+                  <div
+                    key={i}
+                    className={`w-1 rounded-full relative z-10 transition-all duration-200 ${
+                      isPlayed ? "bg-rose-600" : "bg-rose-400"
+                    } group-hover:scale-105 ${isPlaying ? "animate-wave" : ""}`}
+                    style={{
+                      height: `${30 + (Math.sin(i * 0.5) * 20 + 20)}%`,
+                      animationDelay: `${i * 40}ms`,
+                    }}
+                  />
+                );
+              })}
+
+              {/* Scrubber handle that appears on hover */}
+              <div
+                className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white border-2 border-rose-500 rounded-full shadow-md transition-opacity duration-150 pointer-events-none ${
+                  progressPercent > 2
+                    ? "opacity-0 group-hover:opacity-100"
+                    : "opacity-0"
+                }`}
+                style={{ left: `calc(${progressPercent}% - 6px)` }}
+              />
+            </div>
           </div>
         </div>
         {/* Hidden native audio element for processing */}

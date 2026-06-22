@@ -145,6 +145,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const json = (await res.json()) as { accessToken: string };
       get().setAccessToken(json.accessToken);
       return true;
+    } catch (error) {
+      console.error("Token refresh failed:", error);
+      return false;
     } finally {
       set({ isRefreshing: false });
     }

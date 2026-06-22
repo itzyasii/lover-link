@@ -110,8 +110,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       hasAttemptedRefresh.current = true;
       void (async () => {
-        const ok = await refresh();
-        if (!ok) {
+        try {
+          const ok = await refresh();
+          if (!ok) {
+            router.push("/login");
+          }
+        } catch (error) {
+          console.error("Refresh failed:", error);
           router.push("/login");
         }
       })();
@@ -264,8 +269,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       : "text-gray-500 hover:bg-black/5 hover:text-gray-900",
                   )}
                 >
-                  <Icon className={cn("h-6 w-6 md:h-5 md:w-5", active ? "scale-110 md:scale-100" : "")} />
-                  <span className={cn(active ? "font-bold" : "")}>{item.label}</span>
+                  <Icon
+                    className={cn(
+                      "h-6 w-6 md:h-5 md:w-5",
+                      active ? "scale-110 md:scale-100" : "",
+                    )}
+                  />
+                  <span className={cn(active ? "font-bold" : "")}>
+                    {item.label}
+                  </span>
                 </Link>
               );
             })}
