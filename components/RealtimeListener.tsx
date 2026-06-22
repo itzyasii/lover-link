@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -169,9 +168,14 @@ export function RealtimeListener() {
 
       updateChatLastMessage(chatId, message);
 
-      if (!chatId || isChatVisible(chatId)) return;
+      if (!chatId) return;
 
-      const chat = useChatsStore.getState().chats.find(c => c.id === chatId);
+      if (isChatVisible(chatId)) {
+        resetUnread(chatId);
+        return;
+      }
+
+      const chat = useChatsStore.getState().chats.find((c) => c.id === chatId);
       const isMuted = chat?.isMuted ?? false;
 
       if (!isMuted) {
@@ -220,12 +224,26 @@ export function RealtimeListener() {
     s.on("chat:message", onIncomingMessage);
     s.on("share:item", onIncomingMessage);
     s.on("chat:reaction", onReaction);
+
+    const onMessageDelete = (p: unknown) => {
+      const r = asRecord(p);
+      if (!r) return;
+      const chatId = typeof r.chatId === "string" ? r.chatId : "";
+      const message = asRecord(r.message);
+      if (!chatId || !message) return;
+      updateChatLastMessage(chatId, message);
+    };
+
+    s.on("chat:message_delete", onMessageDelete);
+
     document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       s.off("chat:typing", onTyping);
       s.off("chat:message", onIncomingMessage);
       s.off("share:item", onIncomingMessage);
       s.off("chat:reaction", onReaction);
+      s.off("chat:message_delete", onMessageDelete);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [setTyping, clearTyping, me?.id]);

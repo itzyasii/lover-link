@@ -5,13 +5,19 @@ import { useMemo, useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
-import { ChevronRight, MessageSquarePlus, MessageCircle } from "lucide-react";
+import {
+  ChevronRight,
+  MessageSquarePlus,
+  MessageCircle,
+  LogOut,
+} from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useTypingStore } from "@/stores/typing";
 import { formatLastSeen } from "@/lib/time";
 import { usePrefetchedQuery } from "@/hooks/usePrefetchedQuery";
 import { useChatsStore, Chat } from "@/stores/chats";
 import { Pin, BellOff, MoreVertical, PinOff, Bell } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 type ChatMember = string | { id: string; email?: string; username?: string };
 
@@ -71,6 +77,8 @@ export default function ChatsPage() {
       queryFn: () => apiFetch<{ ok: true; chats: Chat[] }>("/api/chats"),
     });
 
+  const logout = useAuthStore((s) => s.logout);
+  const router = useRouter();
   const setChats = useChatsStore((s) => s.setChats);
   const chatsStore = useChatsStore((s) => s.chats);
   const unreadCounts = useChatsStore((s) => s.unreadCounts);
@@ -267,13 +275,25 @@ export default function ChatsPage() {
         <h1 className="font-[family-name:var(--font-serif)] px-2 text-2xl text-[color:var(--wine-900)]">
           Chats
         </h1>
-        <Link
-          className="focus-ring inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-rose-500 to-rose-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
-          href="/app/friends"
-        >
-          <MessageSquarePlus className="h-4 w-4" />
-          New message
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            className="focus-ring hidden sm:inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-rose-500 to-rose-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
+            href="/app/friends"
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+            New message
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              logout();
+              router.push("/");
+            }}
+            className="focus-ring sm:hidden inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-rose-500 to-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {isLoading ? (

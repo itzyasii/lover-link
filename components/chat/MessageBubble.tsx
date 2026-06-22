@@ -1,8 +1,9 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Msg, ReactionGroup, ShareItem } from "@/types/chat";
 import { Check, Pencil, SmilePlus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import EmojiPicker from 'emoji-picker-react';
+import EmojiPicker from "emoji-picker-react";
 
 interface MessageBubbleProps {
   m: Msg;
@@ -59,6 +60,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   hideName,
   isLast,
 }) => {
+  const queryClient = useQueryClient();
   const reactionsOpen = openReactionFor === m.id;
   // 5-minute (300000ms) time threshold to disable edit/delete
   const EDIT_DELETE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
@@ -216,7 +218,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                       </div>
                     )}
                     <div className="mt-1 text-[10px] uppercase tracking-wider opacity-60">
-                      {new URL(m.linkPreview.url).hostname.replace(/^www\./, "")}
+                      {new URL(m.linkPreview.url).hostname.replace(
+                        /^www\./,
+                        "",
+                      )}
                     </div>
                   </div>
                 </a>
@@ -290,7 +295,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             </button>
 
             {reactionsOpen && (
-              <div className={`absolute z-50 shadow-lg ${isLast ? "bottom-[110%]" : "top-10"} ${mine ? "right-0" : "left-0"}`}>
+              <div
+                className={`absolute z-50 shadow-lg ${isLast ? "bottom-[110%]" : "top-10"} ${mine ? "right-0" : "left-0"}`}
+              >
                 <EmojiPicker
                   onEmojiClick={(emojiData) => {
                     emitReaction(m.id, emojiData.emoji);
@@ -339,6 +346,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                           : x,
                       ),
                     );
+                    queryClient.invalidateQueries({ queryKey: ["chats"] });
                   }}
                   type="button"
                   aria-label="Delete"
