@@ -56,7 +56,12 @@ export const VoiceNotePlayer = ({
     };
 
     const handleLoadedMetadata = () => {
-      setTotalDuration(Math.max(audio.duration * 1000, durationMs || 0));
+      // Ensure we only use valid, finite numbers for duration
+      const audioDuration =
+        !isNaN(audio.duration) && isFinite(audio.duration)
+          ? audio.duration * 1000
+          : 0;
+      setTotalDuration(Math.max(audioDuration, durationMs || 0));
     };
 
     const handlePlay = () => {
@@ -120,7 +125,18 @@ export const VoiceNotePlayer = ({
       <div className="flex items-center justify-between gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-(--wine-900)/55">
         <span>Voice message</span>
         <span className="tabular-nums">
-          {formatElapsed(isPlaying ? currentTime : totalDuration)}
+          {formatElapsed(
+            Math.max(
+              0,
+              isPlaying
+                ? isFinite(currentTime)
+                  ? currentTime
+                  : 0
+                : isFinite(totalDuration)
+                  ? totalDuration
+                  : 0,
+            ),
+          )}
         </span>
       </div>
       <div className="flex items-center gap-3">

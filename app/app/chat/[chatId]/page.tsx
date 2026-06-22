@@ -1233,7 +1233,7 @@ export default function ChatPage() {
             message.from !== meId &&
             !!message.receipts?.find((r) => r.userId === meId)?.listenedAt
           }
-          onListened={() => onVoiceListened(message.id)}
+          onListened={() => markVoiceListened(message.id)}
         />
       );
     }
