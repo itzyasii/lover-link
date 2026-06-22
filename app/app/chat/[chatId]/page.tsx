@@ -274,16 +274,38 @@ export default function ChatPage() {
       )
         return;
 
-      const unreadIds = targetMessages
-        .filter((message) => {
-          if (message.from === me.id) return false;
-          if (message.deletedAt) return false;
-          const receipt = message.receipts?.find(
-            (entry) => entry.userId === me.id,
-          );
-          return !receipt?.readAt;
-        })
-        .map((message) => message.id);
+      const at = new Date().toISOString();
+      const unreadIds: string[] = [];
+
+      // Update local messages with read receipts
+      setMessages((prev) =>
+        prev.map((m) => {
+          // Only process messages that are in targetMessages and not yet read
+          if (!targetMessages.find((tm) => tm.id === m.id)) return m;
+          if (m.from === me.id) return m;
+          if (m.deletedAt) return m;
+
+          const existingReceipt = m.receipts?.find((r) => r.userId === me.id);
+          if (existingReceipt?.readAt) return m;
+
+          // This message needs to be marked as read
+          unreadIds.push(m.id);
+
+          const receipts = m.receipts ?? [];
+          if (existingReceipt) {
+            return {
+              ...m,
+              receipts: receipts.map((r) =>
+                r.userId === me.id ? { ...r, readAt: r.readAt ?? at } : r,
+              ),
+            };
+          }
+          return {
+            ...m,
+            receipts: [...receipts, { userId: me.id, readAt: at }],
+          };
+        }),
+      );
 
       if (!unreadIds.length) return;
       ensureSocket().emit("chat:read", { messageIds: unreadIds });
@@ -834,6 +856,24 @@ export default function ChatPage() {
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
+
+  // Mark messages as read whenever messages change and document is visible
+  useEffect(() => {
+    if (messages.length > 0) {
+      markMessagesRead(messages);
+    }
+
+    // Also mark messages as read when the document becomes visible again
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && messages.length > 0) {
+        markMessagesRead(messages);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [messages, markMessagesRead]);
 
   // Only auto-scroll to bottom when NEW messages are appended (not when loading older ones)
   const prevMessageCountRef = useRef(0);
