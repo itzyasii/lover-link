@@ -246,7 +246,8 @@ function detectVoiceMimeType() {
 export default function ChatPage() {
   const { chatId } = useParams<{ chatId: string }>();
   const me = useAuthStore((s) => s.user);
-  const { startCall } = useCall();
+  const { startCall, state } = useCall();
+  const isInCall = state.kind !== "idle";
   const [text, setText] = useState("");
   const [typingFrom, setTypingFrom] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -1347,15 +1348,17 @@ export default function ChatPage() {
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            className="focus-ring grid h-10 w-10 place-items-center rounded-full"
-            onClick={() => startCall(otherUserId!, "audio")}
+            className={`focus-ring grid h-10 w-10 place-items-center rounded-full ${isInCall ? "opacity-50 cursor-not-allowed" : ""}`}
+            onClick={() => !isInCall && startCall(otherUserId!, "audio")}
+            disabled={isInCall}
           >
             <Phone className="h-5 w-5" />
           </button>
           <button
             type="button"
-            className="focus-ring grid h-10 w-10 place-items-center rounded-full"
-            onClick={() => startCall(otherUserId!, "video")}
+            className={`focus-ring grid h-10 w-10 place-items-center rounded-full ${isInCall ? "opacity-50 cursor-not-allowed" : ""}`}
+            onClick={() => !isInCall && startCall(otherUserId!, "video")}
+            disabled={isInCall}
           >
             <Video className="h-5 w-5" />
           </button>

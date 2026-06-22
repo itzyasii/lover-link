@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import type { Socket } from "socket.io-client";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
@@ -75,7 +82,10 @@ function pickInitialQuality(): CallQualityProfile {
     return "medium";
   const connection = (navigator as NavigatorWithConnection).connection;
   if (!connection) return "medium";
-  if (connection.effectiveType === "2g" || connection.effectiveType === "slow-2g")
+  if (
+    connection.effectiveType === "2g" ||
+    connection.effectiveType === "slow-2g"
+  )
     return "low";
   if (connection.effectiveType === "3g") return "medium";
   return "high";
@@ -92,7 +102,6 @@ function buildQualityState(
   };
   return { profile, label: profileLabels[profile], ...metrics };
 }
-
 
 const Ctx = createContext<CallContextValue | null>(null);
 
@@ -162,11 +171,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const [camEnabled, setCamEnabled] = useState(true);
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
   const [outputDevices, setOutputDevices] = useState<OutputDevice[]>([]);
-  const [currentOutputDevice, setCurrentOutputDevice] = useState<
-    string | null
-  >(null);
-  const [networkQuality, setNetworkQuality] = useState<CallNetworkQuality>(
-    () => buildQualityState(pickInitialQuality()),
+  const [currentOutputDevice, setCurrentOutputDevice] = useState<string | null>(
+    null,
+  );
+  const [networkQuality, setNetworkQuality] = useState<CallNetworkQuality>(() =>
+    buildQualityState(pickInitialQuality()),
   );
   const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const pendingIce = useRef<RTCIceCandidateInit[]>([]);
@@ -180,15 +189,33 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const r = asRecord(p);
     if (!r) return;
     const payloadCallId = typeof r.callId === "string" ? r.callId : "";
-    if (stateRef.current.kind !== "outgoing" || payloadCallId !== stateRef.current.callId) return;
+    if (
+      stateRef.current.kind !== "outgoing" ||
+      payloadCallId !== stateRef.current.callId
+    )
+      return;
 
-    const currentState = stateRef.current as Extract<CallState, { kind: "outgoing" }>;
+    const currentState = stateRef.current as Extract<
+      CallState,
+      { kind: "outgoing" }
+    >;
 
     try {
       const answer = r.answer as RTCSessionDescriptionInit;
       if (pcRef.current && answer) {
         await pcRef.current.setRemoteDescription(answer);
         await flushPendingIce();
+      }
+
+      // Ensure we have valid streams
+      const localStream = localStreamRef.current;
+      const remoteStream = remoteStreamRef.current;
+
+      if (!localStream) {
+        throw new Error("Local stream not found");
+      }
+      if (!remoteStream) {
+        throw new Error("Remote stream not found");
       }
 
       setState({
@@ -198,11 +225,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         callId: payloadCallId,
         media: currentState.media,
         connectedAt: new Date().toISOString(),
-        localStream: localStreamRef.current ?? new MediaStream(),
-        remoteStream: remoteStreamRef.current ?? new MediaStream(),
-        mediaStream: currentState.mediaStream,
+        localStream: localStream,
+        remoteStream: remoteStream,
+        mediaStream: localStream,
       } as CallState);
-      
+
       setOverlayVisible(false);
       void loadOutputDevices();
     } catch (err) {
@@ -211,27 +238,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-
-
-  const applyVideoQualityProfile = useCallback(async (
-    pc: RTCPeerConnection | null,
-    stream: MediaStream | null,
-    profile: CallQualityProfile,
-  ) => {
-    if (!pc || !stream) return;
-    const preset = QUALITY_PRESETS[profile];
-    const videoTrack = stream.getVideoTracks()[0];
-    if (!videoTrack) return;
-    try {
-      await videoTrack.applyConstraints({
-        width: { ideal: preset.width },
-        height: { ideal: preset.height },
-        frameRate: { ideal: preset.frameRate },
-      });
-    } catch {
-      // Keep the call alive if the camera cannot satisfy an adaptive profile.
-    }
-  }, []);
+  const applyVideoQualityProfile = useCallback(
+    async (
+      pc: RTCPeerConnection | null,
+      stream: MediaStream | null,
+      profile: CallQualityProfile,
+    ) => {
+      if (!pc || !stream) return;
+      const preset = QUALITY_PRESETS[profile];
+      const videoTrack = stream.getVideoTracks()[0];
+      if (!videoTrack) return;
+      try {
+        await videoTrack.applyConstraints({
+          width: { ideal: preset.width },
+          height: { ideal: preset.height },
+          frameRate: { ideal: preset.frameRate },
+        });
+      } catch {
+        // Keep the call alive if the camera cannot satisfy an adaptive profile.
+      }
+    },
+    [],
+  );
 
   function mediaErrorMessage(err: unknown, media: "audio" | "video"): string {
     const name = err instanceof DOMException ? err.name : "";
@@ -308,47 +336,108 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   };
 
   const ensurePC = async (peerId: string, callId: string) => {
-    const ice = await apiFetch<{ ok: true; iceServers: IceServer[] }>(
-      "/api/rtc/ice-servers",
+    console.log(
+      `[ensurePC] Creating peer connection for call ${callId} to ${peerId}`,
     );
-    const pc = new RTCPeerConnection({ iceServers: ice.iceServers });
-    pcRef.current = pc;
-
-    const remote = new MediaStream();
-    remoteStreamRef.current = remote;
-
-    pc.ontrack = (ev) => {
-      if (ev.track) remote.addTrack(ev.track);
-      setState((prev) =>
-        prev.kind === "inCall" ? { ...prev, remoteStream: remote } : prev,
-      );
-    };
-
-    pc.onicecandidate = (ev) => {
-      if (!ev.candidate) return;
-      socketRef.current?.emit("call:ice-candidate", {
-        to: peerId,
-        callId,
-        candidate: ev.candidate,
-      });
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (
-        pc.connectionState === "failed" ||
-        pc.connectionState === "closed"
-      ) {
-        cleanup();
+    try {
+      let iceServers: IceServer[];
+      try {
+        const ice = await apiFetch<{ ok: true; iceServers: IceServer[] }>(
+          "/api/rtc/ice-servers",
+        );
+        iceServers = ice.iceServers;
+        console.log(`[ensurePC] Got ICE servers from API:`, iceServers);
+      } catch (iceErr) {
+        console.warn(
+          "[ensurePC] Failed to fetch ICE servers from API, using fallback:",
+          iceErr,
+        );
+        // Fallback to public STUN servers if API fails
+        iceServers = [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun2.l.google.com:19302" },
+          { urls: "stun:stun3.l.google.com:19302" },
+          { urls: "stun:stun4.l.google.com:19302" },
+        ];
       }
-    };
 
-    return pc;
+      const pc = new RTCPeerConnection({ iceServers });
+      pcRef.current = pc;
+      console.log(`[ensurePC] RTCPeerConnection created`);
+
+      const remote = new MediaStream();
+      remoteStreamRef.current = remote;
+
+      pc.ontrack = (ev) => {
+        console.log(`[ensurePC] Received remote track: ${ev.track.kind}`);
+        if (ev.track) {
+          // Check if track is already in the stream to avoid duplicates
+          const existingTracks = remote.getTracks();
+          const trackExists = existingTracks.some((t) => t.id === ev.track.id);
+          if (!trackExists) {
+            remote.addTrack(ev.track);
+          }
+        }
+        // Always update state regardless of current state to ensure stream is propagated
+        setState((prev) => {
+          if (prev.kind === "inCall") {
+            return {
+              ...prev,
+              remoteStream: new MediaStream(remote.getTracks()),
+            };
+          }
+          return prev;
+        });
+      };
+
+      pc.onicecandidate = (ev) => {
+        if (!ev.candidate) return;
+        console.log(`[ensurePC] Generated ICE candidate, sending to peer`);
+        socketRef.current?.emit("call:ice-candidate", {
+          to: peerId,
+          callId,
+          candidate: ev.candidate,
+        });
+      };
+
+      pc.onconnectionstatechange = () => {
+        console.log(
+          `[ensurePC] Connection state changed: ${pc.connectionState}`,
+        );
+        if (
+          pc.connectionState === "failed" ||
+          pc.connectionState === "closed"
+        ) {
+          console.log(`[ensurePC] Connection failed or closed, cleaning up`);
+          cleanup();
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log(
+          `[ensurePC] ICE connection state: ${pc.iceConnectionState}`,
+        );
+      };
+
+      return pc;
+    } catch (err) {
+      console.error(`[ensurePC] Failed to create peer connection:`, err);
+      throw err;
+    }
   };
 
   const getMedia = async (media: "audio" | "video") => {
+    console.log(`[getMedia] Getting ${media} media stream`);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Media devices API not supported in this browser");
+    }
+
     const initialQuality = pickInitialQuality();
     const preset = QUALITY_PRESETS[initialQuality];
-    const stream = await navigator.mediaDevices.getUserMedia({
+    console.log(`[getMedia] Using quality preset: ${initialQuality}`, preset);
+
+    const constraints = {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -362,7 +451,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               frameRate: { ideal: preset.frameRate },
             }
           : false,
-    });
+    };
+    console.log(`[getMedia] Requesting media with constraints:`, constraints);
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    console.log(`[getMedia] Successfully obtained media stream`);
+
     localStreamRef.current = stream;
     setMicEnabled(true);
     setCamEnabled(media === "video");
@@ -412,10 +506,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     let packetLossPct: number | undefined;
 
     if (previous && bytesSent != null) {
-      const elapsedSeconds = Math.max(
-        0.001,
-        (now - previous.timestamp) / 1000,
-      );
+      const elapsedSeconds = Math.max(0.001, (now - previous.timestamp) / 1000);
       bitrateKbps = Math.max(
         0,
         Math.round(
@@ -469,10 +560,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   };
 
   const startCall = async (toUserId: string, media: "audio" | "video") => {
-    if (state.kind !== "idle") return;
-    // eslint-disable-next-line react-hooks/purity -- this is an event handler, not called during render
+    console.log(`[startCall] Attempting to start ${media} call to ${toUserId}`);
+    if (state.kind !== "idle") {
+      console.log(
+        `[startCall] Cannot start call: current state is ${state.kind}`,
+      );
+      return;
+    }
     const callId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    console.log(`[startCall] Generated callId: ${callId}`);
+
     const toLabel = (await resolveUserLabel(toUserId)) ?? toUserId;
+    console.log(`[startCall] Resolved user label: ${toLabel}`);
+
     setState({
       kind: "outgoing",
       to: toUserId,
@@ -482,42 +582,107 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       mediaStream: undefined,
     } as CallState);
     setOverlayVisible(true);
+    console.log(`[startCall] Set state to outgoing, overlay visible: true`);
 
     try {
       const s = getSocket();
+      if (!s) {
+        throw new Error("Socket connection not available");
+      }
       socketRef.current = s;
+      console.log(`[startCall] Socket connected: ${s.connected}`);
 
+      // Ensure socket is connected before proceeding
+      if (!s.connected) {
+        console.log(
+          `[startCall] Socket not connected, attempting to connect...`,
+        );
+        s.connect();
+        // Wait longer for connection to establish (3s instead of 1s)
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (!s.connected) {
+          throw new Error(
+            "Failed to establish socket connection. Please check your internet connection.",
+          );
+        }
+        console.log(
+          `[startCall] Socket connected successfully after reconnection attempt`,
+        );
+      }
+
+      console.log(`[startCall] Requesting ${media} media access`);
       const stream = await getMedia(media);
+      console.log(
+        `[startCall] Got media stream, tracks:`,
+        stream.getTracks().map((t) => ({ kind: t.kind, enabled: t.enabled })),
+      );
+
       const pc = await ensurePC(toUserId, callId);
-      for (const track of stream.getTracks()) pc.addTrack(track, stream);
+      console.log(`[startCall] PeerConnection created`);
+
+      for (const track of stream.getTracks()) {
+        pc.addTrack(track, stream);
+        console.log(`[startCall] Added ${track.kind} track to peer connection`);
+      }
+
       await applyVideoQualityProfile(pc, stream, networkQuality.profile);
       startNetworkMonitor();
+      console.log(`[startCall] Network monitoring started`);
 
+      console.log(`[startCall] Creating SDP offer`);
       const offer = await pc.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: media === "video",
       });
+      console.log(`[startCall] Offer created, setting local description`);
+
       await pc.setLocalDescription(offer);
+      console.log(`[startCall] Local description set, emitting call:offer`);
+
+      // Wait for ICE gathering to complete before sending offer (fixes incomplete SDP)
+      await new Promise<void>((resolve) => {
+        if (pc.iceGatheringState === "complete") {
+          resolve();
+        } else {
+          const checkState = () => {
+            if (pc.iceGatheringState === "complete") {
+              pc.removeEventListener("icegatheringstatechange", checkState);
+              resolve();
+            }
+          };
+          pc.addEventListener("icegatheringstatechange", checkState);
+          // Add timeout to prevent waiting forever (10s)
+          setTimeout(resolve, 10000);
+        }
+      });
+
+      // Get the updated local description after ICE gathering
+      const finalOffer = pc.localDescription;
+      if (!finalOffer) {
+        throw new Error("Failed to create local description");
+      }
 
       s.emit(
         "call:offer",
-        { to: toUserId, callId, offer, media },
+        { to: toUserId, callId, offer: finalOffer, media },
         (ack?: CallOfferAck) => {
+          console.log(`[startCall] call:offer acknowledged:`, ack);
           if (!ack?.ok) {
             toast({
               title: "Call failed",
-              message: "Could not reach the other side.",
+              message:
+                "Could not reach the other side. Please check if they're online.",
             });
             cleanup();
           } else {
-            // If the call is answered and we enter inCall state, we'll load devices there
-            // For now, we can load devices as soon as media is accessed
             void loadOutputDevices();
           }
         },
       );
     } catch (err) {
-      toast({ title: "Call failed", message: mediaErrorMessage(err, media) });
+      console.error(`[startCall] Error starting call:`, err);
+      const errorMessage = mediaErrorMessage(err, media);
+      toast({ title: "Call failed", message: errorMessage });
       cleanup();
     }
   };
@@ -540,13 +705,42 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
+      // Wait for ICE gathering to complete before sending answer (fixes incomplete SDP)
+      await new Promise<void>((resolve) => {
+        if (pc.iceGatheringState === "complete") {
+          resolve();
+        } else {
+          const checkState = () => {
+            if (pc.iceGatheringState === "complete") {
+              pc.removeEventListener("icegatheringstatechange", checkState);
+              resolve();
+            }
+          };
+          pc.addEventListener("icegatheringstatechange", checkState);
+          // Add timeout to prevent waiting forever (10s)
+          setTimeout(resolve, 10000);
+        }
+      });
+
+      // Get the updated local description after ICE gathering
+      const finalAnswer = pc.localDescription;
+      if (!finalAnswer) {
+        throw new Error("Failed to create local description");
+      }
+
       s.emit(
         "call:answer",
-        { to: from, callId, answer },
+        { to: from, callId, answer: finalAnswer },
         (ack?: CallSimpleAck) => {
           if (!ack?.ok) cleanup();
         },
       );
+
+      // Ensure we have valid streams
+      const remoteStream = remoteStreamRef.current;
+      if (!remoteStream) {
+        throw new Error("Remote stream not initialized");
+      }
 
       setState({
         kind: "inCall",
@@ -556,7 +750,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         media,
         connectedAt: new Date().toISOString(),
         localStream: stream,
-        remoteStream: remoteStreamRef.current ?? new MediaStream(),
+        remoteStream: remoteStream,
         mediaStream: stream,
       } as CallState);
       setOverlayVisible(false);
@@ -652,8 +846,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     if (!remoteAudioElementRef.current?.setSinkId) {
       toast({
         title: "Cannot switch device",
-        message:
-          "Your browser doesn't support audio output device switching.",
+        message: "Your browser doesn't support audio output device switching.",
       });
       return;
     }
@@ -701,19 +894,76 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const s = getSocket();
     socketRef.current = s;
 
+    // Add connection event listeners for reconnection handling
+    const handleDisconnect = () => {
+      console.log("[Socket] Disconnected - attempting to reconnect...");
+    };
+
+    const handleReconnect = (attempts: number) => {
+      console.log(
+        `[Socket] Successfully reconnected after ${attempts} attempts`,
+      );
+      // If we were in a call, cleanup and reset state after unexpected reconnection
+      if (stateRef.current.kind === "inCall") {
+        toast({
+          title: "Connection restored",
+          message: "Your internet connection has been restored.",
+        });
+      }
+    };
+
+    // Log all socket events for debugging
+    const handleAnyEvent = (eventName: string, ...args: unknown[]) => {
+      if (eventName.startsWith("call:")) {
+        console.log(`[Socket] ${eventName}:`, args[0]);
+      }
+    };
+
+    s.on("disconnect", handleDisconnect);
+    s.on("reconnect", handleReconnect);
+    s.onAny(handleAnyEvent);
+
     const onOffer = async (p: unknown) => {
-      if (stateRef.current.kind !== "idle") return;
+      console.log("[onOffer] Received call offer:", p);
+      if (stateRef.current.kind !== "idle") {
+        console.log(
+          `[onOffer] Cannot accept call, current state: ${stateRef.current.kind}`,
+        );
+        // Send busy signal back to caller
+        const r = asRecord(p);
+        if (r) {
+          const from = r.from == null ? "" : String(r.from);
+          const callId = typeof r.callId === "string" ? r.callId : "";
+          if (from && callId) {
+            const s = getSocket();
+            s.emit("call:end", { to: from, callId, reason: "busy" });
+          }
+        }
+        return;
+      }
       const r = asRecord(p);
-      if (!r) return;
+      if (!r) {
+        console.log("[onOffer] Invalid offer payload");
+        return;
+      }
       const from = r.from == null ? "" : String(r.from);
-      if (!from) return;
+      if (!from) {
+        console.log("[onOffer] Invalid from user ID");
+        return;
+      }
       const fromLabel = (await resolveUserLabel(from)) ?? from;
       const offer = r.offer as RTCSessionDescriptionInit;
       const inferred = inferMediaFromOffer(offer);
       const media =
         r.media === "audio" || r.media === "video" ? r.media : inferred;
       const callId = typeof r.callId === "string" ? r.callId : "";
-      if (!callId) return;
+      if (!callId) {
+        console.log("[onOffer] Invalid call ID");
+        return;
+      }
+      console.log(
+        `[onOffer] Setting up incoming ${media} call from ${fromLabel} (${from}) with callId: ${callId}`,
+      );
       setState({
         kind: "incoming",
         from,
@@ -728,21 +978,28 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       playIncomingCallSound();
     };
 
-
     const onIce = async (p: unknown) => {
       const r = asRecord(p);
       if (!r) return;
       const candidate = r.candidate as RTCIceCandidateInit | undefined;
       if (!candidate) return;
       const pc = pcRef.current;
-      if (!pc?.remoteDescription) {
+      if (!pc) {
+        console.log("[onIce] No peer connection, ignoring candidate");
+        return;
+      }
+      if (!pc.remoteDescription) {
+        console.log(
+          "[onIce] Remote description not set yet, buffering candidate",
+        );
         pendingIce.current.push(candidate);
         return;
       }
       try {
         await pc.addIceCandidate(candidate);
-      } catch {
-        // ignore
+        console.log("[onIce] Successfully added ICE candidate");
+      } catch (err) {
+        console.error("[onIce] Failed to add ICE candidate:", err);
       }
     };
 
@@ -752,7 +1009,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const r = asRecord(p);
       const callId = typeof r?.callId === "string" ? r.callId : "";
       if (callId && callId !== current.callId) return;
-      
+
       const reason = typeof r?.reason === "string" ? r.reason : "";
       if (reason === "answered_elsewhere" && current.kind === "incoming") {
         stopNetworkMonitor();
@@ -763,7 +1020,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         remoteStreamRef.current = null;
         pendingIce.current = [];
         stopCallSound();
-        
+
         setState({
           kind: "answered_elsewhere",
           callId: current.callId,
@@ -798,6 +1055,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     s.on("call:missed", onMissed);
 
     return () => {
+      s.off("disconnect", handleDisconnect);
+      s.off("reconnect", handleReconnect);
+      s.offAny(handleAnyEvent);
       s.off("call:offer", onOffer);
       s.off("call:answer", onAnswer);
       s.off("call:ice-candidate", onIce);
@@ -807,25 +1067,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <Ctx.Provider value={{
-      state,
-      startCall,
-      accept,
-      decline,
-      hangup,
-      toggleMic,
-      toggleCam,
-      toggleSpeaker,
-      switchOutputDevice,
-      micEnabled,
-      camEnabled,
-      speakerEnabled,
-      outputDevices,
-      currentOutputDevice,
-      networkQuality,
-      overlayVisible,
-      setOverlayVisible,
-    }}>
+    <Ctx.Provider
+      value={{
+        state,
+        startCall,
+        accept,
+        decline,
+        hangup,
+        toggleMic,
+        toggleCam,
+        toggleSpeaker,
+        switchOutputDevice,
+        micEnabled,
+        camEnabled,
+        speakerEnabled,
+        outputDevices,
+        currentOutputDevice,
+        networkQuality,
+        overlayVisible,
+        setOverlayVisible,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );
