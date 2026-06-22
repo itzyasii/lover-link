@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  Fragment,
+} from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useInView } from "react-intersection-observer";
@@ -22,7 +29,10 @@ import {
   Square,
   Video,
 } from "lucide-react";
-import { VoiceNotePlayer } from "@/components/chat/VoiceNotePlayer";
+import {
+  VoiceNotePlayer,
+  stopAllVoiceNotes,
+} from "@/components/chat/VoiceNotePlayer";
 import { useCall } from "@/components/call/CallProvider";
 import { formatLastSeen } from "@/lib/time";
 import { MessageBubble } from "@/components/chat/MessageBubble";
@@ -780,15 +790,18 @@ export default function ChatPage() {
     ).then((data) => {
       if (data.ok) {
         setMessages((prev) => {
-          const existingIds = new Set(prev.map(m => m.id));
-          const newMessages = data.messages.filter(m => !existingIds.has(m.id));
+          const existingIds = new Set(prev.map((m) => m.id));
+          const newMessages = data.messages.filter(
+            (m) => !existingIds.has(m.id),
+          );
           return [...newMessages, ...prev];
         });
         setNextCursor(data.nextCursor);
         // Restore scroll position so it doesn't jump to top after prepend
         requestAnimationFrame(() => {
           if (container) {
-            container.scrollTop = container.scrollHeight - scrollHeightBefore + scrollTopBefore;
+            container.scrollTop =
+              container.scrollHeight - scrollHeightBefore + scrollTopBefore;
           }
         });
       }
@@ -833,12 +846,24 @@ export default function ChatPage() {
       return c.scrollHeight - c.clientHeight <= c.scrollTop + 150;
     })();
     // Only scroll to bottom if: a new message was appended (last id changed) AND we were near bottom
-    if (count > prevMessageCountRef.current && lastId !== prevLastIdRef.current && wasAtBottom) {
+    if (
+      count > prevMessageCountRef.current &&
+      lastId !== prevLastIdRef.current &&
+      wasAtBottom
+    ) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
     prevMessageCountRef.current = count;
     prevLastIdRef.current = lastId;
   }, [messages]);
+
+  // Cleanup audio when component unmounts
+  useEffect(() => {
+    return () => {
+      // Stop any playing voice notes when navigating away from the chat
+      stopAllVoiceNotes();
+    };
+  }, []);
 
   useEffect(() => {
     const s = getSocket();
@@ -865,7 +890,8 @@ export default function ChatPage() {
         msg.type === "text" || msg.type === "share" || msg.type === "event"
           ? msg.type
           : "text",
-      clientMessageId: msg.clientMessageId == null ? undefined : String(msg.clientMessageId),
+      clientMessageId:
+        msg.clientMessageId == null ? undefined : String(msg.clientMessageId),
       createdAt:
         msg.createdAt == null
           ? new Date().toISOString()
@@ -1101,10 +1127,10 @@ export default function ChatPage() {
   const sendMessage = () => {
     if (!text.trim()) return;
     if (!otherUserId) return;
-    
+
     const s = ensureSocket();
     const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    
+
     const optimisticMessage: Msg = {
       id: clientMessageId,
       from: me!.id,
@@ -1119,17 +1145,21 @@ export default function ChatPage() {
       receipts: [],
       event: null,
     };
-    
+
     setMessages((prev) => [...prev, optimisticMessage]);
-    s.emit("chat:message", { to: otherUserId, text: text.trim(), clientMessageId });
-    
+    s.emit("chat:message", {
+      to: otherUserId,
+      text: text.trim(),
+      clientMessageId,
+    });
+
     setText("");
     if (typingTimer.current) {
       clearTimeout(typingTimer.current);
       typingTimer.current = null;
       emitTyping(false);
     }
-    
+
     setTimeout(() => {
       if (messagesContainerRef.current) {
         messagesContainerRef.current.scrollTop =
@@ -1291,12 +1321,15 @@ export default function ChatPage() {
         {messages.map((m, i) => {
           const mine = m.from === me?.id;
           const prevMessage = i > 0 ? messages[i - 1] : null;
-          
-          const prevDate = prevMessage ? new Date(prevMessage.createdAt).toLocaleDateString() : null;
+
+          const prevDate = prevMessage
+            ? new Date(prevMessage.createdAt).toLocaleDateString()
+            : null;
           const currentDate = new Date(m.createdAt).toLocaleDateString();
           const showDateSeparator = currentDate !== prevDate;
-          
-          const hideName = !showDateSeparator && !!prevMessage && prevMessage.from === m.from;
+
+          const hideName =
+            !showDateSeparator && !!prevMessage && prevMessage.from === m.from;
           const isLast = i === messages.length - 1 || i === messages.length - 2;
 
           const reactionGroups = groupReactions(
@@ -1309,7 +1342,13 @@ export default function ChatPage() {
               {showDateSeparator && (
                 <div className="flex justify-center my-4">
                   <span className="text-xs font-medium bg-black/5 text-gray-500 px-3 py-1 rounded-full">
-                    {currentDate === new Date().toLocaleDateString() ? "Today" : new Date(currentDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                    {currentDate === new Date().toLocaleDateString()
+                      ? "Today"
+                      : new Date(currentDate).toLocaleDateString(undefined, {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                        })}
                   </span>
                 </div>
               )}
