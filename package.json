@@ -23,7 +23,6 @@
     "framer-motion": "^12.23.12",
     "idb-keyval": "^6.2.5",
     "lucide-react": "^0.542.0",
-    "mime-types": "^3.0.2",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -39,7 +38,6 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/mime-types": "^3.0.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

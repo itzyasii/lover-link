@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  Fragment,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useInView } from "react-intersection-observer";
@@ -240,101 +233,6 @@ function detectVoiceMimeType() {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
 }
 
-// ---------------------------------------------------------------------------
-// FIX: Attachment and ReceiptMark were previously defined INSIDE the ChatPage
-// render function. React treats an inline function definition as a new component
-// type on every render, so it would unmount and remount the entire subtree
-// (including VoiceNotePlayer) on each state update, killing audio playback.
-// Moving them here gives them stable identities across renders.
-// ---------------------------------------------------------------------------
-
-const Attachment = ({
-  item,
-  message,
-  meId,
-  onVoiceListened,
-}: {
-  item: unknown;
-  message: Msg;
-  meId: string | undefined;
-  onVoiceListened: (id: string) => void;
-}) => {
-  const r = asRecord(item);
-  if (!r) return null;
-  const kind = typeof r.kind === "string" ? r.kind : null;
-  const url = typeof r.url === "string" ? r.url : "";
-  const name = typeof r.name === "string" ? r.name : "attachment";
-  const size = typeof r.size === "number" ? r.size : undefined;
-  const meta = asRecord(r.meta);
-  const isVoiceNote = meta?.voiceNote === true;
-  const durationMs =
-    typeof meta?.durationMs === "number" ? meta.durationMs : undefined;
-
-  if (kind === "image" && url) {
-    return <RomanticImageAttachment url={url} name={name} size={size} />;
-  }
-  if (kind === "video" && url) {
-    return <RomanticVideoAttachment url={url} name={name} size={size} />;
-  }
-  if (kind === "audio" && url && isVoiceNote) {
-    return (
-      <VoiceNotePlayer
-        url={url}
-        durationMs={durationMs}
-        listened={
-          message.from !== meId &&
-          !!message.receipts?.find((r) => r.userId === meId)?.listenedAt
-        }
-        onListened={() => onVoiceListened(message.id)}
-      />
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-black/10 bg-black/5 px-4 py-3">
-      {kind === "file" ? (
-        <FileText className="h-6 w-6 shrink-0 text-gray-500" />
-      ) : (
-        <FileIcon className="h-6 w-6 shrink-0 text-gray-500" />
-      )}
-      <div className="grow">
-        <div className="font-semibold">{name}</div>
-        {size ? (
-          <div className="text-xs text-gray-500">
-            {(size / 1024 / 1024).toFixed(2)} MB
-          </div>
-        ) : null}
-      </div>
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className="focus-ring grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white hover:bg-gray-100"
-      >
-        <Download className="h-5 w-5" />
-      </a>
-    </div>
-  );
-};
-
-const ReceiptMark = ({
-  m,
-  otherUserId,
-}: {
-  m: Msg;
-  otherUserId: string | null;
-}) => {
-  if (!otherUserId) return <CheckCheck className="h-4 w-4 text-[--sky-500]" />;
-  const receipt = m.receipts?.find((r) => r.userId === otherUserId);
-  if (receipt?.readAt)
-    return <CheckCheck className="h-4 w-4 text-[--sky-500]" />;
-  if (receipt?.deliveredAt)
-    return <CheckCheck className="h-4 w-4 text-gray-400" />;
-  return <Check className="h-4 w-4 text-gray-400" />;
-};
-
-// ---------------------------------------------------------------------------
-
 export default function ChatPage() {
   const { chatId } = useParams<{ chatId: string }>();
   const me = useAuthStore((s) => s.user);
@@ -346,10 +244,6 @@ export default function ChatPage() {
   const [editDraft, setEditDraft] = useState("");
   const [openReactionFor, setOpenReactionFor] = useState<string | null>(null);
   const typingTimer = useRef<number | null>(null);
-  // FIX: track the typing-indicator clear timeout separately so we can cancel
-  // it before setting a new one — previously rapid typing events stacked up
-  // multiple independent timeouts that would clear the indicator too early.
-  const typingClearTimer = useRef<number | null>(null);
   const typingAckFailedOnce = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -360,8 +254,6 @@ export default function ChatPage() {
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceDurationMs, setVoiceDurationMs] = useState(0);
   const [isSendingVoice, setIsSendingVoice] = useState(false);
-  const [isSendingFile, setIsSendingFile] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const markMessagesRead = useCallback(
     (targetMessages: Msg[]) => {
@@ -486,6 +378,7 @@ export default function ChatPage() {
       const s = ensureSocket();
       const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
+      // Optimistically add voice message to local state immediately
       const optimisticVoiceMessage: Msg = {
         id: clientMessageId,
         from: me!.id,
@@ -523,6 +416,7 @@ export default function ChatPage() {
         },
         clientMessageId,
       });
+      // Force scroll to bottom after sending message
       setTimeout(() => {
         if (messagesContainerRef.current) {
           messagesContainerRef.current.scrollTop =
@@ -538,71 +432,6 @@ export default function ChatPage() {
     } finally {
       setIsSendingVoice(false);
     }
-  };
-
-  // FIX: new — Paperclip button was a dead button with no onClick. This uploads
-  // any file the user picks and sends it via the share:item socket event.
-  const sendFileAttachment = async (file: File) => {
-    if (!otherUserId) return;
-    setIsSendingFile(true);
-    try {
-      const upload = await uploadFile(file, false);
-      const uploadedItem = asRecord(upload.item) ?? {};
-      const s = ensureSocket();
-      const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-
-      const kind = file.type.startsWith("image/")
-        ? "image"
-        : file.type.startsWith("video/")
-          ? "video"
-          : file.type.startsWith("audio/")
-            ? "audio"
-            : "file";
-
-      const optimisticMsg: Msg = {
-        id: clientMessageId,
-        from: me!.id,
-        chatId: chatId,
-        item: { ...uploadedItem, kind },
-        createdAt: new Date().toISOString(),
-        deletedAt: null,
-        editedAt: null,
-        reactions: [],
-        receipts: [],
-        type: "share",
-        text: null,
-        event: null,
-      };
-      setMessages((prev) => [...prev, optimisticMsg]);
-
-      s.emit("share:item", {
-        to: otherUserId,
-        item: { ...uploadedItem, kind },
-        clientMessageId,
-      });
-
-      setTimeout(() => {
-        if (messagesContainerRef.current) {
-          messagesContainerRef.current.scrollTop =
-            messagesContainerRef.current.scrollHeight;
-        }
-      }, 50);
-    } catch {
-      toast({
-        title: "File upload failed",
-        message: "Could not upload and send this file.",
-        tone: "error",
-      });
-    } finally {
-      setIsSendingFile(false);
-    }
-  };
-
-  // FIX: new — handler for the hidden file input used by the Paperclip button.
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) void sendFileAttachment(file);
-    e.target.value = ""; // reset so the same file can be picked again
   };
 
   const stopVoiceRecording = () => {
@@ -695,6 +524,7 @@ export default function ChatPage() {
     setOpenReactionFor(null);
 
     const s = ensureSocket();
+
     const at = new Date().toISOString();
 
     // optimistic toggle
@@ -846,6 +676,7 @@ export default function ChatPage() {
     return labels;
   }, [messages, reactionUserDirectory, me]);
 
+  // Track online status via socket.io instead of REST polling (per FRONTEND_INTEGRATION.md)
   const [isOtherUserOnline, setIsOtherUserOnline] = useState(false);
   const [otherUserLastSeen, setOtherUserLastSeen] = useState<string | null>(
     null,
@@ -868,22 +699,26 @@ export default function ChatPage() {
     const s = getSocket();
     if (!s.connected) s.connect();
 
+    // Get initial online users list
     s.emit("presence:list", (response: { ok: boolean; users: string[] }) => {
       if (response.ok) {
         setIsOtherUserOnline(response.users.includes(otherUserId));
       }
     });
 
+    // Listen for presence updates (when users come online/go offline)
     const handlePresenceUpdate = (data: { ok: boolean; users: string[] }) => {
       if (data.ok) {
         const isOnline = data.users.includes(otherUserId);
         setIsOtherUserOnline(isOnline);
         if (!isOnline) {
+          // They just went offline, fallback to "just now" or fetch real DB value
           setOtherUserLastSeen(new Date().toISOString());
         }
       }
     };
 
+    // Initial online list on connect
     const handlePresenceOnline = (data: { ok: boolean; users: string[] }) => {
       if (data.ok) {
         setIsOtherUserOnline(data.users.includes(otherUserId));
@@ -899,6 +734,7 @@ export default function ChatPage() {
     };
   }, [otherUserId]);
 
+  // Create presence object for compatibility with existing code
   const presence = {
     isOnline: isOtherUserOnline,
     lastSeenAt: otherUserLastSeen,
@@ -920,7 +756,7 @@ export default function ChatPage() {
   const { ref: loadMoreRef, inView } = useInView();
 
   useEffect(() => {
-    if (!chatId || messages.length > 0) return;
+    if (!chatId || messages.length > 0) return; // Only fetch once if messages aren't already loaded
     void apiFetch<{ ok: true; messages: Msg[]; nextCursor: string | null }>(
       `/api/chats/${chatId}/messages?limit=50`,
     ).then((data) => {
@@ -941,39 +777,24 @@ export default function ChatPage() {
     const scrollTopBefore = container?.scrollTop ?? 0;
     apiFetch<{ ok: true; messages: Msg[]; nextCursor: string | null }>(
       `/api/chats/${chatId}/messages?limit=50&before=${nextCursor}`,
-    )
-      .then((data) => {
-        if (data.ok) {
-          setMessages((prev) => {
-            const existingIds = new Set(prev.map((m) => m.id));
-            const newMessages = data.messages.filter(
-              (m) => !existingIds.has(m.id),
-            );
-            return [...newMessages, ...prev];
-          });
-          setNextCursor(data.nextCursor);
-          requestAnimationFrame(() => {
-            if (container) {
-              container.scrollTop =
-                container.scrollHeight - scrollHeightBefore + scrollTopBefore;
-            }
-          });
-        }
-      })
-      // FIX: previously there was no catch/finally, so a network error would
-      // leave isFetchingMoreRef.current === true forever, permanently preventing
-      // any further pagination for the session.
-      .catch(() => {
-        toast({
-          title: "Could not load older messages",
-          message: "Please try again.",
-          tone: "error",
+    ).then((data) => {
+      if (data.ok) {
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map(m => m.id));
+          const newMessages = data.messages.filter(m => !existingIds.has(m.id));
+          return [...newMessages, ...prev];
         });
-      })
-      .finally(() => {
-        setIsFetchingMore(false);
-        isFetchingMoreRef.current = false;
-      });
+        setNextCursor(data.nextCursor);
+        // Restore scroll position so it doesn't jump to top after prepend
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight - scrollHeightBefore + scrollTopBefore;
+          }
+        });
+      }
+      setIsFetchingMore(false);
+      isFetchingMoreRef.current = false;
+    });
   }, [nextCursor, chatId]);
 
   useEffect(() => {
@@ -989,15 +810,18 @@ export default function ChatPage() {
     if (!container) return;
 
     const handleScroll = () => {
+      // Simple scroll-to-bottom button logic
       const isScrolledToBottom =
         container.scrollHeight - container.clientHeight <=
         container.scrollTop + 1;
+      // You can add a state here to show/hide a "scroll to bottom" button
     };
 
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Only auto-scroll to bottom when NEW messages are appended (not when loading older ones)
   const prevMessageCountRef = useRef(0);
   const prevLastIdRef = useRef("");
   useEffect(() => {
@@ -1008,11 +832,8 @@ export default function ChatPage() {
       if (!c) return true;
       return c.scrollHeight - c.clientHeight <= c.scrollTop + 150;
     })();
-    if (
-      count > prevMessageCountRef.current &&
-      lastId !== prevLastIdRef.current &&
-      wasAtBottom
-    ) {
+    // Only scroll to bottom if: a new message was appended (last id changed) AND we were near bottom
+    if (count > prevMessageCountRef.current && lastId !== prevLastIdRef.current && wasAtBottom) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
     prevMessageCountRef.current = count;
@@ -1030,16 +851,7 @@ export default function ChatPage() {
       const from = r.from == null ? null : String(r.from);
       if (!from) return;
       setTypingFrom(from);
-      // FIX: cancel the previous clear timeout before scheduling a new one.
-      // Without this, rapid typing events stacked up multiple independent
-      // timeouts that would clear the "Typing..." indicator prematurely.
-      if (typingClearTimer.current != null) {
-        window.clearTimeout(typingClearTimer.current);
-      }
-      typingClearTimer.current = window.setTimeout(() => {
-        setTypingFrom(null);
-        typingClearTimer.current = null;
-      }, 3000);
+      setTimeout(() => setTypingFrom(null), 3000);
     };
 
     const normalizeMsg = (msg: Record<string, unknown>): Msg => ({
@@ -1053,8 +865,7 @@ export default function ChatPage() {
         msg.type === "text" || msg.type === "share" || msg.type === "event"
           ? msg.type
           : "text",
-      clientMessageId:
-        msg.clientMessageId == null ? undefined : String(msg.clientMessageId),
+      clientMessageId: msg.clientMessageId == null ? undefined : String(msg.clientMessageId),
       createdAt:
         msg.createdAt == null
           ? new Date().toISOString()
@@ -1068,6 +879,7 @@ export default function ChatPage() {
 
     const upsertMessage = (normalized: Msg) => {
       setMessages((prev) => {
+        // Dedup by real id OR by clientMessageId (replaces optimistic)
         const existingIdx = prev.findIndex(
           (m) =>
             m.id === normalized.id ||
@@ -1289,10 +1101,10 @@ export default function ChatPage() {
   const sendMessage = () => {
     if (!text.trim()) return;
     if (!otherUserId) return;
-
+    
     const s = ensureSocket();
     const clientMessageId = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-
+    
     const optimisticMessage: Msg = {
       id: clientMessageId,
       from: me!.id,
@@ -1307,21 +1119,17 @@ export default function ChatPage() {
       receipts: [],
       event: null,
     };
-
+    
     setMessages((prev) => [...prev, optimisticMessage]);
-    s.emit("chat:message", {
-      to: otherUserId,
-      text: text.trim(),
-      clientMessageId,
-    });
-
+    s.emit("chat:message", { to: otherUserId, text: text.trim(), clientMessageId });
+    
     setText("");
     if (typingTimer.current) {
       clearTimeout(typingTimer.current);
       typingTimer.current = null;
       emitTyping(false);
     }
-
+    
     setTimeout(() => {
       if (messagesContainerRef.current) {
         messagesContainerRef.current.scrollTop =
@@ -1337,11 +1145,8 @@ export default function ChatPage() {
     }
   };
 
-  // FIX: changed from onInput/FormEvent to onChange/ChangeEvent — the standard
-  // React pattern for controlled inputs. onInput can behave inconsistently with
-  // React's synthetic event system across browsers.
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setText(e.target.value);
+  const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    setText(e.currentTarget.value);
     if (!typingTimer.current) {
       emitTyping(true);
     } else {
@@ -1353,7 +1158,99 @@ export default function ChatPage() {
     }, 3000);
   };
 
+  // const reactionGroups = useMemo(
+  //   () => (m: Msg) =>
+  //     groupReactions(m.reactions ?? [], me?.id ?? "", reactionUserLabels),
+  //   [me?.id, reactionUserLabels],
+  // );
+
   const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
+
+  const Attachment = ({
+    item,
+    message,
+    meId,
+    onVoiceListened,
+  }: {
+    item: unknown;
+    message: Msg;
+    meId: string | undefined;
+    onVoiceListened: (id: string) => void;
+  }) => {
+    const r = asRecord(item);
+    if (!r) return null;
+    const kind = typeof r.kind === "string" ? r.kind : null;
+    const url = typeof r.url === "string" ? r.url : "";
+    const name = typeof r.name === "string" ? r.name : "attachment";
+    const size = typeof r.size === "number" ? r.size : undefined;
+    const meta = asRecord(r.meta);
+    const isVoiceNote = meta?.voiceNote === true;
+    const durationMs =
+      typeof meta?.durationMs === "number" ? meta.durationMs : undefined;
+
+    if (kind === "image" && url) {
+      return <RomanticImageAttachment url={url} name={name} size={size} />;
+    }
+    if (kind === "video" && url) {
+      return <RomanticVideoAttachment url={url} name={name} size={size} />;
+    }
+    if (kind === "audio" && url && isVoiceNote) {
+      return (
+        <VoiceNotePlayer
+          url={url}
+          durationMs={durationMs}
+          listened={
+            message.from !== meId &&
+            !!message.receipts?.find((r) => r.userId === meId)?.listenedAt
+          }
+          onListened={() => onVoiceListened(message.id)}
+        />
+      );
+    }
+
+    return (
+      <div className="flex items-center gap-3 rounded-2xl border border-black/10 bg-black/5 px-4 py-3">
+        {kind === "file" ? (
+          <FileText className="h-6 w-6 shrink-0 text-gray-500" />
+        ) : (
+          <FileIcon className="h-6 w-6 shrink-0 text-gray-500" />
+        )}
+        <div className="grow">
+          <div className="font-semibold">{name}</div>
+          {size ? (
+            <div className="text-xs text-gray-500">
+              {(size / 1024 / 1024).toFixed(2)} MB
+            </div>
+          ) : null}
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="focus-ring grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white hover:bg-gray-100"
+        >
+          <Download className="h-5 w-5" />
+        </a>
+      </div>
+    );
+  };
+
+  const ReceiptMark = ({
+    m,
+    otherUserId,
+  }: {
+    m: Msg;
+    otherUserId: string | null;
+  }) => {
+    if (!otherUserId)
+      return <CheckCheck className="h-4 w-4 text-[--sky-500]" />;
+    const receipt = m.receipts?.find((r) => r.userId === otherUserId);
+    if (receipt?.readAt)
+      return <CheckCheck className="h-4 w-4 text-[--sky-500]" />;
+    if (receipt?.deliveredAt)
+      return <CheckCheck className="h-4 w-4 text-gray-400" />;
+    return <Check className="h-4 w-4 text-gray-400" />;
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -1365,17 +1262,15 @@ export default function ChatPage() {
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            className="focus-ring grid h-10 w-10 place-items-center rounded-full disabled:opacity-40"
+            className="focus-ring grid h-10 w-10 place-items-center rounded-full"
             onClick={() => startCall(otherUserId!, "audio")}
-            disabled={!otherUserId}
           >
             <Phone className="h-5 w-5" />
           </button>
           <button
             type="button"
-            className="focus-ring grid h-10 w-10 place-items-center rounded-full disabled:opacity-40"
+            className="focus-ring grid h-10 w-10 place-items-center rounded-full"
             onClick={() => startCall(otherUserId!, "video")}
-            disabled={!otherUserId}
           >
             <Video className="h-5 w-5" />
           </button>
@@ -1396,15 +1291,12 @@ export default function ChatPage() {
         {messages.map((m, i) => {
           const mine = m.from === me?.id;
           const prevMessage = i > 0 ? messages[i - 1] : null;
-
-          const prevDate = prevMessage
-            ? new Date(prevMessage.createdAt).toLocaleDateString()
-            : null;
+          
+          const prevDate = prevMessage ? new Date(prevMessage.createdAt).toLocaleDateString() : null;
           const currentDate = new Date(m.createdAt).toLocaleDateString();
           const showDateSeparator = currentDate !== prevDate;
-
-          const hideName =
-            !showDateSeparator && !!prevMessage && prevMessage.from === m.from;
+          
+          const hideName = !showDateSeparator && !!prevMessage && prevMessage.from === m.from;
           const isLast = i === messages.length - 1 || i === messages.length - 2;
 
           const reactionGroups = groupReactions(
@@ -1417,13 +1309,7 @@ export default function ChatPage() {
               {showDateSeparator && (
                 <div className="flex justify-center my-4">
                   <span className="text-xs font-medium bg-black/5 text-gray-500 px-3 py-1 rounded-full">
-                    {currentDate === new Date().toLocaleDateString()
-                      ? "Today"
-                      : new Date(currentDate).toLocaleDateString(undefined, {
-                          weekday: "short",
-                          month: "short",
-                          day: "numeric",
-                        })}
+                    {currentDate === new Date().toLocaleDateString() ? "Today" : new Date(currentDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                   </span>
                 </div>
               )}
@@ -1494,41 +1380,23 @@ export default function ChatPage() {
               placeholder="Type a message..."
               value={text}
               onKeyDown={handleKeyDown}
-              // FIX: was onInput={handleInput} — onChange is the correct React
-              // handler for controlled textarea inputs.
-              onChange={handleChange}
+              onInput={handleInput}
             />
           )}
-
-          {/* FIX: hidden file input wired to the Paperclip button */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            onChange={handleFileSelect}
-          />
 
           <div className="absolute bottom-1 right-1 top-1 flex items-center">
             <button
               type="button"
               className="focus-ring grid h-10 w-10 place-items-center rounded-full text-gray-500 hover:text-gray-800"
               onClick={startVoiceRecording}
-              disabled={isRecordingVoice || isSendingVoice || isSendingFile}
             >
               <Mic className="h-5 w-5" />
             </button>
-            {/* FIX: was a dead button with no onClick. Now opens a file picker. */}
             <button
               type="button"
-              className="focus-ring grid h-10 w-10 place-items-center rounded-full text-gray-500 hover:text-gray-800 disabled:opacity-40"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isRecordingVoice || isSendingVoice || isSendingFile}
+              className="focus-ring grid h-10 w-10 place-items-center rounded-full text-gray-500 hover:text-gray-800"
             >
-              {isSendingFile ? (
-                <LoaderCircle className="h-5 w-5 animate-spin" />
-              ) : (
-                <Paperclip className="h-5 w-5" />
-              )}
+              <Paperclip className="h-5 w-5" />
             </button>
             <button
               type="button"

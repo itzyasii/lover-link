@@ -66,7 +66,7 @@ export default function FriendsPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5">
-      <div className="flex flex-wrap items-end justify-between gap-3 px-2 pt-4">
+      <div className="flex flex-wrap items-end justify-between gap-3 px-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-[color:var(--wine-900)]">
             Friends
