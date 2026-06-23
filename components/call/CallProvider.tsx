@@ -299,6 +299,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     pcRef.current = null;
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
+    remoteStreamRef.current?.getTracks().forEach((t) => t.stop());
     remoteStreamRef.current = null;
     if (remoteAudioElementRef.current) {
       remoteAudioElementRef.current.srcObject = null;
@@ -903,12 +904,38 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       console.log(
         `[Socket] Successfully reconnected after ${attempts} attempts`,
       );
-      // If we were in a call, cleanup and reset state after unexpected reconnection
+      // If we were in a call, resend any pending ICE candidates and renegotiate if needed
       if (stateRef.current.kind === "inCall") {
         toast({
           title: "Connection restored",
           message: "Your internet connection has been restored.",
         });
+        // We're in an active call since the reconnect handler is only attached during calls
+        // TypeScript confirms stateRef.current.kind can never be "idle" here
+        const activeState = stateRef.current as { callId: string };
+        // If we have pending ICE candidates, resend them to the peer
+        if (pendingIce.current.length > 0 && pcRef.current?.remoteDescription) {
+          console.log(
+            "[Socket] Resending pending ICE candidates after reconnect",
+          );
+          pendingIce.current.forEach(async (candidate) => {
+            try {
+              await pcRef.current?.addIceCandidate(candidate);
+              s.emit("call:ice-candidate", {
+                callId: activeState.callId,
+                candidate,
+              });
+            } catch (err) {
+              console.error("[Socket] Failed to resend ICE candidate:", err);
+            }
+          });
+          pendingIce.current = [];
+        }
+        // If we have an active peer connection, trigger renegotiation
+        if (pcRef.current && pcRef.current.signalingState !== "stable") {
+          console.log("[Socket] Triggering call renegotiation after reconnect");
+          s.emit("call:renegotiate", { callId: activeState.callId });
+        }
       }
     };
 
@@ -992,7 +1019,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         console.log(
           "[onIce] Remote description not set yet, buffering candidate",
         );
-        pendingIce.current.push(candidate);
+        // Prevent unbounded ICE candidate buffering, limit to 50 candidates
+        if (pendingIce.current.length < 50) {
+          pendingIce.current.push(candidate);
+        } else {
+          console.warn(
+            "[onIce] Too many pending ICE candidates, dropping oldest",
+          );
+          pendingIce.current.shift();
+          pendingIce.current.push(candidate);
+        }
         return;
       }
       try {
@@ -1064,6 +1100,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       s.off("call:end", onEnd);
       s.off("call:missed", onMissed);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

@@ -114,8 +114,8 @@ export default function ChatsPage() {
     [chats, me?.id],
   );
   // Track online users via socket.io instead of REST polling (per FRONTEND_INTEGRATION.md)
-  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
-  const [lastSeen, setLastSeen] = useState<Map<string, string>>(new Map());
+  const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+  const [lastSeen, setLastSeen] = useState<Record<string, string>>({});
   const queryClient = useQueryClient(); // For refetching data when tab becomes visible
 
   // Refetch chats when page becomes visible (when returning from chat)
@@ -145,10 +145,10 @@ export default function ChatsPage() {
         lastSeen?: Record<string, string>;
       }) => {
         if (response.ok) {
-          setOnlineUsers(new Set(response.users));
-          // Update last seen map if server returns it
+          setOnlineUsers(response.users);
+          // Update last seen map if server returns it - MERGE, don't overwrite!
           if (response.lastSeen) {
-            setLastSeen(new Map(Object.entries(response.lastSeen)));
+            setLastSeen((prev) => ({ ...prev, ...response.lastSeen }));
           }
         }
       },
@@ -161,10 +161,10 @@ export default function ChatsPage() {
       lastSeen?: Record<string, string>;
     }) => {
       if (data.ok) {
-        setOnlineUsers(new Set(data.users));
-        // Update last seen map if server returns it
+        setOnlineUsers(data.users);
+        // Update last seen map if server returns it - MERGE, don't overwrite!
         if (data.lastSeen) {
-          setLastSeen(new Map(Object.entries(data.lastSeen)));
+          setLastSeen((prev) => ({ ...prev, ...data.lastSeen }));
         }
       }
     };
@@ -176,10 +176,10 @@ export default function ChatsPage() {
       lastSeen?: Record<string, string>;
     }) => {
       if (data.ok) {
-        setOnlineUsers(new Set(data.users));
-        // Update last seen map if server returns it
+        setOnlineUsers(data.users);
+        // Update last seen map if server returns it - MERGE, don't overwrite!
         if (data.lastSeen) {
-          setLastSeen(new Map(Object.entries(data.lastSeen)));
+          setLastSeen((prev) => ({ ...prev, ...data.lastSeen }));
         }
       }
     };
@@ -226,8 +226,8 @@ export default function ChatsPage() {
     otherMembers.forEach((memberId) => {
       const userId = typeof memberId === "string" ? memberId : memberId.id;
       map.set(userId, {
-        isOnline: onlineUsers.has(userId),
-        lastSeenAt: lastSeen.get(userId) || null,
+        isOnline: onlineUsers.includes(userId),
+        lastSeenAt: lastSeen[userId] || null,
       });
     });
     return map;
@@ -312,7 +312,10 @@ export default function ChatsPage() {
             const otherMember =
               c.members.find((m) => memberId(m) !== me?.id) ?? null;
             const presence = otherMember
-              ? presenceByUserId.get(memberId(otherMember))
+              ? {
+                  isOnline: onlineUsers.includes(memberId(otherMember)),
+                  lastSeen: lastSeen?.[memberId(otherMember)],
+                }
               : null;
             const name = memberName(otherMember);
 
@@ -348,8 +351,8 @@ export default function ChatsPage() {
                       <span className="shrink-0 text-[11px] text-gray-400">
                         {presence?.isOnline
                           ? "Online now"
-                          : presence?.lastSeenAt
-                            ? formatLastSeen(presence.lastSeenAt)
+                          : presence?.lastSeen
+                            ? formatLastSeen(presence.lastSeen)
                             : "Offline"}
                       </span>
                     </div>

@@ -6,11 +6,23 @@ import { loadingBegin, loadingEnd } from "@/stores/loading";
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
-let refreshFailedPermanently = false; // Prevent infinite refresh loops
+let lastRefreshFailedAt = 0;
+let refreshFailCount = 0;
+const REFRESH_COOLDOWN = 30000; // 30 seconds cooldown after failed refresh
+const MAX_REFRESH_FAILURES = 3; // Only lock permanently after 3 consecutive failures
 
 async function refreshOnce() {
-  // If refresh already failed permanently, don't try again
-  if (refreshFailedPermanently) return false;
+  // If we've failed multiple times permanently, don't try again
+  if (refreshFailCount >= MAX_REFRESH_FAILURES) return false;
+
+  // If we're still in cooldown after a failed refresh, don't try again yet
+  const now = Date.now();
+  if (lastRefreshFailedAt > 0 && now - lastRefreshFailedAt < REFRESH_COOLDOWN) {
+    console.log(
+      `[Refresh] In cooldown, skipping refresh attempt (${Math.round((REFRESH_COOLDOWN - (now - lastRefreshFailedAt)) / 1000)}s remaining)`,
+    );
+    return false;
+  }
 
   // If already refreshing, return the existing promise to prevent multiple calls
   if (isRefreshing && refreshPromise) {
@@ -23,21 +35,37 @@ async function refreshOnce() {
   try {
     const result = await refreshPromise;
     if (!result) {
-      // Only set permanent failure and redirect if no other refresh is in progress
-      refreshFailedPermanently = true;
-      // Log user out if refresh fails
+      refreshFailCount++;
+      lastRefreshFailedAt = now;
+      console.warn(
+        `[Refresh] Refresh failed (${refreshFailCount}/${MAX_REFRESH_FAILURES})`,
+      );
+
+      // Only set permanent failure after MAX_REFRESH_FAILURES attempts
+      if (refreshFailCount >= MAX_REFRESH_FAILURES) {
+        console.error("[Refresh] Max refresh failures reached, logging out");
+        await useAuthStore.getState().logout();
+        if (typeof window !== "undefined") {
+          window.location.href = "/login";
+        }
+      }
+      return false;
+    }
+    // Reset failure counter on successful refresh
+    refreshFailCount = 0;
+    lastRefreshFailedAt = 0;
+    return result;
+  } catch (error) {
+    console.error("Refresh failed with error:", error);
+    refreshFailCount++;
+    lastRefreshFailedAt = now;
+
+    if (refreshFailCount >= MAX_REFRESH_FAILURES) {
+      console.error("[Refresh] Max refresh failures reached, logging out");
       await useAuthStore.getState().logout();
       if (typeof window !== "undefined") {
         window.location.href = "/login";
       }
-    }
-    return result;
-  } catch (error) {
-    console.error("Refresh failed with error:", error);
-    refreshFailedPermanently = true;
-    await useAuthStore.getState().logout();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
     }
     return false;
   } finally {
