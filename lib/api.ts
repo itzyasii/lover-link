@@ -11,6 +11,9 @@ let refreshFailCount = 0;
 const REFRESH_COOLDOWN = 30000; // 30 seconds cooldown after failed refresh
 const MAX_REFRESH_FAILURES = 3; // Only lock permanently after 3 consecutive failures
 
+// Track concurrent loading requests to prevent multiple loading indicator flashes
+let activeLoadingRequests = 0;
+
 async function refreshOnce() {
   // If we've failed multiple times permanently, don't try again
   if (refreshFailCount >= MAX_REFRESH_FAILURES) return false;
@@ -91,7 +94,13 @@ export async function apiFetch<T>(
   const retry = init.retry ?? true;
   const trackLoading = init.trackLoading ?? true;
 
-  if (trackLoading) loadingBegin();
+  if (trackLoading) {
+    // Only call loadingBegin once if this is the first active request
+    if (activeLoadingRequests === 0) {
+      loadingBegin();
+    }
+    activeLoadingRequests++;
+  }
 
   try {
     const headers = new Headers(init.headers);
@@ -131,12 +140,23 @@ export async function apiFetch<T>(
 
     return (await res.json()) as T;
   } finally {
-    if (trackLoading) loadingEnd();
+    if (trackLoading) {
+      activeLoadingRequests--;
+      // Only call loadingEnd once all active requests are complete
+      if (activeLoadingRequests === 0) {
+        loadingEnd();
+      }
+    }
   }
 }
 
 export async function uploadFile(file: File, trackLoading = true) {
-  if (trackLoading) loadingBegin();
+  if (trackLoading) {
+    if (activeLoadingRequests === 0) {
+      loadingBegin();
+    }
+    activeLoadingRequests++;
+  }
   const token = useAuthStore.getState().accessToken;
   const form = new FormData();
   form.append("file", file);
@@ -151,6 +171,11 @@ export async function uploadFile(file: File, trackLoading = true) {
     if (!res.ok) throw new Error("Upload failed");
     return (await res.json()) as { ok: true; item: unknown };
   } finally {
-    if (trackLoading) loadingEnd();
+    if (trackLoading) {
+      activeLoadingRequests--;
+      if (activeLoadingRequests === 0) {
+        loadingEnd();
+      }
+    }
   }
 }

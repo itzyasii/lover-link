@@ -1,7 +1,7 @@
 "use client";
 
 import { useIsMutating } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLoadingStore } from "@/stores/loading";
 
 export function HeartbeatLoading() {
@@ -11,15 +11,28 @@ export function HeartbeatLoading() {
 
   const [visible, setVisible] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
+  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!busy) {
-      setVisible(false);
+      // Add a 500ms delay before hiding to prevent flickering from rapid state changes
+      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = setTimeout(() => setVisible(false), 500);
       return;
     }
-    const id = window.setTimeout(() => setVisible(true), 200);
-    return () => window.clearTimeout(id);
+
+    // If we're now busy, cancel any pending hide and show after 200ms
+    if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+    const id = setTimeout(() => setVisible(true), 200);
+    return () => clearTimeout(id);
   }, [busy]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     void import("@lottiefiles/dotlottie-wc")
@@ -30,7 +43,7 @@ export function HeartbeatLoading() {
   if (!visible) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/20 p-6">
+    <div className="fixed inset-0 z-60 grid place-items-center bg-black/20 p-6">
       <div className="grid place-items-center">
         {playerReady ? (
           <dotlottie-wc
