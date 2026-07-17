@@ -23,7 +23,7 @@
     "framer-motion": "^12.23.12",
     "idb-keyval": "^6.2.5",
     "lucide-react": "^0.542.0",
-    "next": "16.1.6",
+    "next": "^16.2.9",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-draggable": "^4.7.0",
