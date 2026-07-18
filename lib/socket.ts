@@ -22,7 +22,7 @@ export function getSocket(): Socket<
       );
     }
 
-    socket = io<ServerToClientEvents, ClientToServerEvents>(env.API_BASE_URL, {
+    socket = io(env.API_BASE_URL, {
       auth: {
         accessToken: accessToken,
         userId: user.id,
@@ -32,7 +32,7 @@ export function getSocket(): Socket<
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-    });
+    }) as Socket<ServerToClientEvents, ClientToServerEvents>;
 
     socket.on("connect", () => {
       console.log("[Socket] Connected successfully");
@@ -74,10 +74,17 @@ export function disconnectSocket() {
   }
 }
 
-export function socketEmit<T = unknown>(
-  event: string,
-  data?: unknown,
-): Promise<T> {
+// Create a type that extracts the first parameter type from each ClientToServerEvents function
+type EventParameters<T> = T extends (...args: infer P) => unknown ? P : never;
+type EventData<T> = EventParameters<T>[0];
+
+export function socketEmit<
+  TEvent extends keyof ClientToServerEvents,
+  TResponse = unknown,
+>(
+  event: TEvent,
+  data?: EventData<ClientToServerEvents[TEvent]>,
+): Promise<TResponse> {
   const { accessToken, user } = useAuthStore.getState();
   if (!accessToken || !user?.id) {
     return Promise.reject(
@@ -87,10 +94,11 @@ export function socketEmit<T = unknown>(
 
   const currentSocket = getSocket();
   return new Promise((resolve, reject) => {
-    currentSocket.emit(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (currentSocket.emit as any)(
       event,
       data,
-      (response: { ok: boolean; data?: T; error?: string }) => {
+      (response: { ok: boolean; data?: TResponse; error?: string }) => {
         if (response.ok && response.data) {
           resolve(response.data);
         } else {
