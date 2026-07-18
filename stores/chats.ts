@@ -49,6 +49,7 @@ interface ChatsActions {
   markAsRead: (chatId: string) => void;
   togglePin: (chatId: string) => void;
   toggleMute: (chatId: string) => void;
+  updateChat: (chatId: string, updates: Partial<Chat>) => void;
   removeChat: (chatId: string) => void;
   getTotalUnread: () => number;
   updateUserOnline: (userId: string, isOnline: boolean) => void;
@@ -121,6 +122,14 @@ export const useChatsStore = create<ChatsState & ChatsActions>()(
         set((state) => ({
           chats: state.chats.map((chat) =>
             chat.id === chatId ? { ...chat, isMuted: !chat.isMuted } : chat,
+          ),
+        }));
+      },
+
+      updateChat: (chatId: string, updates: Partial<Chat>) => {
+        set((state) => ({
+          chats: state.chats.map((chat) =>
+            chat.id === chatId ? { ...chat, ...updates } : chat,
           ),
         }));
       },
