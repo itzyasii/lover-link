@@ -139,6 +139,52 @@ export interface ChatMessageServerResponse {
 }
 
 /**
+ * `chat:message:edit` - Client -> Server: Client edits an existing message
+ */
+export interface ChatMessageEditClientEvent {
+  messageId: string; // ID of message to edit
+  text: string; // Updated message content
+}
+
+export interface ChatMessageEditServerResponse {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * `chat:message:edited` - Server -> Client: Broadcast when a message is edited
+ */
+export interface ChatMessageEditedServerEvent {
+  ok: true;
+  chatId: string;
+  messageId: string;
+  text: string;
+  editedAt: string; // ISO timestamp
+}
+
+/**
+ * `chat:message:delete` - Client -> Server: Client deletes an existing message
+ */
+export interface ChatMessageDeleteClientEvent {
+  messageId: string; // ID of message to delete
+}
+
+export interface ChatMessageDeleteServerResponse {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * `chat:message:deleted` - Server -> Client: Broadcast when a message is deleted
+ */
+export interface ChatMessageDeletedServerEvent {
+  ok: true;
+  chatId: string;
+  messageId: string;
+  deletedAt: string; // ISO timestamp
+}
+
+/**
  * Shared item structure for media/file sharing
  */
 export interface ShareItem {
@@ -483,6 +529,8 @@ export interface ServerToClientEvents {
   // Chat messaging events
   "chat:message": (data: ChatMessageServerEvent) => void;
   "share:item": (data: ShareItemServerEvent) => void;
+  "chat:message:edited": (data: ChatMessageEditedServerEvent) => void;
+  "chat:message:deleted": (data: ChatMessageDeletedServerEvent) => void;
 
   // Message receipt events
   "chat:receipt": (data: ChatReceiptServerEvent) => void;
@@ -537,6 +585,14 @@ export interface ClientToServerEvents {
   "share:item": (
     data: ShareItemClientEvent,
     callback: (response: ShareItemServerResponse) => void,
+  ) => void;
+  "chat:message:edit": (
+    data: ChatMessageEditClientEvent,
+    callback: (response: ChatMessageEditServerResponse) => void,
+  ) => void;
+  "chat:message:delete": (
+    data: ChatMessageDeleteClientEvent,
+    callback: (response: ChatMessageDeleteServerResponse) => void,
   ) => void;
 
   // Message receipt events
