@@ -5,18 +5,22 @@ import { persist } from "zustand/middleware";
 
 export interface ChatMember {
   id: string;
+  email: string;
   username: string;
   avatar?: string;
-  isOnline: boolean;
+  isOnline?: boolean;
   lastSeenAt?: string;
 }
 
 export interface LastMessage {
   id: string;
-  text: string;
+  text: string | null;
   from: string;
   createdAt: string;
-  type: "text" | "image" | "file" | "voice";
+  type: "text" | "image" | "file" | "voice" | "share" | "video" | "audio";
+  itemKind?: string | null;
+  eventKind?: string | null;
+  eventMedia?: string | null;
 }
 
 export interface Chat {
@@ -91,6 +95,7 @@ export const useChatsStore = create<ChatsState & ChatsActions>()(
 
       resetUnread: (chatId: string) => {
         set((state) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { [chatId]: _, ...rest } = state.unreadCounts;
           return { unreadCounts: rest };
         });
@@ -98,6 +103,7 @@ export const useChatsStore = create<ChatsState & ChatsActions>()(
 
       markAsRead: (chatId: string) => {
         set((state) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { [chatId]: _, ...rest } = state.unreadCounts;
           return { unreadCounts: rest };
         });

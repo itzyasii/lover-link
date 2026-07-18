@@ -8,10 +8,24 @@ import { useTypingStore } from "@/stores/typing";
 import { useToastStore } from "@/stores/toast";
 import { usePresenceStore } from "@/stores/presence";
 import { useQueryClient } from "@tanstack/react-query";
+import type {
+  ChatMessageServerEvent,
+  ChatTypingServerEvent,
+  ChatReceiptServerEvent,
+  ChatReactionServerEvent,
+  ChatVoiceListenedServerEvent,
+  PresenceOnlineServerEvent,
+  PresenceUpdateServerEvent,
+  ShareItemServerEvent,
+} from "@/types/realtime-events";
 
 export function RealtimeListener() {
-  const { updateChatLastMessage, incrementUnread, updateUserOnline } =
-    useChatsStore();
+  const {
+    updateChatLastMessage,
+    incrementUnread,
+    updateUserOnline,
+    resetUnread,
+  } = useChatsStore();
   const { startTyping, stopTyping } = useTypingStore();
   const { addToast } = useToastStore();
   const { setInitialOnlineUsers, updatePresence } = usePresenceStore();
@@ -25,14 +39,24 @@ export function RealtimeListener() {
     try {
       const socket = getSocket();
 
-      // Handle presence events from USERS-FRIENDS-REALTIME-GUIDE
-      socket.on("presence:online", ({ users }: { users: string[] }) => {
+      // ============================================
+      // Presence & Online Status Events (REALTIME_EVENTS.md)
+      // ============================================
+
+      // `presence:me` - Confirm identity and successful authentication
+      socket.on("presence:me", ({ userId }) => {
+        console.log("[Socket] Authenticated successfully as user:", userId);
+      });
+
+      // `presence:online` - Complete list of online users at connection time
+      socket.on("presence:online", ({ users }: PresenceOnlineServerEvent) => {
         setInitialOnlineUsers(users);
         // Update chat member statuses for all online users
         users.forEach((userId) => updateUserOnline(userId, true));
       });
 
-      socket.on("presence:update", ({ users }: { users: string[] }) => {
+      // `presence:update` - Broadcast when online user list changes
+      socket.on("presence:update", ({ users }: PresenceUpdateServerEvent) => {
         updatePresence(users);
         // Update chat member statuses to reflect new presence state
         const currentOnline = usePresenceStore.getState().getOnlineUsers();
@@ -46,107 +70,157 @@ export function RealtimeListener() {
         });
       });
 
-      // Keep existing legacy events for backward compatibility
-      socket.on("user_online", ({ userId }: { userId: string }) => {
-        updateUserOnline(userId, true);
-      });
+      // ============================================
+      // Chat Activity Events (REALTIME_EVENTS.md)
+      // ============================================
 
-      socket.on("user_offline", ({ userId }: { userId: string }) => {
-        updateUserOnline(userId, false);
-      });
+      // `chat:typing` - Server -> Client: Someone started/stopped typing
+      socket.on(
+        "chat:typing",
+        ({ chatId, from, isTyping }: ChatTypingServerEvent) => {
+          // Don't track our own typing
+          if (from !== user.id) {
+            if (isTyping) {
+              startTyping(chatId, from);
+            } else {
+              stopTyping(chatId, from);
+            }
+          }
+        },
+      );
 
-      interface NewMessage {
-        id: string;
-        chatId: string;
-        text?: string;
-        from: string;
-        createdAt: string;
-        type?: "text" | "image" | "file" | "voice";
-      }
+      // ============================================
+      // Chat Messaging Events (REALTIME_EVENTS.md)
+      // ============================================
 
-      socket.on("new_message", (message: NewMessage) => {
-        updateChatLastMessage(message.chatId, {
-          id: message.id,
-          text: message.text || "New message",
-          from: message.from,
-          createdAt: message.createdAt,
-          type: message.type || "text",
-        });
-        incrementUnread(message.chatId);
+      // `chat:message` - New text message received
+      socket.on(
+        "chat:message",
+        ({ chatId, message }: ChatMessageServerEvent) => {
+          // Don't increment unread count if this message was sent by us
+          if (message.from !== user.id) {
+            updateChatLastMessage(chatId, {
+              id: message.id,
+              text: message.text || "New message",
+              from: message.from,
+              createdAt: message.createdAt.toISOString(),
+              type:
+                message.type === "share"
+                  ? message.item?.kind || "share"
+                  : "text",
+              itemKind: message.item?.kind,
+            });
+            incrementUnread(chatId);
+          }
+          queryClient.invalidateQueries({
+            queryKey: ["messages", chatId],
+          });
+        },
+      );
+
+      // `share:item` - New media/file share received
+      socket.on("share:item", ({ chatId, message }: ShareItemServerEvent) => {
+        if (message.from !== user.id) {
+          updateChatLastMessage(chatId, {
+            id: message.id,
+            text: message.item?.originalName || "Shared media",
+            from: message.from,
+            createdAt: message.createdAt.toISOString(),
+            type: "share",
+            itemKind: message.item?.kind,
+          });
+          incrementUnread(chatId);
+        }
         queryClient.invalidateQueries({
-          queryKey: ["messages", message.chatId],
+          queryKey: ["messages", chatId],
         });
       });
 
+      // ============================================
+      // Message Receipt & Status Events (REALTIME_EVENTS.md)
+      // ============================================
+
+      // `chat:receipt` - Messages were delivered or read by recipient
       socket.on(
-        "typing_start",
-        ({ chatId, userId }: { chatId: string; userId: string }) => {
-          startTyping(chatId, userId);
+        "chat:receipt",
+        ({ type, userId, chatId }: ChatReceiptServerEvent) => {
+          // If we sent the messages, update the UI to show they were read/delivered
+          if (userId !== user.id) {
+            if (type === "read") {
+              resetUnread(chatId);
+            }
+            queryClient.invalidateQueries({
+              queryKey: ["messages", chatId],
+            });
+          }
         },
       );
 
+      // ============================================
+      // Message Reaction Events (REALTIME_EVENTS.md)
+      // ============================================
+
+      // `chat:reaction` - A message reaction was added or removed
       socket.on(
-        "typing_stop",
-        ({ chatId, userId }: { chatId: string; userId: string }) => {
-          stopTyping(chatId, userId);
+        "chat:reaction",
+        ({ chatId, emoji, userId, action }: ChatReactionServerEvent) => {
+          // Refresh messages to show the updated reactions
+          queryClient.invalidateQueries({
+            queryKey: ["messages", chatId],
+          });
+          // Show a small toast if someone reacted to our message
+          if (userId !== user.id && action === "added") {
+            addToast(
+              `Someone reacted with ${emoji} to your message!`,
+              "success",
+            );
+          }
         },
       );
 
-      socket.on("incoming_call", ({ isVideo }: { isVideo: boolean }) => {
-        addToast(`Incoming ${isVideo ? "video" : "voice"} call!`, "info");
-      });
+      // ============================================
+      // Voice Message Specific Events (REALTIME_EVENTS.md)
+      // ============================================
 
-      // Friend request real-time events from USERS-FRIENDS-REALTIME-GUIDE
+      // `chat:voice:listened` - A voice message was listened to
       socket.on(
-        "friend_request:received",
-        ({ username }: { username: string }) => {
-          addToast(`${username} sent you a friend request! 💌`, "success");
-          // Invalidate and refetch pending requests
-          queryClient.invalidateQueries({ queryKey: ["friends", "requests"] });
+        "chat:voice:listened",
+        ({ chatId, userId }: ChatVoiceListenedServerEvent) => {
+          if (userId !== user.id) {
+            queryClient.invalidateQueries({
+              queryKey: ["messages", chatId],
+            });
+          }
         },
       );
 
-      socket.on(
-        "friend_request:accepted",
-        ({ username }: { username: string }) => {
-          addToast(`${username} accepted your friend request! 💑`, "success");
-          queryClient.invalidateQueries({ queryKey: ["friends"] });
-          queryClient.invalidateQueries({ queryKey: ["friends", "requests"] });
-        },
-      );
-
-      socket.on(
-        "friend_request:rejected",
-        ({ username }: { username: string }) => {
-          addToast(`${username} rejected your friend request`, "info");
-          queryClient.invalidateQueries({ queryKey: ["friends", "requests"] });
-        },
-      );
-
-      socket.on("friend:unfriended", ({ username }: { username: string }) => {
-        addToast(`${username} is no longer your friend`, "info");
-        queryClient.invalidateQueries({ queryKey: ["friends"] });
-      });
-
-      // Send periodic presence pings to keep lastSeenAt updated
+      // Send periodic presence pings to keep lastSeenAt updated (REALTIME_EVENTS.md)
       const pingInterval = setInterval(() => {
         socket.emit("presence:ping");
-      }, 30000); // Send ping every 30 seconds
+      }, 30000); // Send ping every 30 seconds as specified in docs
 
       return () => {
+        // Clean up all presence events (REALTIME_EVENTS.md)
+        socket.off("presence:me");
         socket.off("presence:online");
         socket.off("presence:update");
-        socket.off("new_message");
-        socket.off("typing_start");
-        socket.off("typing_stop");
-        socket.off("user_online");
-        socket.off("user_offline");
-        socket.off("incoming_call");
-        // Clean up all friend-related socket events
-        socket.off("friend_request:received");
-        socket.off("friend_request:accepted");
-        socket.off("friend_request:rejected");
-        socket.off("friend:unfriended");
+
+        // Clean up chat activity events (REALTIME_EVENTS.md)
+        socket.off("chat:typing");
+
+        // Clean up messaging events (REALTIME_EVENTS.md)
+        socket.off("chat:message");
+        socket.off("share:item");
+
+        // Clean up receipt events (REALTIME_EVENTS.md)
+        socket.off("chat:receipt");
+
+        // Clean up reaction events (REALTIME_EVENTS.md)
+        socket.off("chat:reaction");
+
+        // Clean up voice message events (REALTIME_EVENTS.md)
+        socket.off("chat:voice:listened");
+
         clearInterval(pingInterval);
       };
     } catch (error) {
@@ -158,6 +232,7 @@ export function RealtimeListener() {
   }, [
     updateChatLastMessage,
     incrementUnread,
+    resetUnread,
     startTyping,
     stopTyping,
     updateUserOnline,

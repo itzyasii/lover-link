@@ -64,7 +64,7 @@ export function CallOverlay() {
                 <User className="w-12 h-12 text-white" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                {incomingCall.participant.username}
+                {incomingCall.participant?.username || "Unknown User"}
               </h2>
               <p className="text-gray-500 mb-8 flex items-center justify-center gap-2">
                 {incomingCall.media === "video" ? (
@@ -126,7 +126,7 @@ export function CallOverlay() {
                   <User className="w-16 h-16 text-white" />
                 </div>
                 <h2 className="text-3xl font-bold text-white mb-2">
-                  {activeCall.participant.username}
+                  {activeCall.participant?.username || "Unknown User"}
                 </h2>
                 <p className="text-gray-300 text-lg">
                   {isConnected ? formatDuration(callDuration) : "Calling..."}
@@ -203,7 +203,7 @@ export function CallOverlay() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold text-white">
-                  {activeCall.participant.username}
+                  {activeCall.participant?.username || "Unknown User"}
                 </h2>
                 <p className="text-gray-300">
                   {isConnected ? formatDuration(callDuration) : "Connecting..."}

@@ -1,10 +1,17 @@
 import { io, Socket } from "socket.io-client";
 import { env } from "./env";
 import { useAuthStore } from "@/stores/auth";
+import type {
+  ServerToClientEvents,
+  ClientToServerEvents,
+} from "@/types/realtime-events";
 
-let socket: Socket | null = null;
+let socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 
-export function getSocket(): Socket {
+export function getSocket(): Socket<
+  ServerToClientEvents,
+  ClientToServerEvents
+> {
   if (!socket) {
     const { accessToken, user } = useAuthStore.getState();
 
@@ -15,7 +22,7 @@ export function getSocket(): Socket {
       );
     }
 
-    socket = io(env.API_BASE_URL, {
+    socket = io<ServerToClientEvents, ClientToServerEvents>(env.API_BASE_URL, {
       auth: {
         accessToken: accessToken,
         userId: user.id,

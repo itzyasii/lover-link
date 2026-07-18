@@ -11,70 +11,110 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCall } from "@/components/call/CallProvider";
+import { useFriendsStore } from "@/stores/friends";
+import { useToastStore } from "@/stores/toast";
 import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useCallsStore, CallHistoryItem } from "@/stores/calls";
-
-// Create mock calls with static timestamps - these are just for demo purposes
-const MOCK_BASE_TIME = Date.now();
-const mockCalls: CallHistoryItem[] = [
-  {
-    id: "1",
-    callId: "call-1",
-    callerId: "current-user",
-    calleeId: "user1",
-    media: "video" as const,
-    status: "ended" as const,
-    offeredAt: new Date(MOCK_BASE_TIME - 3600000).toISOString(),
-    answeredAt: new Date(MOCK_BASE_TIME - 3540000).toISOString(),
-    endedAt: new Date(MOCK_BASE_TIME - 3000000).toISOString(),
-    duration: 600,
-    participant: { id: "user1", username: "sweetheart" },
-  },
-  {
-    id: "2",
-    callId: "call-2",
-    callerId: "user2",
-    calleeId: "current-user",
-    media: "audio" as const,
-    status: "ended" as const,
-    offeredAt: new Date(MOCK_BASE_TIME - 86400000).toISOString(),
-    answeredAt: new Date(MOCK_BASE_TIME - 86400000 + 60000).toISOString(),
-    endedAt: new Date(MOCK_BASE_TIME - 86400000 + 1800000).toISOString(),
-    duration: 1800,
-    participant: { id: "user2", username: "lovebug" },
-  },
-  {
-    id: "3",
-    callId: "call-3",
-    callerId: "user3",
-    calleeId: "current-user",
-    media: "video" as const,
-    status: "missed" as const,
-    offeredAt: new Date(MOCK_BASE_TIME - 172800000).toISOString(),
-    participant: { id: "user3", username: "myoneandonly" },
-  },
-];
+import { useAuthStore } from "@/stores/auth";
 
 export default function CallsPage() {
   const { initiateCall } = useCall();
-  const { callHistory } = useCallsStore();
+  const { callHistory, setCallHistory } = useCallsStore();
+  const { user: currentUser } = useAuthStore();
+  const { blockedUsers } = useFriendsStore();
+  const { addToast } = useToastStore();
+
+  // Block check as required by CALLS-MESSAGES-NOTIFICATIONS-GUIDE
+  const isBlockedEitherWay = (userId1: string, userId2: string): boolean => {
+    return blockedUsers.some((b) => b.userId === userId2);
+  };
   const { data: callsData, isLoading } = useQuery<{ calls: CallHistoryItem[] }>(
     {
       queryKey: ["calls"],
       queryFn: async () => {
+        // Backend API follows GET /api/calls specification from CALLS-MESSAGES-NOTIFICATIONS-GUIDE.md
+        console.log("[CallsPage] Fetching call history from API...");
         const response = await apiFetch<{
-          calls: CallHistoryItem[];
+          ok: boolean;
           nextCursor: string | null;
+          calls: Array<{
+            id: string;
+            callId: string;
+            callerId: string;
+            calleeId: string;
+            status: "ended" | "cancelled" | "declined" | "missed";
+            offeredAt: string;
+            answeredAt?: string;
+            endedAt?: string;
+            endedBy?: string;
+            reason?: string;
+            media?: "audio" | "video";
+            participant: {
+              id: string;
+              username: string;
+              avatar?: string;
+            };
+          }>;
         }>("/api/calls");
-        return response;
+
+        console.log(
+          "[CallsPage] Raw API response received:",
+          JSON.stringify(response, null, 2),
+        );
+
+        if (!response.ok) {
+          console.error("[CallsPage] API response not ok:", response);
+          throw new Error("Failed to fetch call history");
+        }
+
+        console.log(
+          "[CallsPage] Number of calls received from API:",
+          response.calls?.length || 0,
+        );
+
+        // Map backend call format to CallHistoryItem to match store expectations
+        const mappedCalls: CallHistoryItem[] = response.calls.map(
+          (call, index) => {
+            console.log(
+              `[CallsPage] Processing call #${index}:`,
+              JSON.stringify(call, null, 2),
+            );
+            const mappedCall = {
+              ...call,
+              media: call.media || "video", // Default to video if not specified
+              duration:
+                call.answeredAt && call.endedAt
+                  ? Math.floor(
+                      (new Date(call.endedAt).getTime() -
+                        new Date(call.answeredAt).getTime()) /
+                        1000,
+                    )
+                  : undefined,
+            };
+            console.log(
+              `[CallsPage] Mapped call #${index}:`,
+              JSON.stringify(mappedCall, null, 2),
+            );
+            return mappedCall;
+          },
+        );
+
+        console.log(
+          "[CallsPage] All mapped calls:",
+          JSON.stringify(mappedCalls, null, 2),
+        );
+
+        // Update store with properly mapped call history
+        setCallHistory(mappedCalls);
+        console.log("[CallsPage] Updated call history in store");
+        return { calls: mappedCalls };
       },
     },
   );
 
-  const calls =
-    callsData?.calls || callHistory.length > 0 ? callHistory : mockCalls;
+  const calls = callsData?.calls || callHistory;
 
   if (isLoading) {
     return <HeartbeatLoading message="Loading call history..." />;
@@ -97,11 +137,10 @@ export default function CallsPage() {
     return `${days}d ago`;
   };
 
-  const getDirectionIcon = (
-    call: CallHistoryItem,
-    currentUserId: string = "current-user",
-  ) => {
-    const isOutgoing = call.callerId === currentUserId;
+  const getDirectionIcon = (call: CallHistoryItem) => {
+    if (!currentUser?.id)
+      return <PhoneCall className="w-4 h-4 text-gray-500" />;
+    const isOutgoing = call.callerId === currentUser.id;
     if (call.status === "missed") {
       return <XCircle className="w-4 h-4 text-red-500" />;
     }
@@ -111,11 +150,9 @@ export default function CallsPage() {
     return <PhoneIncoming className="w-4 h-4 text-green-500" />;
   };
 
-  const getCallDirection = (
-    call: CallHistoryItem,
-    currentUserId: string = "current-user",
-  ) => {
-    const isOutgoing = call.callerId === currentUserId;
+  const getCallDirection = (call: CallHistoryItem) => {
+    if (!currentUser?.id) return "unknown";
+    const isOutgoing = call.callerId === currentUser.id;
     if (call.status === "missed") return "missed";
     return isOutgoing ? "outgoing" : "incoming";
   };
@@ -131,7 +168,18 @@ export default function CallsPage() {
       <div className="grid grid-cols-2 gap-4 mb-6">
         <button
           onClick={() => {
-            if (calls.length > 0) {
+            if (
+              calls.length > 0 &&
+              currentUser?.id &&
+              calls[0].participant?.id
+            ) {
+              if (isBlockedEitherWay(currentUser.id, calls[0].participant.id)) {
+                addToast(
+                  "Cannot call this user - you have blocked them",
+                  "error",
+                );
+                return;
+              }
               initiateCall(calls[0].participant.id, "audio");
             }
           }}
@@ -142,7 +190,18 @@ export default function CallsPage() {
         </button>
         <button
           onClick={() => {
-            if (calls.length > 0) {
+            if (
+              calls.length > 0 &&
+              currentUser?.id &&
+              calls[0].participant?.id
+            ) {
+              if (isBlockedEitherWay(currentUser.id, calls[0].participant.id)) {
+                addToast(
+                  "Cannot call this user - you have blocked them",
+                  "error",
+                );
+                return;
+              }
               initiateCall(calls[0].participant.id, "video");
             }
           }}
@@ -170,6 +229,11 @@ export default function CallsPage() {
           <div className="space-y-3">
             {calls.map((call) => {
               const direction = getCallDirection(call);
+              // Safely get participant info with fallback
+              const participantName =
+                call.participant?.username || "Unknown User";
+              const participantId = call.participant?.id || "";
+
               return (
                 <div
                   key={call.id}
@@ -196,7 +260,7 @@ export default function CallsPage() {
                               : "text-gray-900",
                           )}
                         >
-                          {call.participant.username}
+                          {participantName}
                         </p>
                         {getDirectionIcon(call)}
                       </div>
@@ -208,9 +272,20 @@ export default function CallsPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() =>
-                        initiateCall(call.participant.id, call.media)
-                      }
+                      onClick={() => {
+                        if (currentUser?.id && participantId) {
+                          if (
+                            isBlockedEitherWay(currentUser.id, participantId)
+                          ) {
+                            addToast(
+                              "Cannot call this user - you have blocked them",
+                              "error",
+                            );
+                            return;
+                          }
+                          initiateCall(participantId, call.media);
+                        }
+                      }}
                       className="p-2 bg-rose-100 text-rose-500 rounded-full hover:bg-rose-200 transition-colors"
                       title={`Call back with ${call.media}`}
                     >

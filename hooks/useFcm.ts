@@ -7,7 +7,7 @@ import {
   setupForegroundMessages,
 } from "@/lib/firebase";
 import { useAuthStore } from "@/stores/auth";
-import { apiFetch } from "@/lib/api";
+import {  } from "@/lib/api";
 import { useToastStore } from "@/stores/toast";
 
 export function useFcm() {
@@ -35,48 +35,15 @@ export function useFcm() {
     const token = await requestNotificationPermission();
     if (token) {
       setPermissionGranted(true);
-      try {
-        await apiFetch("/api/notifications/fcm/register", {
-          method: "POST",
-          body: JSON.stringify({ token }),
-        });
-        console.log("[FCM] Token registered with server");
-        useAuthStore.getState().setFcmToken(token);
-      } catch (error) {
-        console.error("[FCM] Failed to register token:", error);
-      }
+      console.log(
+        "[FCM] Token obtained, will be sent to server during auth operations",
+      );
+      useAuthStore.getState().setFcmToken(token);
     }
   }, []);
 
-  const unregisterFcmToken = useCallback(async () => {
-    const currentFcmToken = useAuthStore.getState().fcmToken;
-    const currentIsAuthenticated = useAuthStore.getState().isAuthenticated;
-    if (currentFcmToken && currentIsAuthenticated) {
-      try {
-        await apiFetch("/api/notifications/fcm/unregister", {
-          method: "POST",
-          body: JSON.stringify({ token: currentFcmToken }),
-        });
-        useAuthStore.getState().setFcmToken(null);
-      } catch (error) {
-        console.error("[FCM] Failed to unregister token:", error);
-      }
-    }
-  }, []);
-
-  const clearAllFcmTokens = useCallback(async () => {
-    const currentIsAuthenticated = useAuthStore.getState().isAuthenticated;
-    if (currentIsAuthenticated) {
-      try {
-        await apiFetch("/api/notifications/fcm/clear-all", {
-          method: "POST",
-        });
-        useAuthStore.getState().setFcmToken(null);
-      } catch (error) {
-        console.error("[FCM] Failed to clear all tokens:", error);
-      }
-    }
-  }, []);
+  // Note: FCM token management is handled by the backend auth endpoints
+  // during login, signup, and logout as per the backend integration guide
 
   useEffect(() => {
     if (isInitialized && isAuthenticated && !fcmToken) {
@@ -92,7 +59,5 @@ export function useFcm() {
     permissionGranted,
     fcmToken,
     registerFcmToken,
-    unregisterFcmToken,
-    clearAllFcmTokens,
   };
 }

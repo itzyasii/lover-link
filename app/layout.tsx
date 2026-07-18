@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, WindSong } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { Toasts } from "@/components/Toasts";
 import { RealtimeListener } from "@/components/RealtimeListener";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const windSong = WindSong({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-windsong",
+});
 
 export const metadata: Metadata = {
   title: "LoverLink - Connect with your special someone",
@@ -20,7 +25,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${inter.variable} ${windSong.variable}`}
+    >
       <body className={inter.className} suppressHydrationWarning>
         <Providers>
           <RealtimeListener />

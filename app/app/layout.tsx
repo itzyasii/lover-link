@@ -51,8 +51,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const handleLogout = async () => {
     try {
+      const { fcmToken } = useAuthStore.getState();
       await apiFetch("/api/auth/logout", {
         method: "POST",
+        body: JSON.stringify({ fcmToken }),
       });
       logout();
       disconnectSocket();

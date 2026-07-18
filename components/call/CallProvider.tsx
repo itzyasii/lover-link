@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useRef } from "react";
 import { useCallsStore, ActiveCall } from "@/stores/calls";
 import { useAuthStore } from "@/stores/auth";
+import { useFriendsStore } from "@/stores/friends";
 import { useToastStore } from "@/stores/toast";
 import { getSocket } from "@/lib/socket";
 import { apiFetch } from "@/lib/api";
@@ -31,7 +32,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     clearActiveCall,
   } = useCallsStore();
   const { user } = useAuthStore();
+  const { blockedUsers } = useFriendsStore();
   const { addToast } = useToastStore();
+
+  // Check if either user has blocked the other (required by CALLS-MESSAGES-NOTIFICATIONS-GUIDE)
+  const isBlockedEitherWay = (userId1: string, userId2: string): boolean => {
+    // Check if current user has blocked the other user
+    const isBlockedByCurrentUser = blockedUsers.some(
+      (b) => b.userId === userId2,
+    );
+    // Note: Server-side also checks if the other user has blocked current user
+    // This is a client-side pre-check to prevent unnecessary API calls
+    return isBlockedByCurrentUser;
+  };
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -261,15 +274,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const initiateCall = async (calleeId: string, media: "audio" | "video") => {
     if (!user) return;
 
+    // Block check as required by CALLS-MESSAGES-NOTIFICATIONS-GUIDE
+    if (isBlockedEitherWay(user.id, calleeId)) {
+      addToast("Cannot call this user - you have blocked them", "error");
+      return;
+    }
+
     try {
-      // First create call via REST API to get callId
-      const { callId } = await apiFetch<{ ok: boolean; callId: string }>(
-        "/api/calls/start",
-        {
-          method: "POST",
-          body: JSON.stringify({ calleeId, media }),
-        },
-      );
+      // First create call via REST API to get callId (matches backend /api/calls/start endpoint)
+      const res = await apiFetch<{
+        ok: boolean;
+        callId: string;
+        error?: string;
+      }>("/api/calls/start", {
+        method: "POST",
+        body: JSON.stringify({ calleeId, media }),
+      });
+
+      if (!res.ok) {
+        throw new Error(res.error || "Failed to initiate call");
+      }
+      const { callId } = res;
 
       // Create peer connection and get media stream
       const pc = await createPeerConnection();
@@ -320,6 +345,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const answerCall = async () => {
     if (!incomingCall || !user) return;
+
+    // Block check as required by CALLS-MESSAGES-NOTIFICATIONS-GUIDE
+    if (isBlockedEitherWay(user.id, incomingCall.callerId)) {
+      addToast("Cannot answer call - you have blocked this user", "error");
+      declineCall();
+      return;
+    }
 
     try {
       const socket = getSocket();

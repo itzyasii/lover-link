@@ -33,11 +33,12 @@ export function Brand({ size = "md", showLogo = true, className }: BrandProps) {
       )}
       <span
         className={cn(
-          "font-bold bg-gradient-to-r from-rose-500 to-pink-500 bg-clip-text text-transparent",
+          "font-normal bg-linear-to-r from-rose-500 to-pink-500 bg-clip-text text-transparent",
           sizeClasses[size],
         )}
+        style={{ fontFamily: "var(--font-windsong), cursive" }}
       >
-        LoverLink
+        Lover Link
       </span>
     </Link>
   );
