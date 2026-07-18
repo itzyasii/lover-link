@@ -670,7 +670,7 @@ export default function ChatRoomPage() {
                   );
                   return;
                 }
-                initiateCall(otherParticipant.id, "audio");
+                initiateCall(otherParticipant, "audio");
               }
             }}
             className="p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
@@ -687,7 +687,7 @@ export default function ChatRoomPage() {
                   );
                   return;
                 }
-                initiateCall(otherParticipant.id, "video");
+                initiateCall(otherParticipant, "video");
               }
             }}
             className="p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
