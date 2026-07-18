@@ -362,6 +362,12 @@ export interface CallOfferClientEvent {
   callId?: string; // Optional call ID (generated if not provided)
   media?: "audio" | "video"; // Call media type (default: "video")
   offer: RTCSessionDescriptionInit; // WebRTC RTCSessionDescription
+  fromUser?: {
+    // Caller's user info to send to callee
+    id: string;
+    email: string;
+    username: string;
+  };
 }
 
 export interface CallOfferServerResponse {
