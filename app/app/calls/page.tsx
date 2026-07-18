@@ -42,16 +42,30 @@ export default function CallsPage() {
           calls: Array<{
             id: string;
             callId: string;
+            caller: {
+              id: string;
+              email: string;
+              username: string;
+            };
+            callee: {
+              id: string;
+              email: string;
+              username: string;
+            };
             callerId: string;
             calleeId: string;
             status: "ended" | "cancelled" | "declined" | "missed";
             offeredAt: string;
             answeredAt?: string;
             endedAt?: string;
-            endedBy?: string;
+            endedBy?: {
+              id: string;
+              email: string;
+              username: string;
+            };
             reason?: string;
             media?: "audio" | "video";
-            participant: {
+            participant?: {
               id: string;
               username: string;
               avatar?: string;
@@ -81,6 +95,10 @@ export default function CallsPage() {
               `[CallsPage] Processing call #${index}:`,
               JSON.stringify(call, null, 2),
             );
+            // Determine which user is the other participant in the call
+            const isCurrentUserCaller = call.callerId === currentUser?.id;
+            const participant = isCurrentUserCaller ? call.callee : call.caller;
+
             const mappedCall = {
               ...call,
               media: call.media || "video", // Default to video if not specified
@@ -92,6 +110,14 @@ export default function CallsPage() {
                         1000,
                     )
                   : undefined,
+              // Ensure participant field is always set correctly for CallHistoryItem
+              participant: participant
+                ? {
+                    id: participant.id,
+                    username: participant.username,
+                    email: participant.email,
+                  }
+                : call.participant || { id: "", username: "Unknown User" },
             };
             console.log(
               `[CallsPage] Mapped call #${index}:`,
@@ -180,7 +206,7 @@ export default function CallsPage() {
                 );
                 return;
               }
-              initiateCall(calls[0].participant.id, "audio");
+              initiateCall(calls[0].participant, "audio");
             }
           }}
           className="flex items-center justify-center gap-2 p-4 bg-linear-to-r from-rose-500 to-pink-500 text-white rounded-2xl hover:opacity-90 transition-opacity shadow-lg shadow-rose-200"
@@ -202,7 +228,7 @@ export default function CallsPage() {
                 );
                 return;
               }
-              initiateCall(calls[0].participant.id, "video");
+              initiateCall(calls[0].participant, "video");
             }
           }}
           className="flex items-center justify-center gap-2 p-4 bg-linear-to-r from-rose-500 to-pink-500 text-white rounded-2xl hover:opacity-90 transition-opacity shadow-lg shadow-rose-200"
@@ -283,7 +309,7 @@ export default function CallsPage() {
                             );
                             return;
                           }
-                          initiateCall(participantId, call.media);
+                          initiateCall(call.participant, call.media);
                         }
                       }}
                       className="p-2 bg-rose-100 text-rose-500 rounded-full hover:bg-rose-200 transition-colors"
