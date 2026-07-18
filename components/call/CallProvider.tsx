@@ -9,7 +9,10 @@ import { getSocket } from "@/lib/socket";
 import { apiFetch } from "@/lib/api";
 
 interface CallContextType {
-  initiateCall: (calleeId: string, media: "audio" | "video") => Promise<void>;
+  initiateCall: (
+    callee: string | { id: string; username: string },
+    media: "audio" | "video",
+  ) => Promise<void>;
   answerCall: () => Promise<void>;
   declineCall: () => void;
   endCall: () => void;
@@ -58,11 +61,41 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     from: string;
   } | null>(null);
 
+  // Queue pending ICE candidates to add after remote description is set
+  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(
+    new Map(),
+  );
+
   const ICE_CONFIG = {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
       { urls: "stun:stun1.l.google.com:19302" },
     ],
+  };
+
+  // Helper to add all queued ICE candidates after remote description is set
+  const addQueuedIceCandidates = async (
+    callId: string,
+    pc: RTCPeerConnection,
+  ) => {
+    const queuedCandidates = pendingIceCandidatesRef.current.get(callId) || [];
+    console.log(
+      `[CallProvider] Adding ${queuedCandidates.length} queued ICE candidates for call ${callId}`,
+    );
+
+    for (const candidate of queuedCandidates) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.error(
+          "[CallProvider] Error adding queued ICE candidate:",
+          error,
+        );
+      }
+    }
+
+    // Clear the queue after processing
+    pendingIceCandidatesRef.current.delete(callId);
   };
 
   // Initialize socket event listeners for WebRTC signaling
@@ -82,7 +115,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           callId: string;
           media: "audio" | "video";
           offer: RTCSessionDescriptionInit;
-          callerName: string;
+          fromUser?: {
+            id: string;
+            email: string;
+            username: string;
+          };
+          callerName?: string;
         }) => {
           console.log("[CallProvider] Incoming call offer:", data);
 
@@ -93,6 +131,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             from: data.from,
           };
 
+          // Extract caller name from fromUser object if available (new backend format)
+          const callerName =
+            data.fromUser?.username || data.callerName || "Unknown User";
           const incomingCallData: ActiveCall = {
             callId: data.callId,
             callerId: data.from,
@@ -101,7 +142,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             status: "ringing",
             participant: {
               id: data.from,
-              username: data.callerName,
+              username: callerName,
             },
             isInitiator: false,
             offeredAt: new Date().toISOString(),
@@ -110,11 +151,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             remoteStream: null,
           };
 
-          setIncomingCall(incomingCallData);
-          addToast(
-            `Incoming ${data.media} call from ${data.callerName}!`,
-            "info",
+          console.log(
+            "[CallProvider] Created incoming call data:",
+            incomingCallData,
           );
+          setIncomingCall(incomingCallData);
+          addToast(`Incoming ${data.media} call from ${callerName}!`, "info");
         },
       );
 
@@ -133,6 +175,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             await peerConnectionRef.current.setRemoteDescription(
               new RTCSessionDescription(data.answer),
             );
+            // Add all queued ICE candidates after setting remote description
+            await addQueuedIceCandidates(
+              data.callId,
+              peerConnectionRef.current,
+            );
             useCallsStore.getState().updateActiveCallStatus("connected");
           }
         },
@@ -149,14 +196,26 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           console.log("[CallProvider] Received ICE candidate:", data);
 
           if (peerConnectionRef.current && activeCall?.callId === data.callId) {
-            try {
-              await peerConnectionRef.current.addIceCandidate(
-                new RTCIceCandidate(data.candidate),
-              );
-            } catch (error) {
-              console.error(
-                "[CallProvider] Error adding ICE candidate:",
-                error,
+            // If remote description is already set, add the candidate immediately
+            if (peerConnectionRef.current.remoteDescription) {
+              try {
+                await peerConnectionRef.current.addIceCandidate(
+                  new RTCIceCandidate(data.candidate),
+                );
+              } catch (error) {
+                console.error(
+                  "[CallProvider] Error adding ICE candidate:",
+                  error,
+                );
+              }
+            } else {
+              // Queue the candidate to add after remote description is set
+              const candidates =
+                pendingIceCandidatesRef.current.get(data.callId) || [];
+              candidates.push(data.candidate);
+              pendingIceCandidatesRef.current.set(data.callId, candidates);
+              console.log(
+                `[CallProvider] Queued ICE candidate for call ${data.callId}`,
               );
             }
           }
@@ -178,6 +237,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             if (pendingOfferRef.current?.callId === data.callId) {
               pendingOfferRef.current = null;
             }
+            // Clear any queued ICE candidates for this call
+            pendingIceCandidatesRef.current.delete(data.callId);
             if (data.reason === "declined") {
               addToast("Call was declined", "info");
             } else if (data.reason === "cancelled") {
@@ -220,14 +281,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
           try {
             const socket = getSocket();
-            socket.emit("call:ice-candidate", {
-              to:
-                activeCall.callerId === user.id
-                  ? activeCall.calleeId
-                  : activeCall.callerId,
-              callId: activeCall.callId,
-              candidate: event.candidate,
-            });
+            socket.emit(
+              "call:ice-candidate",
+              {
+                to:
+                  activeCall.callerId === user.id
+                    ? activeCall.calleeId
+                    : activeCall.callerId,
+                callId: activeCall.callId,
+                candidate: event.candidate,
+              },
+              () => {},
+            );
           } catch (error) {
             console.error(
               "[CallProvider] Failed to send ICE candidate:",
@@ -271,8 +336,24 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return stream;
   };
 
-  const initiateCall = async (calleeId: string, media: "audio" | "video") => {
+  const initiateCall = async (
+    callee: string | { id: string; username: string },
+    media: "audio" | "video",
+  ) => {
     if (!user) return;
+
+    // Extract calleeId and username
+    const calleeId = typeof callee === "string" ? callee : callee.id;
+    const calleeUsername =
+      typeof callee === "object" && callee.username
+        ? callee.username
+        : "Unknown User";
+    console.log(
+      "[CallProvider] Extracted calleeUsername:",
+      calleeUsername,
+      "from callee:",
+      callee,
+    );
 
     // Block check as required by CALLS-MESSAGES-NOTIFICATIONS-GUIDE
     if (isBlockedEitherWay(user.id, calleeId)) {
@@ -311,14 +392,45 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Send offer via socket
+      // Send offer via socket with caller info for the callee
       const socket = getSocket();
-      socket.emit("call:offer", {
-        to: calleeId,
-        callId,
-        media,
-        offer: pc.localDescription,
-      });
+      if (pc.localDescription) {
+        socket.emit(
+          "call:offer",
+          {
+            to: calleeId,
+            callId,
+            media,
+            offer: pc.localDescription,
+            // Send caller's user info so the callee sees the correct username
+            fromUser: {
+              id: user.id,
+              email: user.email,
+              username: user.username,
+            },
+          },
+          () => {},
+        );
+      }
+
+      // Get the callee's username from friends list
+      // If we only have an ID, still try to find the user in friends list as fallback
+      const friends = useFriendsStore.getState().friends;
+      console.log("[CallProvider] Current friends list:", friends);
+      console.log("[CallProvider] Looking for calleeId:", calleeId);
+      const foundFriend = friends.find((f) => f.id === calleeId);
+      console.log("[CallProvider] Found friend:", foundFriend);
+
+      const finalCalleeUsername =
+        calleeUsername !== "Unknown User"
+          ? calleeUsername
+          : foundFriend?.username || "Unknown User";
+      console.log(
+        "[CallProvider] Using callee username:",
+        finalCalleeUsername,
+        "calleeId:",
+        calleeId,
+      );
 
       // Set active call state
       const newCall: ActiveCall = {
@@ -327,13 +439,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         calleeId,
         media,
         status: "calling",
-        participant: { id: calleeId, username: "" }, // Will be populated from chat data
+        participant: { id: calleeId, username: finalCalleeUsername },
         isInitiator: true,
         offeredAt: new Date().toISOString(),
         peerConnection: pc,
         localStream: stream,
         remoteStream: null,
       };
+      console.log("[CallProvider] Created outgoing active call:", newCall);
 
       setActiveCall(newCall);
       addToast(`Calling...`, "info");
@@ -373,6 +486,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         await pc.setRemoteDescription(
           new RTCSessionDescription(pendingOfferRef.current.offer),
         );
+        // Add all queued ICE candidates after setting remote description
+        await addQueuedIceCandidates(incomingCall.callId, pc);
       } else {
         throw new Error("No pending offer found for this call");
       }
@@ -381,11 +496,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       await pc.setLocalDescription(answer);
 
       // Send answer via socket
-      socket.emit("call:answer", {
-        to: incomingCall.callerId,
-        callId: incomingCall.callId,
-        answer: pc.localDescription,
-      });
+      if (pc.localDescription) {
+        socket.emit(
+          "call:answer",
+          {
+            to: incomingCall.callerId,
+            callId: incomingCall.callId,
+            answer: pc.localDescription,
+          },
+          () => {},
+        );
+      }
 
       // Move incoming call to active call
       const activeCallData: ActiveCall = {
@@ -409,11 +530,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     if (!incomingCall) return;
 
     const socket = getSocket();
-    socket.emit("call:end", {
-      to: incomingCall.callerId,
-      callId: incomingCall.callId,
-      reason: "declined",
-    });
+    socket.emit(
+      "call:end",
+      {
+        to: incomingCall.callerId,
+        callId: incomingCall.callId,
+        reason: "declined",
+      },
+      () => {},
+    );
 
     setIncomingCall(null);
   };
@@ -421,15 +546,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const endCall = () => {
     if (!activeCall) return;
 
+    // Clear any queued ICE candidates for this call
+    pendingIceCandidatesRef.current.delete(activeCall.callId);
+
     const socket = getSocket();
-    socket.emit("call:end", {
-      to:
-        activeCall.callerId === user?.id
-          ? activeCall.calleeId
-          : activeCall.callerId,
-      callId: activeCall.callId,
-      reason: "user_initiated",
-    });
+    socket.emit(
+      "call:end",
+      {
+        to:
+          activeCall.callerId === user?.id
+            ? activeCall.calleeId
+            : activeCall.callerId,
+        callId: activeCall.callId,
+        reason: "user_initiated",
+      },
+      () => {},
+    );
 
     endActiveCall();
   };
