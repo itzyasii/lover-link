@@ -25,6 +25,7 @@ import { getSocket } from "@/lib/socket";
 import { formatTime } from "@/lib/utils";
 import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import { cn } from "@/lib/utils";
+import { usePresenceStore } from "@/stores/presence";
 
 type MessageType = "text" | "share" | "event";
 type EventKind = "call_started" | "call_ended";
@@ -49,7 +50,7 @@ interface Message {
   from: string;
   type: MessageType;
   clientMessageId?: string;
-  text?: string;
+  text?: string | null;
   item?: ShareItem;
   event?: EventItem;
   reactions: Array<{ emoji: string; userId: string; createdAt: string }>;
@@ -68,8 +69,9 @@ interface Message {
   deletedAt?: string;
   replyTo?: {
     id: string;
-    text?: string;
+    text?: string | null;
     from: string;
+    fromName?: string;
   };
   createdAt: string;
   updatedAt: string;
@@ -140,7 +142,7 @@ export default function ChatRoomPage() {
   const { chatId } = useParams<{ chatId: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
-  const { markAsRead } = useChatsStore();
+  const { markAsRead, chats, updateChat } = useChatsStore();
   const { blockedUsers } = useFriendsStore();
   const { addToast } = useToastStore();
   const { startTyping, stopTyping } = useTypingStore();
@@ -158,8 +160,14 @@ export default function ChatRoomPage() {
     { id: string; x: number; y: number }[]
   >([]);
   const [showLoveReaction, setShowLoveReaction] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Block check as required by CALLS-MESSAGES-NOTIFICATIONS-GUIDE
+  // Block check as required by CHATS_API.md
   const isBlockedEitherWay = (userId1: string, userId2: string): boolean => {
     return blockedUsers.some((b) => b.userId === userId2);
   };
@@ -170,6 +178,201 @@ export default function ChatRoomPage() {
   const [typingTimeout, setTypingTimeout] = useState<NodeJS.Timeout | null>(
     null,
   );
+
+  // Fetch messages with pagination (CHATS_API.md: GET /chats/:chatId/messages)
+  const fetchMessages = useCallback(
+    async (cursor?: string) => {
+      if (!chatId) return;
+
+      const limit = 50;
+      let url = `/api/chats/${chatId}/messages?limit=${limit}`;
+      if (cursor) url += `&cursor=${cursor}`;
+
+      try {
+        const response = await apiFetch<{
+          ok: boolean;
+          messages: Message[];
+          nextCursor: string | null;
+        }>(url);
+        if (response.ok) {
+          // Normalize MongoDB ObjectIds
+          const normalizedMessages = response.messages.map((msg) => ({
+            ...msg,
+            id:
+              (msg as unknown as { _id?: { $oid: string } })._id?.$oid ||
+              msg.id,
+            chatId:
+              (msg as unknown as { chatId?: { $oid: string } }).chatId?.$oid ||
+              msg.chatId,
+            from:
+              (msg as unknown as { from?: { $oid: string } }).from?.$oid ||
+              msg.from,
+            createdAt:
+              (msg as unknown as { createdAt?: { $date: string } }).createdAt
+                ?.$date || msg.createdAt,
+            updatedAt:
+              (msg as unknown as { updatedAt?: { $date: string } }).updatedAt
+                ?.$date || msg.updatedAt,
+          }));
+
+          if (cursor) {
+            setMessages((prev) => [...normalizedMessages, ...prev]);
+          } else {
+            setMessages(normalizedMessages);
+          }
+          setNextCursor(response.nextCursor);
+          return normalizedMessages;
+        }
+      } catch (error) {
+        console.error("[Chat] Failed to fetch messages:", error);
+      }
+    },
+    [chatId],
+  );
+
+  // Load more messages when scrolling up
+  const loadMoreMessages = useCallback(async () => {
+    if (isLoadingMore || !nextCursor) return;
+    setIsLoadingMore(true);
+    await fetchMessages(nextCursor);
+    setIsLoadingMore(false);
+  }, [nextCursor, isLoadingMore, fetchMessages]);
+
+  // Edit message (CHATS_API.md: PATCH /chats/:chatId/messages/:messageId)
+  const editMessageMutation = useMutation({
+    mutationFn: async ({
+      messageId,
+      text,
+    }: {
+      messageId: string;
+      text: string;
+    }) => {
+      const response = await apiFetch<{ ok: boolean }>(
+        `/api/chats/${chatId}/messages/${messageId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ text }),
+        },
+      );
+      if (!response.ok) throw new Error("Failed to edit message");
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+      fetchMessages();
+      setEditingMessageId(null);
+      setEditText("");
+      addToast("Message updated", "success");
+    },
+    onError: () => {
+      addToast("Failed to edit message", "error");
+    },
+  });
+
+  // Delete message (CHATS_API.md: DELETE /chats/:chatId/messages/:messageId)
+  const deleteMessageMutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      const response = await apiFetch<{ ok: boolean }>(
+        `/api/chats/${chatId}/messages/${messageId}`,
+        {
+          method: "DELETE",
+        },
+      );
+      if (!response.ok) throw new Error("Failed to delete message");
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+      queryClient.invalidateQueries({ queryKey: ["chats"] });
+      fetchMessages();
+      addToast("Message deleted", "success");
+    },
+    onError: () => {
+      addToast("Failed to delete message", "error");
+    },
+  });
+
+  // Pin chat (CHATS_API.md: POST /chats/:chatId/pin)
+  const pinChatMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch<{ ok: boolean }>(
+        `/api/chats/${chatId}/pin`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error("Failed to pin chat");
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chats"] });
+      updateChat(chatId, { isPinned: true });
+      addToast("Chat pinned", "success");
+    },
+    onError: () => addToast("Failed to pin chat", "error"),
+  });
+
+  // Unpin chat (CHATS_API.md: DELETE /chats/:chatId/pin)
+  const unpinChatMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch<{ ok: boolean }>(
+        `/api/chats/${chatId}/pin`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) throw new Error("Failed to unpin chat");
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chats"] });
+      updateChat(chatId, { isPinned: false });
+      addToast("Chat unpinned", "success");
+    },
+    onError: () => addToast("Failed to unpin chat", "error"),
+  });
+
+  // Mute chat (CHATS_API.md: POST /chats/:chatId/mute)
+  const muteChatMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch<{ ok: boolean }>(
+        `/api/chats/${chatId}/mute`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error("Failed to mute chat");
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chats"] });
+      updateChat(chatId, { isMuted: true });
+      addToast("Chat muted", "success");
+    },
+    onError: () => addToast("Failed to mute chat", "error"),
+  });
+
+  // Unmute chat (CHATS_API.md: DELETE /chats/:chatId/mute)
+  const unmuteChatMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch<{ ok: boolean }>(
+        `/api/chats/${chatId}/mute`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) throw new Error("Failed to unmute chat");
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chats"] });
+      updateChat(chatId, { isMuted: false });
+      addToast("Chat unmuted", "success");
+    },
+    onError: () => addToast("Failed to unmute chat", "error"),
+  });
+
+  // Handle scroll to load more messages
+  const handleScroll = useCallback(() => {
+    if (containerRef.current) {
+      const { scrollTop } = containerRef.current;
+      if (scrollTop < 100 && nextCursor && !isLoadingMore) {
+        loadMoreMessages();
+      }
+    }
+  }, [nextCursor, isLoadingMore, loadMoreMessages]);
 
   const { data: chat, isLoading } = useQuery<ChatDetails>({
     queryKey: ["chat", chatId],
@@ -281,20 +484,51 @@ export default function ChatRoomPage() {
     enabled: !!chatId,
   });
 
+  // Define proper types for sending messages as per CHATS_API.md
+  interface ReplyToMessage {
+    id: string;
+    text?: string;
+    from: string;
+    fromName?: string;
+  }
+
+  interface SendTextMessage {
+    type: "text";
+    text: string;
+    replyTo?: ReplyToMessage;
+    clientMessageId: string;
+  }
+
+  // Add state for reply-to message
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+
   const sendMessageMutation = useMutation({
-    mutationFn: async (content: string) => {
+    mutationFn: async ({
+      content,
+      replyTo,
+    }: {
+      content: string;
+      replyTo?: ReplyToMessage;
+    }) => {
       // Generate client-side message ID for deduplication
       const clientMessageId = crypto.randomUUID();
 
-      const response = await apiFetch<{ ok: boolean }>(
+      const messageData: SendTextMessage = {
+        type: "text",
+        text: content,
+        clientMessageId,
+      };
+
+      // Add replyTo if it exists (per CHATS_API.md ReplyToSchema)
+      if (replyTo) {
+        messageData.replyTo = replyTo;
+      }
+
+      const response = await apiFetch<{ ok: boolean; message: Message }>(
         `/api/chats/${chatId}/messages`,
         {
           method: "POST",
-          body: JSON.stringify({
-            type: "text",
-            text: content,
-            clientMessageId,
-          }),
+          body: JSON.stringify(messageData),
         },
       );
 
@@ -307,6 +541,7 @@ export default function ChatRoomPage() {
       queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
       queryClient.invalidateQueries({ queryKey: ["chats"] });
       setNewMessage("");
+      setReplyingTo(null); // Clear reply-to after sending
     },
     onError: (error) => {
       console.error("[Chat] Failed to send message:", error);
@@ -314,17 +549,20 @@ export default function ChatRoomPage() {
     },
   });
 
-  // Get store state to track real-time online status updates
-  const storeChats = useChatsStore((state) => state.chats);
-  const currentStoreChat = storeChats.find((c) => c.id === chatId);
-  const storeOtherParticipant = currentStoreChat?.members?.find(
+  // Use presence store for real-time online status tracking
+  const { getUserPresence } = usePresenceStore();
+  const otherParticipantFromChat = chat?.members?.find(
     (p) => p.id !== user?.id,
   );
-
-  // Use store participant if available (has real-time online status), otherwise fall back to query data
-  const otherParticipant =
-    storeOtherParticipant || chat?.members?.find((p) => p.id !== user?.id);
+  const presence = otherParticipantFromChat?.id
+    ? getUserPresence(otherParticipantFromChat.id)
+    : null;
+  const isUserOnline = presence?.isOnline || false;
+  const otherParticipant = otherParticipantFromChat;
   const isTyping = useTypingStore((state) => state.isSomeoneTyping(chatId));
+
+  // Get current chat from store for pin/mute status
+  const currentChat = chats.find((c) => c.id === chatId);
 
   // Socket event listeners - Updated to use REALTIME_EVENTS.md specification
   useEffect(() => {
@@ -370,8 +608,52 @@ export default function ChatRoomPage() {
         }
       };
 
-      // Handle new messages from server (REALTIME_EVENTS.md)
-      const handleChatMessage = () => {
+      // Handle new messages from server (REALTIME_EVENTS.md) - FIX: Update local messages state
+      const handleChatMessage = ({
+        chatId: eventChatId,
+        message,
+      }: import("@/types/realtime-events").ChatMessageServerEvent) => {
+        if (eventChatId === chatId) {
+          // Normalize the incoming message and add to local state
+          const normalizedReceipts = message.receipts.map((receipt) => ({
+            userId: receipt.userId,
+            status:
+              receipt.status === "listened"
+                ? "read"
+                : (receipt.status as "delivered" | "read"),
+            timestamp: receipt.timestamp,
+          }));
+
+          const normalizedMessage: Message = {
+            ...message,
+            id:
+              (message as unknown as { _id?: { $oid: string } })._id?.$oid ||
+              message.id,
+            chatId:
+              (message as unknown as { chatId?: { $oid: string } }).chatId
+                ?.$oid || message.chatId,
+            from:
+              (message as unknown as { from?: { $oid: string } }).from?.$oid ||
+              message.from,
+            clientMessageId: message.clientMessageId || undefined,
+            receipts: normalizedReceipts,
+            editedAt: message.editedAt
+              ? (message.editedAt as unknown as string)
+              : undefined,
+            deletedAt: message.deletedAt
+              ? (message.deletedAt as unknown as string)
+              : undefined,
+            createdAt:
+              (message as unknown as { createdAt?: { $date: string } })
+                .createdAt?.$date || (message.createdAt as unknown as string),
+            updatedAt:
+              (message as unknown as { updatedAt?: { $date: string } })
+                .updatedAt?.$date || (message.createdAt as unknown as string),
+          };
+
+          // Add new message to local state so it appears immediately
+          setMessages((prev) => [...prev, normalizedMessage]);
+        }
         queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
         queryClient.invalidateQueries({ queryKey: ["chats"] });
       };
@@ -386,12 +668,60 @@ export default function ChatRoomPage() {
         queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
       };
 
+      // Handle message edited event (REALTIME_EVENTS.md)
+      const handleMessageEdited = ({
+        chatId: eventChatId,
+        messageId,
+        text,
+        editedAt,
+      }: {
+        chatId: string;
+        messageId: string;
+        text: string;
+        editedAt: string;
+      }) => {
+        if (eventChatId === chatId) {
+          // Update local messages state
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === messageId ? { ...msg, text, editedAt: editedAt } : msg,
+            ),
+          );
+          queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+        }
+      };
+
+      // Handle message deleted event (REALTIME_EVENTS.md)
+      const handleMessageDeleted = ({
+        chatId: eventChatId,
+        messageId,
+        deletedAt,
+      }: {
+        chatId: string;
+        messageId: string;
+        deletedAt: string;
+      }) => {
+        if (eventChatId === chatId) {
+          // Update local messages state (soft delete - mark as deleted)
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === messageId
+                ? { ...msg, deletedAt: deletedAt, text: null }
+                : msg,
+            ),
+          );
+          queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+        }
+      };
+
       // Register only official events from REALTIME_EVENTS.md
       socket.on("chat:typing", handleChatTyping);
       socket.on("chat:message", handleChatMessage);
       socket.on("share:item", handleChatMessage);
       socket.on("chat:receipt", handleChatReceipt);
       socket.on("chat:reaction", handleChatReaction);
+      socket.on("chat:message:edited", handleMessageEdited);
+      socket.on("chat:message:deleted", handleMessageDeleted);
 
       return () => {
         clearInterval(chatPingInterval);
@@ -400,6 +730,8 @@ export default function ChatRoomPage() {
         socket.off("share:item", handleChatMessage);
         socket.off("chat:receipt", handleChatReceipt);
         socket.off("chat:reaction", handleChatReaction);
+        socket.off("chat:message:edited", handleMessageEdited);
+        socket.off("chat:message:deleted", handleMessageDeleted);
         // `chat:leave` - Client → Server: Notify server we've left the chat (REALTIME_EVENTS.md)
         socket.emit("chat:leave", { chatId: chatId }, (response) => {
           if (response.ok) {
@@ -412,10 +744,27 @@ export default function ChatRoomPage() {
     }
   }, [chatId, user?.id, queryClient, startTyping, stopTyping]);
 
+  // Initial fetch of messages
+  useEffect(() => {
+    // Use async IIFE to avoid calling setState synchronously in effect body
+    (async () => {
+      await fetchMessages();
+    })();
+  }, [fetchMessages]);
+
+  // Set up scroll listener for infinite loading
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener("scroll", handleScroll);
+      return () => container.removeEventListener("scroll", handleScroll);
+    }
+  }, [handleScroll]);
+
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chat?.messages]);
+  }, [messages]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setNewMessage(e.target.value);
@@ -487,7 +836,24 @@ export default function ChatRoomPage() {
     }
     if (typingTimeout) clearTimeout(typingTimeout);
 
-    sendMessageMutation.mutate(newMessage.trim());
+    // Prepare replyTo data if we're replying to a message
+    let replyToData: ReplyToMessage | undefined;
+    if (replyingTo && otherParticipant) {
+      replyToData = {
+        id: replyingTo.id,
+        text: replyingTo.text ?? undefined,
+        from: replyingTo.from,
+        fromName:
+          replyingTo.from === user?.id
+            ? user?.username
+            : otherParticipant.username,
+      };
+    }
+
+    sendMessageMutation.mutate({
+      content: newMessage.trim(),
+      replyTo: replyToData,
+    });
   };
 
   // Function to send a floating love heart
@@ -599,7 +965,7 @@ export default function ChatRoomPage() {
                 {otherParticipant?.username?.[0]?.toUpperCase()}
               </span>
             </div>
-            {otherParticipant?.isOnline && (
+            {isUserOnline && (
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
@@ -645,17 +1011,13 @@ export default function ChatRoomPage() {
                   </motion.span>
                   <Heart className="w-4 h-4 ml-1 text-white fill-white animate-pulse" />
                 </motion.span>
-              ) : otherParticipant?.isOnline === true ? (
+              ) : isUserOnline === true ? (
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 bg-green-300 rounded-full animate-pulse" />
-                  Together Online ♥
-                </span>
-              ) : otherParticipant?.isOnline === false ? (
-                <span className="text-white/70">Last seen recently</span>
-              ) : (
-                <span className="text-white/70">
                   Connected • {otherParticipant?.username}
                 </span>
+              ) : (
+                <span className="text-white/70">Last seen recently</span>
               )}
             </p>
           </div>
@@ -694,14 +1056,67 @@ export default function ChatRoomPage() {
           >
             <Video className="w-5 h-5 text-white" />
           </button>
+
+          {/* Chat actions menu */}
+          <div className="relative group">
+            <button className="p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm">
+              <svg
+                className="w-5 h-5 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                />
+              </svg>
+            </button>
+            <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 border border-rose-100">
+              <button
+                onClick={() =>
+                  currentChat?.isPinned
+                    ? unpinChatMutation.mutate()
+                    : pinChatMutation.mutate()
+                }
+                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-rose-50 first:rounded-t-xl flex items-center gap-2 transition-colors"
+              >
+                {currentChat?.isPinned ? "📌 Unpin chat" : "📌 Pin chat"}
+              </button>
+              <button
+                onClick={() =>
+                  currentChat?.isMuted
+                    ? unmuteChatMutation.mutate()
+                    : muteChatMutation.mutate()
+                }
+                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-rose-50 last:rounded-b-xl flex items-center gap-2 transition-colors"
+              >
+                {currentChat?.isMuted ? "🔊 Unmute chat" : "🔇 Mute chat"}
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
       {/* Romantic Messages Container */}
-      <div className="flex-1 overflow-y-auto p-4 relative z-10">
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-y-auto p-4 relative z-10"
+      >
         <div className="max-w-4xl mx-auto space-y-6">
+          {/* Loading more indicator */}
+          {isLoadingMore && (
+            <div className="flex justify-center">
+              <span className="px-4 py-2 rounded-full bg-white/70 text-rose-500 text-sm">
+                Loading more messages...
+              </span>
+            </div>
+          )}
+
           {/* Date separator */}
-          {chat.messages && chat.messages.length > 0 && (
+          {messages.length > 0 && (
             <div className="flex justify-center">
               <motion.span
                 initial={{ opacity: 0, scale: 0.8 }}
@@ -714,14 +1129,15 @@ export default function ChatRoomPage() {
             </div>
           )}
 
-          {chat.messages?.map((message, index) => {
+          {messages.map((message, index) => {
             const isOwn = message.from === user?.id;
             const showAvatar =
-              index === 0 || chat.messages?.[index - 1]?.from !== message.from;
+              index === 0 || messages[index - 1]?.from !== message.from;
             const isLoveMessage =
               message.text?.toLowerCase().includes("love") ||
               message.text?.toLowerCase().includes("❤");
             const isShowingLove = showLoveReaction === message.id;
+            const isEditing = editingMessageId === message.id;
 
             return (
               <motion.div
@@ -751,11 +1167,12 @@ export default function ChatRoomPage() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   className={cn(
-                    "max-w-xs sm:max-w-md lg:max-w-lg px-5 py-3 rounded-3xl relative overflow-hidden",
+                    "max-w-xs sm:max-w-md lg:max-w-lg px-5 py-3 rounded-3xl relative overflow-hidden group",
                     isOwn
                       ? "bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 text-white rounded-br-lg shadow-xl shadow-rose-300/70"
                       : "bg-white/90 backdrop-blur-sm text-gray-800 rounded-bl-lg shadow-lg shadow-pink-200/50 border border-rose-100/50",
                     isLoveMessage && "ring-2 ring-yellow-300",
+                    message.deletedAt && "opacity-50",
                   )}
                 >
                   {isLoveMessage && <MessageSparkles />}
@@ -773,24 +1190,174 @@ export default function ChatRoomPage() {
                     )}
                   </AnimatePresence>
 
-                  <p className="text-sm leading-relaxed">{message.text}</p>
-                  <p
-                    className={cn(
-                      "text-xs mt-2 flex items-center gap-1",
-                      isOwn ? "text-rose-100" : "text-gray-400",
-                    )}
-                  >
-                    {formatTime(message.createdAt)}
-                    {isOwn &&
-                      message.receipts?.some((r) => r.status === "read") && (
-                        <motion.span
-                          animate={{ scale: [1, 1.3, 1] }}
-                          transition={{ duration: 1.5, repeat: Infinity }}
-                        >
-                          <Heart className="w-3.5 h-3.5 fill-current text-rose-200" />
-                        </motion.span>
+                  {/* Message actions for all messages */}
+                  {!message.deletedAt && (
+                    <div
+                      className={cn(
+                        "absolute top-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
+                        isOwn ? "right-2" : "left-2",
                       )}
-                  </p>
+                    >
+                      {/* Reply button - available for all messages */}
+                      <button
+                        onClick={() => {
+                          setReplyingTo(message);
+                          inputRef.current?.focus();
+                        }}
+                        className="p-1.5 rounded-full bg-white/90 hover:bg-rose-50 shadow-md transition-colors"
+                        title="Reply to message"
+                      >
+                        <svg
+                          className="w-4 h-4 text-rose-500"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                          />
+                        </svg>
+                      </button>
+                      {/* Edit button - only for own messages */}
+                      {isOwn && message.type === "text" && (
+                        <button
+                          onClick={() => {
+                            setEditingMessageId(message.id);
+                            setEditText(message.text || "");
+                          }}
+                          className="p-1.5 rounded-full bg-white/90 hover:bg-white shadow-md transition-colors"
+                          title="Edit message"
+                        >
+                          <svg
+                            className="w-4 h-4 text-gray-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                      {/* Delete button - only for own messages */}
+                      {isOwn && (
+                        <button
+                          onClick={() =>
+                            deleteMessageMutation.mutate(message.id)
+                          }
+                          className="p-1.5 rounded-full bg-white/90 hover:bg-red-50 shadow-md transition-colors"
+                          title="Delete message"
+                        >
+                          <svg
+                            className="w-4 h-4 text-red-500"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Display reply-to message if this message is a reply */}
+                  {message.replyTo && !message.deletedAt && (
+                    <div className="mb-2 px-3 py-2 rounded-lg bg-black/10 border-l-2 border-rose-400">
+                      <p className="text-xs font-medium text-rose-300 mb-1">
+                        Replied to{" "}
+                        {message.replyTo.from === user?.id
+                          ? "yourself"
+                          : message.replyTo.fromName ||
+                            otherParticipant?.username}
+                      </p>
+                      <p className="text-sm leading-relaxed line-clamp-2">
+                        {message.replyTo.text || "Media message"}
+                      </p>
+                    </div>
+                  )}
+
+                  {isEditing ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (editText.trim()) {
+                          editMessageMutation.mutate({
+                            messageId: message.id,
+                            text: editText.trim(),
+                          });
+                        }
+                      }}
+                      className="mt-1"
+                    >
+                      <input
+                        type="text"
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-white/20 text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50 text-sm"
+                        autoFocus
+                      />
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          type="submit"
+                          className="text-xs px-3 py-1 bg-white text-rose-500 rounded-full font-medium hover:bg-rose-50 transition-colors"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMessageId(null);
+                            setEditText("");
+                          }}
+                          className="text-xs px-3 py-1 bg-white/20 text-white rounded-full font-medium hover:bg-white/30 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : message.deletedAt ? (
+                    <p className="text-sm leading-relaxed italic">
+                      This message was deleted
+                    </p>
+                  ) : (
+                    <p className="text-sm leading-relaxed">{message.text}</p>
+                  )}
+
+                  {!isEditing && !message.deletedAt && (
+                    <p
+                      className={cn(
+                        "text-xs mt-2 flex items-center gap-1",
+                        isOwn ? "text-rose-100" : "text-gray-400",
+                      )}
+                    >
+                      {message.editedAt && (
+                        <span className="mr-1">(edited)</span>
+                      )}
+                      {formatTime(message.createdAt)}
+                      {isOwn &&
+                        message.receipts?.some((r) => r.status === "read") && (
+                          <motion.span
+                            animate={{ scale: [1, 1.3, 1] }}
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                          >
+                            <Heart className="w-3.5 h-3.5 fill-current text-rose-200" />
+                          </motion.span>
+                        )}
+                    </p>
+                  )}
                 </motion.div>
 
                 {showAvatar && isOwn ? (
@@ -829,6 +1396,64 @@ export default function ChatRoomPage() {
             <Heart className="w-6 h-6 text-pink-200 fill-pink-200" />
           </motion.div>
         </div>
+
+        {/* Reply-to indicator - shows when replying to a message */}
+        <AnimatePresence>
+          {replyingTo && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="max-w-4xl mx-auto mb-3 px-4 py-3 bg-rose-50 border-l-4 border-rose-500 rounded-r-lg flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3">
+                <svg
+                  className="w-5 h-5 text-rose-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                  />
+                </svg>
+                <div>
+                  <p className="text-xs font-medium text-rose-600">
+                    Replying to{" "}
+                    {replyingTo.from === user?.id
+                      ? "yourself"
+                      : otherParticipant?.username}
+                  </p>
+                  <p className="text-sm text-gray-700 truncate max-w-md">
+                    {replyingTo.text || "Media message"}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setReplyingTo(null)}
+                className="p-1.5 rounded-full hover:bg-rose-100 transition-colors"
+                title="Cancel reply"
+              >
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <form
           onSubmit={handleSendMessage}
