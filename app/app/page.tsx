@@ -5,6 +5,7 @@ import { Search, Heart, MessageSquare, Sparkles, Flower2 } from "lucide-react";
 import { useChatsStore, Chat, ChatMember } from "@/stores/chats";
 import { useAuthStore } from "@/stores/auth";
 import { useTypingStore } from "@/stores/typing";
+import { usePresenceStore } from "@/stores/presence";
 import { apiFetch } from "@/lib/api";
 import { formatTime } from "@/lib/utils";
 import { HeartbeatLoading } from "@/components/HeartbeatLoading";
@@ -28,6 +29,7 @@ export default function ChatsPage() {
   const { user } = useAuthStore();
   const { setChats, chats } = useChatsStore();
   const { isSomeoneTyping } = useTypingStore();
+  const { getUserPresence, fetchPresence } = usePresenceStore();
 
   const { isLoading, error } = useQuery<{ chats: Chat[] }>({
     queryKey: ["chats"],
@@ -52,6 +54,15 @@ export default function ChatsPage() {
         });
 
         setChats(normalizedChats);
+        // Fetch presence for all chat members to enable real-time online status
+        const allMemberIds = normalizedChats.flatMap((chat) =>
+          chat.members.map((member) => member.id),
+        );
+        // Remove duplicates and fetch presence
+        const uniqueMemberIds = [...new Set(allMemberIds)];
+        if (uniqueMemberIds.length > 0) {
+          fetchPresence(uniqueMemberIds);
+        }
         return { chats: normalizedChats };
       }
       throw new Error("Failed to fetch chats");
@@ -195,6 +206,8 @@ export default function ChatsPage() {
         {chats.map((chat, index) => {
           const otherMember = chat.members.find((m) => m.id !== user?.id);
           const isTyping = isSomeoneTyping(chat.id);
+          const presence = otherMember ? getUserPresence(otherMember.id) : null;
+          const isUserOnline = presence?.isOnline === true;
 
           return (
             <motion.div
@@ -219,7 +232,7 @@ export default function ChatsPage() {
                     >
                       {otherMember?.username?.[0]?.toUpperCase() || "?"}
                     </motion.div>
-                    {otherMember?.isOnline && (
+                    {isUserOnline && (
                       <motion.div
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
