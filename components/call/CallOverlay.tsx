@@ -50,6 +50,7 @@ export function CallOverlay() {
 
   // Render incoming call UI
   if (incomingCall) {
+    console.log("[CallOverlay] Incoming call data:", incomingCall);
     return (
       <AnimatePresence>
         <motion.div
@@ -98,6 +99,7 @@ export function CallOverlay() {
 
   // Render active call UI
   if (activeCall) {
+    console.log("[CallOverlay] Active call data:", activeCall);
     const isConnected = activeCall.status === "connected";
 
     return (
