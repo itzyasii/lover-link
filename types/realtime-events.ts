@@ -370,6 +370,44 @@ export interface ChatReactionServerEvent {
   at: string; // ISO timestamp
 }
 
+/**
+ * `chat:like` - Client -> Server: Client likes or unlikes a message
+ */
+export interface ChatLikeClientEvent {
+  messageId: string;
+}
+
+/**
+ * `chat:like` - Server -> Client (Callback): Acknowledgment
+ */
+export interface ChatLikeServerResponse {
+  ok: boolean;
+  action?: "added" | "removed";
+  user?: {
+    id: string;
+    username?: string;
+    email?: string;
+  };
+  error?: string;
+}
+
+/**
+ * `chat:like` - Server -> Client: Broadcast to all chat members when like changes
+ */
+export interface ChatLikeServerEvent {
+  ok: true;
+  chatId: string;
+  messageId: string;
+  userId: string;
+  user: {
+    id: string;
+    username?: string;
+    email?: string;
+  };
+  action: "added" | "removed";
+  at: string; // ISO timestamp
+}
+
 // ============================================
 // Voice Message Specific Events
 // ============================================
@@ -538,6 +576,7 @@ export interface ServerToClientEvents {
 
   // Message reaction events
   "chat:reaction": (data: ChatReactionServerEvent) => void;
+  "chat:like": (data: ChatLikeServerEvent) => void;
 
   // Voice message events
   "chat:voice:listened": (data: ChatVoiceListenedServerEvent) => void;
@@ -610,6 +649,10 @@ export interface ClientToServerEvents {
   "chat:react": (
     data: ChatReactClientEvent,
     callback: (response: ChatReactServerResponse) => void,
+  ) => void;
+  "chat:like": (
+    data: ChatLikeClientEvent,
+    callback: (response: ChatLikeServerResponse) => void,
   ) => void;
 
   // Voice message events

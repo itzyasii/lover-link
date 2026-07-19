@@ -20,8 +20,10 @@ import { useTypingStore } from "@/stores/typing";
 import { useFriendsStore } from "@/stores/friends";
 import { useCall } from "@/components/call/CallProvider";
 import { useToastStore } from "@/stores/toast";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiFormData } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
+import { VoiceRecorder } from "@/components/chat/VoiceRecorder";
+import { VoiceNotePlayer } from "@/components/chat/VoiceNotePlayer";
 import { formatTime } from "@/lib/utils";
 import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import { cn } from "@/lib/utils";
@@ -54,6 +56,7 @@ interface Message {
   item?: ShareItem;
   event?: EventItem;
   reactions: Array<{ emoji: string; userId: string; createdAt: string }>;
+  likes?: Array<{ userId: string; createdAt: string }>;
   receipts: Array<{
     userId: string;
     status: "delivered" | "read";
@@ -163,6 +166,8 @@ export default function ChatRoomPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isUploadingVoice, setIsUploadingVoice] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -205,10 +210,10 @@ export default function ChatRoomPage() {
           messageCount: response.messages?.length,
           firstMessage: response.messages?.[0]
             ? {
-                id: response.messages[0].id,
-                createdAt: response.messages[0].createdAt,
-                createdAtType: typeof response.messages[0].createdAt,
-              }
+              id: response.messages[0].id,
+              createdAt: response.messages[0].createdAt,
+              createdAtType: typeof response.messages[0].createdAt,
+            }
             : null,
         });
 
@@ -760,34 +765,34 @@ export default function ChatRoomPage() {
           // Normalize editedAt and deletedAt if they exist
           const normalizedEditedAt = message.editedAt
             ? (() => {
-                const rawEditedAt =
-                  (message.editedAt as unknown as { $date?: string })?.$date ||
-                  message.editedAt;
-                if (
-                  rawEditedAt !== null &&
-                  typeof rawEditedAt === "object" &&
-                  "toISOString" in rawEditedAt
-                ) {
-                  return (rawEditedAt as Date).toISOString();
-                }
-                return rawEditedAt as string;
-              })()
+              const rawEditedAt =
+                (message.editedAt as unknown as { $date?: string })?.$date ||
+                message.editedAt;
+              if (
+                rawEditedAt !== null &&
+                typeof rawEditedAt === "object" &&
+                "toISOString" in rawEditedAt
+              ) {
+                return (rawEditedAt as Date).toISOString();
+              }
+              return rawEditedAt as string;
+            })()
             : undefined;
 
           const normalizedDeletedAt = message.deletedAt
             ? (() => {
-                const rawDeletedAt =
-                  (message.deletedAt as unknown as { $date?: string })?.$date ||
-                  message.deletedAt;
-                if (
-                  rawDeletedAt !== null &&
-                  typeof rawDeletedAt === "object" &&
-                  "toISOString" in rawDeletedAt
-                ) {
-                  return (rawDeletedAt as Date).toISOString();
-                }
-                return rawDeletedAt as string;
-              })()
+              const rawDeletedAt =
+                (message.deletedAt as unknown as { $date?: string })?.$date ||
+                message.deletedAt;
+              if (
+                rawDeletedAt !== null &&
+                typeof rawDeletedAt === "object" &&
+                "toISOString" in rawDeletedAt
+              ) {
+                return (rawDeletedAt as Date).toISOString();
+              }
+              return rawDeletedAt as string;
+            })()
             : undefined;
 
           const normalizedMessage: Message = {
@@ -998,6 +1003,48 @@ export default function ChatRoomPage() {
     }
   };
 
+  const handleSendVoiceNote = async (blob: Blob, duration: number) => {
+    if (!chatId || !user?.id) return;
+
+    setIsUploadingVoice(true);
+    try {
+      const formData = new FormData();
+      const extension = blob.type.includes("webm") ? "webm" : "ogg";
+      formData.append("file", blob, `voice_note.${extension}`);
+
+      const response = await apiFormData<{
+        ok: boolean;
+        item: ShareItem;
+      }>("/api/uploads", formData);
+
+      if (!response.ok || !response.item) throw new Error("Upload failed");
+
+      response.item.meta = { ...response.item.meta, duration };
+      response.item.kind = "audio";
+
+      const clientMessageId = crypto.randomUUID();
+
+      const socket = getSocket();
+      if (socket && otherParticipant) {
+        socket.emit(
+          "share:item",
+          {
+            to: otherParticipant.id,
+            clientMessageId,
+            item: response.item,
+          },
+          () => { },
+        );
+      }
+    } catch (error) {
+      console.error("Voice note upload error:", error);
+      addToast("Failed to send voice note", "error");
+    } finally {
+      setIsUploadingVoice(false);
+      setIsRecording(false);
+    }
+  };
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
@@ -1082,8 +1129,39 @@ export default function ChatRoomPage() {
         setShowLoveReaction(null);
         setMessageHearts((prev) => prev.filter((h) => h.id !== heartId));
       }, 1500);
+
+      // Optimistic update
+      if (user?.id) {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id === messageId) {
+              const currentLikes = m.likes || [];
+              const hasLiked = currentLikes.some((l) => l.userId === user.id);
+              return {
+                ...m,
+                likes: hasLiked
+                  ? currentLikes.filter((l) => l.userId !== user.id)
+                  : [
+                    ...currentLikes,
+                    { userId: user.id, createdAt: new Date().toISOString() },
+                  ],
+              };
+            }
+            return m;
+          }),
+        );
+      }
+
+      const socket = getSocket();
+      if (socket) {
+        socket.emit("chat:like", { messageId }, (response) => {
+          if (!response?.ok) {
+            console.error("Failed to toggle like");
+          }
+        });
+      }
     },
-    [],
+    [user?.id],
   );
 
   if (isLoading || !chat) {
@@ -1498,7 +1576,7 @@ export default function ChatRoomPage() {
                         {message.replyTo.from === user?.id
                           ? "yourself"
                           : message.replyTo.fromName ||
-                            otherParticipant?.username}
+                          otherParticipant?.username}
                       </p>
                       <p className="text-sm leading-relaxed line-clamp-2">
                         {message.replyTo.text || "Media message"}
@@ -1549,31 +1627,77 @@ export default function ChatRoomPage() {
                     <p className="text-sm leading-relaxed italic">
                       This message was deleted
                     </p>
+                  ) : message.type === "share" &&
+                    message.item?.kind === "audio" ? (
+                    <VoiceNotePlayer
+                      audioUrl={message.item.url}
+                      duration={
+                        message.item.meta?.duration as number | undefined
+                      }
+                      messageId={message.id}
+                      isOwn={isOwn}
+                      isListened={message.receipts?.some(
+                        (r) => r.userId === user?.id && r.status === "read",
+                      )}
+                    />
                   ) : (
                     <p className="text-sm leading-relaxed">{message.text}</p>
                   )}
 
                   {!isEditing && !message.deletedAt && (
-                    <p
-                      className={cn(
-                        "text-xs mt-2 flex items-center gap-1",
-                        isOwn ? "text-rose-100" : "text-gray-400",
-                      )}
-                    >
-                      {message.editedAt && (
-                        <span className="mr-1">(edited)</span>
-                      )}
-                      {formatTime(message.createdAt)}
-                      {isOwn &&
-                        message.receipts?.some((r) => r.status === "read") && (
-                          <motion.span
-                            animate={{ scale: [1, 1.3, 1] }}
-                            transition={{ duration: 1.5, repeat: Infinity }}
+                    <div className="flex items-end justify-between mt-2 gap-3">
+                      <div className="flex gap-1 items-center">
+                        {message.likes && message.likes.length > 0 && (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className={cn(
+                              "bg-white/30 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1 border",
+                              isOwn
+                                ? "border-rose-300/50"
+                                : "border-rose-100/50",
+                            )}
                           >
-                            <Heart className="w-3.5 h-3.5 fill-current text-rose-200" />
-                          </motion.span>
+                            <Heart
+                              className={cn(
+                                "w-3 h-3 fill-rose-500",
+                                isOwn ? "text-rose-200" : "text-rose-500",
+                              )}
+                            />
+                            <span
+                              className={cn(
+                                "text-[11px] font-bold",
+                                isOwn ? "text-white" : "text-rose-600",
+                              )}
+                            >
+                              {message.likes.length}
+                            </span>
+                          </motion.div>
                         )}
-                    </p>
+                      </div>
+                      <p
+                        className={cn(
+                          "text-xs flex items-center gap-1",
+                          isOwn ? "text-rose-100" : "text-gray-400",
+                        )}
+                      >
+                        {message.editedAt && (
+                          <span className="mr-1">(edited)</span>
+                        )}
+                        {formatTime(message.createdAt)}
+                        {isOwn &&
+                          message.receipts?.some(
+                            (r) => r.status === "read",
+                          ) && (
+                            <motion.span
+                              animate={{ scale: [1, 1.3, 1] }}
+                              transition={{ duration: 1.5, repeat: Infinity }}
+                            >
+                              <Heart className="w-3.5 h-3.5 fill-current text-rose-200" />
+                            </motion.span>
+                          )}
+                      </p>
+                    </div>
                   )}
                 </motion.div>
 
@@ -1687,51 +1811,65 @@ export default function ChatRoomPage() {
           onSubmit={handleSendMessage}
           className="max-w-4xl mx-auto flex items-center gap-2 relative"
         >
-          <button
-            type="button"
-            className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
-          >
-            <Smile className="w-5 h-5 text-rose-400" />
-          </button>
+          {isRecording ? (
+            <VoiceRecorder
+              onSend={handleSendVoiceNote}
+              onCancel={() => setIsRecording(false)}
+            />
+          ) : (
+            <>
+              <button
+                type="button"
+                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
+              >
+                <Smile className="w-5 h-5 text-rose-400" />
+              </button>
 
-          <button
-            type="button"
-            onClick={sendLoveHeart}
-            className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90"
-          >
-            <motion.div
-              animate={{ scale: [1, 1.1, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
-            </motion.div>
-          </button>
+              <button
+                type="button"
+                onClick={sendLoveHeart}
+                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90"
+              >
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                >
+                  <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+                </motion.div>
+              </button>
 
-          <input
-            ref={inputRef}
-            type="text"
-            value={newMessage}
-            onChange={handleInputChange}
-            placeholder="Write something sweet..."
-            className="flex-1 px-5 py-3 md:py-3.5 rounded-full bg-linear-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-base md:text-lg"
-          />
+              <input
+                ref={inputRef}
+                type="text"
+                value={newMessage}
+                onChange={handleInputChange}
+                placeholder="Write something sweet..."
+                className="flex-1 px-5 py-3 md:py-3.5 rounded-full bg-linear-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-base md:text-lg"
+              />
 
-          <button
-            type="button"
-            className="p-2.5 md:p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
-          >
-            <Mic className="w-5 h-5 md:w-5.5 md:h-5.5 text-rose-400" />
-          </button>
+              <button
+                type="button"
+                onClick={() => setIsRecording(true)}
+                className="p-2.5 md:p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
+              >
+                <Mic className="w-5 h-5 md:w-5.5 md:h-5.5 text-rose-400" />
+              </button>
 
-          <motion.button
-            type="submit"
-            disabled={!newMessage.trim() || sendMessageMutation.isPending}
-            whileHover={{ scale: 1.15 }}
-            whileTap={{ scale: 0.9 }}
-            className="p-3 md:p-3.5 rounded-full bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-2xl shadow-rose-400/70 disabled:hover:scale-100"
-          >
-            <Send className="w-5 h-5 md:w-5.5 md:h-5.5 text-white" />
-          </motion.button>
+              <motion.button
+                type="submit"
+                disabled={
+                  !newMessage.trim() ||
+                  sendMessageMutation.isPending ||
+                  isUploadingVoice
+                }
+                whileHover={{ scale: 1.15 }}
+                whileTap={{ scale: 0.9 }}
+                className="p-3 md:p-3.5 rounded-full bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-2xl shadow-rose-400/70 disabled:hover:scale-100"
+              >
+                <Send className="w-5 h-5 md:w-5.5 md:h-5.5 text-white" />
+              </motion.button>
+            </>
+          )}
         </form>
       </footer>
     </div>

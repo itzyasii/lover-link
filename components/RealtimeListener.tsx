@@ -17,6 +17,7 @@ import type {
   PresenceOnlineServerEvent,
   PresenceUpdateServerEvent,
   ShareItemServerEvent,
+  ChatLikeServerEvent,
 } from "@/types/realtime-events";
 
 export function RealtimeListener() {
@@ -293,6 +294,16 @@ export function RealtimeListener() {
         },
       );
 
+      // `chat:like` - A message like was added or removed
+      socket.on(
+        "chat:like",
+        ({ chatId }: ChatLikeServerEvent) => {
+          queryClient.invalidateQueries({
+            queryKey: ["messages", chatId],
+          });
+        },
+      );
+
       // ============================================
       // Voice Message Specific Events (REALTIME_EVENTS.md)
       // ============================================
@@ -332,6 +343,8 @@ export function RealtimeListener() {
 
         // Clean up reaction events (REALTIME_EVENTS.md)
         socket.off("chat:reaction");
+        socket.off("chat:like");
+        socket.off("chat:like");
 
         // Clean up voice message events (REALTIME_EVENTS.md)
         socket.off("chat:voice:listened");
