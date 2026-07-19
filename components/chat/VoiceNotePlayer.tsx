@@ -4,6 +4,7 @@ import { Play, Pause } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { getSocket } from "@/lib/socket";
+import { env } from "@/lib/env";
 
 interface VoiceNotePlayerProps {
   audioUrl: string;
@@ -32,6 +33,11 @@ export function VoiceNotePlayer({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Prepend API base URL if audioUrl is relative
+    const fullAudioUrl = audioUrl.startsWith("http")
+      ? audioUrl
+      : `${env.API_BASE_URL}${audioUrl}`;
+
     // Initialize WaveSurfer
     const ws = WaveSurfer.create({
       container: containerRef.current,
@@ -43,7 +49,7 @@ export function VoiceNotePlayer({
       barRadius: 2,
       cursorWidth: 0,
       normalize: true,
-      url: audioUrl,
+      url: fullAudioUrl,
     });
 
     wavesurferRef.current = ws;

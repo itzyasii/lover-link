@@ -37,9 +37,11 @@ export function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) {
     if (state === "recording" || state === "paused") {
       // If we're still recording, stop first
       stop();
-      // the useEffect below will catch the audioBlob and trigger onSend
+    } else if (state === "stopped" && audioBlob && duration > 0) {
+      // Already stopped, send directly
+      onSend(audioBlob, duration);
     }
-  }, [state, stop]);
+  }, [state, stop, audioBlob, duration, onSend]);
 
   // Watch for audioBlob to be set (which happens after stop())
   useEffect(() => {

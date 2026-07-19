@@ -137,15 +137,31 @@ export function useVoiceRecorder() {
 
   const pause = useCallback(() => {
     if (mediaRecorder.current && state === "recording") {
-      mediaRecorder.current.pause();
-      setState("paused");
+      try {
+        mediaRecorder.current.pause();
+        setState("paused");
+        // Stop the timer when paused
+        if (startTime.current !== null) {
+          accumulatedTime.current +=
+            (performance.now() - startTime.current) / 1000;
+          startTime.current = null;
+        }
+      } catch (e) {
+        console.error("Error pausing media recorder:", e);
+      }
     }
   }, [state]);
 
   const resume = useCallback(() => {
     if (mediaRecorder.current && state === "paused") {
-      mediaRecorder.current.resume();
-      setState("recording");
+      try {
+        mediaRecorder.current.resume();
+        setState("recording");
+        // Restart the timer when resumed
+        startTime.current = performance.now();
+      } catch (e) {
+        console.error("Error resuming media recorder:", e);
+      }
     }
   }, [state]);
 
@@ -154,13 +170,14 @@ export function useVoiceRecorder() {
       mediaRecorder.current &&
       (state === "recording" || state === "paused")
     ) {
-      mediaRecorder.current.stop();
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
+      try {
+        mediaRecorder.current.stop();
+      } catch (e) {
+        console.error("Error stopping media recorder:", e);
       }
-      if (audioContext.current && audioContext.current.state !== "closed") {
-        audioContext.current.close().catch(console.error);
-      }
+
+      // Don't stop stream here - let cancel handle cleanup
+      // Just update state and finalize timing
       setState("stopped");
 
       if (startTime.current !== null) {
@@ -172,31 +189,37 @@ export function useVoiceRecorder() {
   }, [state]);
 
   const cancel = useCallback(() => {
-    if (
-      mediaRecorder.current &&
-      (state === "recording" || state === "paused" || state === "stopped")
-    ) {
-      if (state !== "stopped") {
+    // Always stop the media recorder if it exists
+    if (mediaRecorder.current && state !== "idle") {
+      try {
         mediaRecorder.current.stop();
+      } catch (e) {
+        console.error("Error stopping media recorder:", e);
       }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
-      if (audioContext.current && audioContext.current.state !== "closed") {
-        audioContext.current.close().catch(console.error);
-      }
-      chunks.current = [];
-      accumulatedTime.current = 0;
-      setDuration(0);
-      setAudioBlob(null);
-      setState("idle");
-    } else if (state === "stopped") {
-      chunks.current = [];
-      accumulatedTime.current = 0;
-      setDuration(0);
-      setAudioBlob(null);
-      setState("idle");
     }
+
+    // Always stop all tracks in the stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        track.stop();
+      });
+      streamRef.current = null;
+    }
+
+    // Always close audio context
+    if (audioContext.current && audioContext.current.state !== "closed") {
+      audioContext.current.close().catch(console.error);
+      audioContext.current = null;
+    }
+
+    // Reset all state
+    chunks.current = [];
+    accumulatedTime.current = 0;
+    startTime.current = null;
+    setDuration(0);
+    setAudioBlob(null);
+    setWaveformData(new Float32Array(0));
+    setState("idle");
   }, [state]);
 
   // Cleanup on unmount

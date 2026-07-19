@@ -22,6 +22,7 @@ import { useCall } from "@/components/call/CallProvider";
 import { useToastStore } from "@/stores/toast";
 import { apiFetch, apiFormData } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
+import { env } from "@/lib/env";
 import { VoiceRecorder } from "@/components/chat/VoiceRecorder";
 import { VoiceNotePlayer } from "@/components/chat/VoiceNotePlayer";
 import { formatTime } from "@/lib/utils";
@@ -271,6 +272,7 @@ export default function ChatRoomPage() {
               from:
                 (msg as unknown as { from?: { $oid: string } }).from?.$oid ||
                 msg.from,
+              likes: msg.likes || [],
               createdAt: normalizedCreatedAt,
               updatedAt: normalizedUpdatedAt,
             };
@@ -862,6 +864,52 @@ export default function ChatRoomPage() {
         queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
       };
 
+      // Handle message like event (REALTIME_EVENTS.md)
+      const handleChatLike = (data: unknown) => {
+        // Handle socket event being wrapped in array
+        const eventData = Array.isArray(data) ? data[0] : data;
+        const {
+          chatId: eventChatId,
+          messageId,
+          userId,
+          action,
+          at,
+        } = eventData as {
+          chatId: string;
+          messageId: string;
+          userId: string;
+          action: "added" | "removed";
+          at: string;
+        };
+
+        if (eventChatId === chatId) {
+          // Update local messages state
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.id === messageId) {
+                const currentLikes = msg.likes || [];
+                if (action === "added") {
+                  return {
+                    ...msg,
+                    likes: [
+                      ...currentLikes.filter((l) => l.userId !== userId),
+                      { userId, createdAt: at },
+                    ],
+                  };
+                } else {
+                  return {
+                    ...msg,
+                    likes: currentLikes.filter((l) => l.userId !== userId),
+                  };
+                }
+              }
+              return msg;
+            }),
+          );
+          queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+        }
+      };
+
       // Handle message edited event (REALTIME_EVENTS.md)
       const handleMessageEdited = ({
         chatId: eventChatId,
@@ -914,6 +962,7 @@ export default function ChatRoomPage() {
       socket.on("share:item", handleChatMessage);
       socket.on("chat:receipt", handleChatReceipt);
       socket.on("chat:reaction", handleChatReaction);
+      socket.on("chat:like", handleChatLike);
       socket.on("chat:message:edited", handleMessageEdited);
       socket.on("chat:message:deleted", handleMessageDeleted);
 
@@ -924,6 +973,7 @@ export default function ChatRoomPage() {
         socket.off("share:item", handleChatMessage);
         socket.off("chat:receipt", handleChatReceipt);
         socket.off("chat:reaction", handleChatReaction);
+        socket.off("chat:like", handleChatLike);
         socket.off("chat:message:edited", handleMessageEdited);
         socket.off("chat:message:deleted", handleMessageDeleted);
         // `chat:leave` - Client → Server: Notify server we've left the chat (REALTIME_EVENTS.md)
@@ -1021,6 +1071,10 @@ export default function ChatRoomPage() {
 
       response.item.meta = { ...response.item.meta, duration };
       response.item.kind = "audio";
+      // Prepend API base URL to ensure audio loads from correct domain
+      if (response.item.url && !response.item.url.startsWith("http")) {
+        response.item.url = `${env.API_BASE_URL}${response.item.url}`;
+      }
 
       const clientMessageId = crypto.randomUUID();
 
@@ -1462,7 +1516,7 @@ export default function ChatRoomPage() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   className={cn(
-                    "max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl px-5 py-4 rounded-3xl relative overflow-hidden group",
+                    "max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl px-5 py-4 rounded-3xl relative group",
                     isOwn
                       ? "bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 text-white rounded-br-2xl shadow-2xl shadow-rose-300/70"
                       : "bg-white/95 backdrop-blur-md text-gray-800 rounded-bl-2xl shadow-xl shadow-pink-200/60 border border-rose-100/60",
@@ -1489,7 +1543,7 @@ export default function ChatRoomPage() {
                   {!message.deletedAt && (
                     <div
                       className={cn(
-                        "absolute top-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
+                        "absolute -top-10 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10",
                         isOwn ? "right-2" : "left-2",
                       )}
                     >
@@ -1499,7 +1553,7 @@ export default function ChatRoomPage() {
                           setReplyingTo(message);
                           inputRef.current?.focus();
                         }}
-                        className="p-1.5 rounded-full bg-white/90 hover:bg-rose-50 shadow-md transition-colors"
+                        className="p-2 rounded-full bg-white hover:bg-rose-50 shadow-lg transition-all hover:scale-110 border border-rose-200"
                         title="Reply to message"
                       >
                         <svg
@@ -1523,7 +1577,7 @@ export default function ChatRoomPage() {
                             setEditingMessageId(message.id);
                             setEditText(message.text || "");
                           }}
-                          className="p-1.5 rounded-full bg-white/90 hover:bg-white shadow-md transition-colors"
+                          className="p-2 rounded-full bg-white hover:bg-gray-100 shadow-lg transition-all hover:scale-110 border border-gray-200"
                           title="Edit message"
                         >
                           <svg
@@ -1547,7 +1601,7 @@ export default function ChatRoomPage() {
                           onClick={() =>
                             deleteMessageMutation.mutate(message.id)
                           }
-                          className="p-1.5 rounded-full bg-white/90 hover:bg-red-50 shadow-md transition-colors"
+                          className="p-2 rounded-full bg-white hover:bg-red-50 shadow-lg transition-all hover:scale-110 border border-red-200"
                           title="Delete message"
                         >
                           <svg
@@ -1648,31 +1702,77 @@ export default function ChatRoomPage() {
                     <div className="flex items-end justify-between mt-2 gap-3">
                       <div className="flex gap-1 items-center">
                         {message.likes && message.likes.length > 0 && (
-                          <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            className={cn(
-                              "bg-white/30 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1 border",
-                              isOwn
-                                ? "border-rose-300/50"
-                                : "border-rose-100/50",
-                            )}
-                          >
-                            <Heart
+                          <div className="relative group">
+                            <motion.div
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
                               className={cn(
-                                "w-3 h-3 fill-rose-500",
-                                isOwn ? "text-rose-200" : "text-rose-500",
-                              )}
-                            />
-                            <span
-                              className={cn(
-                                "text-[11px] font-bold",
-                                isOwn ? "text-white" : "text-rose-600",
+                                "bg-white/30 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1 border cursor-pointer",
+                                isOwn
+                                  ? "border-rose-300/50"
+                                  : "border-rose-100/50",
                               )}
                             >
-                              {message.likes.length}
-                            </span>
-                          </motion.div>
+                              <Heart
+                                className={cn(
+                                  "w-3 h-3 fill-rose-500",
+                                  isOwn ? "text-rose-200" : "text-rose-500",
+                                )}
+                              />
+                              <span
+                                className={cn(
+                                  "text-[11px] font-bold",
+                                  isOwn ? "text-white" : "text-rose-600",
+                                )}
+                              >
+                                {message.likes.length}
+                              </span>
+                            </motion.div>
+                            {/* Beautiful tooltip showing who liked */}
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                              <div className="bg-gradient-to-br from-rose-500 to-pink-600 text-white px-3 py-2 rounded-xl shadow-xl max-w-xs">
+                                <div className="flex items-center gap-2">
+                                  <Heart className="w-3 h-3 fill-white" />
+                                  <span className="text-[11px] font-semibold">
+                                    Liked by
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                  {message.likes.map((like, index) => {
+                                    const liker = chat?.members?.find(
+                                      (m) => m.id === like.userId,
+                                    );
+                                    return (
+                                      <div
+                                        key={like.userId}
+                                        className="flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2 py-1 rounded-full"
+                                      >
+                                        {liker?.avatar ? (
+                                          <img
+                                            src={liker.avatar}
+                                            alt={liker.username}
+                                            className="w-4 h-4 rounded-full object-cover"
+                                          />
+                                        ) : (
+                                          <div className="w-4 h-4 rounded-full bg-white/30 flex items-center justify-center">
+                                            <span className="text-[9px] font-bold">
+                                              {liker?.username?.[0]?.toUpperCase() ||
+                                                "?"}
+                                            </span>
+                                          </div>
+                                        )}
+                                        <span className="text-[11px] font-medium">
+                                          {liker?.username || "Unknown"}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              {/* Arrow */}
+                              <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-1.5 h-1.5 bg-gradient-to-br from-rose-500 to-pink-600 rotate-45" />
+                            </div>
+                          </div>
                         )}
                       </div>
                       <p

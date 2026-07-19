@@ -27,11 +27,22 @@ export function HeartbeatAnimation({ size = 120 }: HeartbeatAnimationProps) {
 
         if (!isMounted) return;
 
-        // Try to play immediately, with multiple attempts if needed
+        // Wait for player to be ready before playing
         const tryPlay = (attempts = 0) => {
           if (playerRef.current) {
             try {
-              playerRef.current.play();
+              // Add event listener for when player is ready
+              playerRef.current.addEventListener('ready', () => {
+                if (isMounted && playerRef.current) {
+                  try {
+                    playerRef.current.play();
+                  } catch (e) {
+                    if (isMounted) {
+                      setAnimationError(true);
+                    }
+                  }
+                }
+              });
             } catch (e) {
               if (attempts < 3 && isMounted) {
                 // Retry a few times before giving up
