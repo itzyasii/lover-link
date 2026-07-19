@@ -77,7 +77,7 @@ export default function Home() {
       </header>
 
       <main className="container mx-auto px-4">
-        <section className="flex flex-col items-center text-center py-16 md:py-24">
+        <section className="flex flex-col items-center text-center py-10 md:py-16">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -89,7 +89,7 @@ export default function Home() {
                 special someone
               </span>
             </h1>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-10">
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8">
               LoverLink brings you closer to the person you love. Share moments,
               memories, and build a stronger relationship, no matter the
               distance.
@@ -106,11 +106,11 @@ export default function Home() {
         </section>
 
         {/* Features Section */}
-        <section className="py-16 md:py-24">
-          <h2 className="text-3xl md:text-4xl font-bold text-center text-gray-900 mb-12">
+        <section className="py-10 md:py-16">
+          <h2 className="text-3xl md:text-4xl font-bold text-center text-gray-900 mb-10">
             Everything you need to stay connected
           </h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
             {features.map((feature, index) => {
               const Icon = feature.icon;
               return (
@@ -119,7 +119,7 @@ export default function Home() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: index * 0.1 }}
-                  className="bg-white/70 backdrop-blur-sm rounded-3xl p-6 border border-rose-100 shadow-sm hover:shadow-lg transition-shadow"
+                  className="bg-white/70 backdrop-blur-sm rounded-3xl p-5 border border-rose-100 shadow-sm hover:shadow-lg transition-shadow"
                 >
                   <div className="w-14 h-14 rounded-2xl bg-rose-100 flex items-center justify-center mb-4">
                     <Icon className="w-7 h-7 text-rose-500" />
@@ -135,8 +135,8 @@ export default function Home() {
         </section>
 
         {/* CTA Section */}
-        <section className="py-16 md:py-24">
-          <div className="bg-linear-to-r from-rose-500 to-pink-500 rounded-3xl p-8 md:p-12 text-center text-white">
+        <section className="py-10 md:py-16">
+          <div className="bg-linear-to-r from-rose-500 to-pink-500 rounded-3xl p-6 md:p-10 text-center text-white">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
               Ready to start your love story?
             </h2>

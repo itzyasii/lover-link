@@ -141,11 +141,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 lg:overflow-auto">
+        <main className="flex-1 lg:overflow-hidden">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="min-h-full p-4 lg:p-8"
+            className="h-full p-2 lg:p-4"
           >
             {children}
           </motion.div>

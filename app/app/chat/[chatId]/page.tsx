@@ -165,7 +165,9 @@ export default function ChatRoomPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Block check as required by CHATS_API.md
   const isBlockedEitherWay = (userId1: string, userId2: string): boolean => {
@@ -1089,33 +1091,56 @@ export default function ChatRoomPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-4rem)] lg:h-screen flex flex-col relative overflow-hidden bg-linear-to-br from-rose-100 via-pink-50 to-rose-100">
-      {/* Animated background hearts */}
+    <div className="h-[calc(100vh-2rem)] lg:h-[calc(100vh-2rem)] w-full flex flex-col relative overflow-hidden bg-gradient-to-br from-rose-100 via-pink-50 to-rose-100 rounded-2xl">
+      {/* Enhanced animated background with subtle particles */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {hearts.map((heart) => (
           <FloatingHeart key={heart.id} delay={heart.delay} x={heart.x} />
         ))}
+        {/* Additional romantic particles */}
+        <motion.div
+          animate={{
+            y: [0, -30, 0],
+            x: [0, 15, -15, 0],
+            opacity: [0.2, 0.4, 0.2],
+          }}
+          transition={{ duration: 6, repeat: Infinity, delay: 0.5 }}
+          className="absolute top-1/4 left-1/4"
+        >
+          <Sparkles className="w-4 h-4 text-pink-300" />
+        </motion.div>
+        <motion.div
+          animate={{
+            y: [0, -25, 0],
+            x: [0, -10, 10, 0],
+            opacity: [0.15, 0.35, 0.15],
+          }}
+          transition={{ duration: 7, repeat: Infinity, delay: 2 }}
+          className="absolute top-1/3 right-1/4"
+        >
+          <Sparkles className="w-3 h-3 text-rose-300" />
+        </motion.div>
       </div>
 
-      {/* Clicked floating hearts */}
+      {/* Enhanced floating hearts with multiple heart styles */}
       <AnimatePresence>
         {messageHearts.map((mh) => (
           <motion.div
             key={mh.id}
             initial={{ y: 0, scale: 0, opacity: 1 }}
-            animate={{ y: -200, scale: 2, opacity: 0 }}
+            animate={{ y: -350, scale: 2.5, rotate: 360, opacity: 0 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 2, ease: "easeOut" }}
+            transition={{ duration: 2.5, ease: "easeOut" }}
             className="fixed pointer-events-none z-50"
             style={{ left: mh.x, top: mh.y }}
           >
-            <Heart className="w-12 h-12 text-rose-500 fill-rose-500 drop-shadow-lg" />
+            <Heart className="w-16 h-16 text-rose-500 fill-rose-500 drop-shadow-2xl" />
           </motion.div>
         ))}
       </AnimatePresence>
 
-      {/* Romantic Header */}
-      <header className="relative z-10 bg-linear-to-r from-rose-400/90 via-pink-400/90 to-rose-400/90 backdrop-blur-xl border-b border-rose-200/50 p-4 shadow-lg shadow-rose-200/50">
+      {/* Enhanced Romantic Header with glassmorphism */}
+      <header className="relative z-20 w-full bg-linear-to-r from-rose-400/95 via-pink-400/95 to-rose-400/95 backdrop-blur-2xl border-b border-rose-200/60 p-3 md:p-3 shadow-2xl shadow-rose-300/60 shrink-0">
         <div className="absolute inset-0 overflow-hidden">
           <motion.div
             animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3] }}
@@ -1133,7 +1158,7 @@ export default function ChatRoomPage() {
           </motion.div>
         </div>
 
-        <div className="max-w-4xl mx-auto flex items-center gap-4 relative">
+        <div className="max-w-4xl mx-auto flex items-center gap-3 relative">
           <button
             onClick={() => router.back()}
             className="p-2 rounded-full hover:bg-white/20 transition-all duration-300 lg:hidden backdrop-blur-sm"
@@ -1147,8 +1172,8 @@ export default function ChatRoomPage() {
             transition={{ type: "spring", bounce: 0.5 }}
             className="relative"
           >
-            <div className="w-16 h-16 rounded-full bg-linear-to-br from-white to-rose-100 flex items-center justify-center shadow-xl shadow-rose-300/50 ring-4 ring-white/50">
-              <span className="bg-linear-to-br from-rose-500 to-pink-500 bg-clip-text text-transparent font-bold text-2xl">
+            <div className="w-12 h-12 md:w-20 md:h-20 rounded-full bg-linear-to-br from-white to-rose-100 flex items-center justify-center shadow-2xl shadow-rose-300/60 ring-4 ring-white/60">
+              <span className="bg-linear-to-br from-rose-500 to-pink-500 bg-clip-text text-transparent font-bold text-2xl md:text-3xl">
                 {otherParticipant?.username?.[0]?.toUpperCase()}
               </span>
             </div>
@@ -1156,7 +1181,7 @@ export default function ChatRoomPage() {
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="absolute bottom-1 right-1 w-4 h-4 bg-green-400 rounded-full border-3 border-white shadow-lg"
+                className="absolute bottom-1 right-1 w-4 h-4 md:w-5 md:h-5 bg-green-400 rounded-full border-4 border-white shadow-xl"
               >
                 <motion.div
                   animate={{ scale: [1, 1.5, 1] }}
@@ -1166,11 +1191,11 @@ export default function ChatRoomPage() {
               </motion.div>
             )}
             <motion.div
-              animate={{ rotate: [0, 10, -10, 0] }}
+              animate={{ rotate: [0, 10, -10, 0], scale: [1, 1.1, 1] }}
               transition={{ duration: 3, repeat: Infinity }}
-              className="absolute -top-2 -right-2"
+              className="absolute -top-3 -right-3"
             >
-              <Heart className="w-6 h-6 text-rose-300 fill-rose-300 drop-shadow-md" />
+              <Heart className="w-7 h-7 md:w-8 md:h-8 text-rose-300 fill-rose-300 drop-shadow-lg" />
             </motion.div>
           </motion.div>
 
@@ -1201,7 +1226,7 @@ export default function ChatRoomPage() {
               ) : isUserOnline === true ? (
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 bg-green-300 rounded-full animate-pulse" />
-                  Connected • {otherParticipant?.username}
+                  Online • {otherParticipant?.username}
                 </span>
               ) : (
                 <span className="text-white/70">Last seen recently</span>
@@ -1245,8 +1270,11 @@ export default function ChatRoomPage() {
           </button>
 
           {/* Chat actions menu */}
-          <div className="relative group">
-            <button className="p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm">
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className="p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
+            >
               <svg
                 className="w-5 h-5 text-white"
                 fill="none"
@@ -1261,7 +1289,9 @@ export default function ChatRoomPage() {
                 />
               </svg>
             </button>
-            <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 border border-rose-100">
+            <div
+              className={`absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl transition-all duration-200 z-50 border border-rose-100 ${isMenuOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
+            >
               <button
                 onClick={() =>
                   currentChat?.isPinned
@@ -1287,12 +1317,12 @@ export default function ChatRoomPage() {
         </div>
       </header>
 
-      {/* Romantic Messages Container */}
+      {/* Enhanced Romantic Messages Container */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto p-4 relative z-10"
+        className="flex-1 overflow-y-auto p-2 md:p-3 relative z-10 scrollbar-thin scrollbar-thumb-rose-300 scrollbar-track-transparent"
       >
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="w-full mx-auto space-y-6 md:space-y-8">
           {/* Loading more indicator */}
           {isLoadingMore && (
             <div className="flex justify-center">
@@ -1354,11 +1384,11 @@ export default function ChatRoomPage() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   className={cn(
-                    "max-w-xs sm:max-w-md lg:max-w-lg px-5 py-3 rounded-3xl relative overflow-hidden group",
+                    "max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl px-5 py-4 rounded-3xl relative overflow-hidden group",
                     isOwn
-                      ? "bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 text-white rounded-br-lg shadow-xl shadow-rose-300/70"
-                      : "bg-white/90 backdrop-blur-sm text-gray-800 rounded-bl-lg shadow-lg shadow-pink-200/50 border border-rose-100/50",
-                    isLoveMessage && "ring-2 ring-yellow-300",
+                      ? "bg-gradient-to-r from-rose-500 via-pink-500 to-rose-500 text-white rounded-br-2xl shadow-2xl shadow-rose-300/70"
+                      : "bg-white/95 backdrop-blur-md text-gray-800 rounded-bl-2xl shadow-xl shadow-pink-200/60 border border-rose-100/60",
+                    isLoveMessage && "ring-4 ring-yellow-300/70",
                     message.deletedAt && "opacity-50",
                   )}
                 >
@@ -1565,22 +1595,33 @@ export default function ChatRoomPage() {
         </div>
       </div>
 
-      {/* Romantic Message Input */}
-      <footer className="relative z-10 bg-linear-to-r from-white/95 via-rose-50/95 to-white/95 backdrop-blur-xl border-t border-rose-200/60 p-4 shadow-2xl">
+      {/* Enhanced Romantic Message Input */}
+      <footer className="relative z-10 w-full bg-gradient-to-r from-white/98 via-rose-50/98 to-white/98 backdrop-blur-2xl border-t border-rose-200/70 p-3 md:p-4 shadow-2xl flex-shrink-0">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <motion.div
-            animate={{ x: [0, 10, 0], opacity: [0.3, 0.5, 0.3] }}
-            transition={{ duration: 4, repeat: Infinity }}
-            className="absolute bottom-2 left-4"
+            animate={{ x: [0, 15, 0], y: [0, -5, 0], opacity: [0.3, 0.6, 0.3] }}
+            transition={{ duration: 5, repeat: Infinity }}
+            className="absolute bottom-4 left-8"
           >
-            <Heart className="w-8 h-8 text-rose-200 fill-rose-200" />
+            <Heart className="w-10 h-10 text-rose-200 fill-rose-200" />
           </motion.div>
           <motion.div
-            animate={{ x: [0, -10, 0], opacity: [0.2, 0.4, 0.2] }}
-            transition={{ duration: 5, repeat: Infinity, delay: 2 }}
-            className="absolute bottom-2 right-4"
+            animate={{
+              x: [0, -15, 0],
+              y: [0, -8, 0],
+              opacity: [0.25, 0.5, 0.25],
+            }}
+            transition={{ duration: 6, repeat: Infinity, delay: 2.5 }}
+            className="absolute bottom-4 right-8"
           >
-            <Heart className="w-6 h-6 text-pink-200 fill-pink-200" />
+            <Heart className="w-8 h-8 text-pink-200 fill-pink-200" />
+          </motion.div>
+          <motion.div
+            animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
+            transition={{ duration: 4, repeat: Infinity, delay: 1 }}
+            className="absolute bottom-6 left-1/2 transform -translate-x-1/2"
+          >
+            <Sparkles className="w-6 h-6 text-pink-300" />
           </motion.div>
         </div>
 
@@ -1644,11 +1685,11 @@ export default function ChatRoomPage() {
 
         <form
           onSubmit={handleSendMessage}
-          className="max-w-4xl mx-auto flex items-center gap-3 relative"
+          className="max-w-4xl mx-auto flex items-center gap-2 relative"
         >
           <button
             type="button"
-            className="p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
+            className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
           >
             <Smile className="w-5 h-5 text-rose-400" />
           </button>
@@ -1656,7 +1697,7 @@ export default function ChatRoomPage() {
           <button
             type="button"
             onClick={sendLoveHeart}
-            className="p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90"
+            className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90"
           >
             <motion.div
               animate={{ scale: [1, 1.1, 1] }}
@@ -1672,24 +1713,24 @@ export default function ChatRoomPage() {
             value={newMessage}
             onChange={handleInputChange}
             placeholder="Write something sweet..."
-            className="flex-1 px-6 py-3.5 rounded-full bg-linear-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/50 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300"
+            className="flex-1 px-5 py-3 md:py-3.5 rounded-full bg-gradient-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-base md:text-lg"
           />
 
           <button
             type="button"
-            className="p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
+            className="p-2.5 md:p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
           >
-            <Mic className="w-5 h-5 text-rose-400" />
+            <Mic className="w-5 h-5 md:w-5.5 md:h-5.5 text-rose-400" />
           </button>
 
           <motion.button
             type="submit"
             disabled={!newMessage.trim() || sendMessageMutation.isPending}
-            whileHover={{ scale: 1.1 }}
+            whileHover={{ scale: 1.15 }}
             whileTap={{ scale: 0.9 }}
-            className="p-4 rounded-full bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-xl shadow-rose-400/60 disabled:hover:scale-100"
+            className="p-3 md:p-3.5 rounded-full bg-gradient-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-2xl shadow-rose-400/70 disabled:hover:scale-100"
           >
-            <Send className="w-5 h-5 text-white" />
+            <Send className="w-5 h-5 md:w-5.5 md:h-5.5 text-white" />
           </motion.button>
         </form>
       </footer>
