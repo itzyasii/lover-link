@@ -1091,7 +1091,7 @@ export default function ChatRoomPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-2rem)] lg:h-[calc(100vh-2rem)] w-full flex flex-col relative overflow-hidden bg-gradient-to-br from-rose-100 via-pink-50 to-rose-100 rounded-2xl">
+    <div className="h-[calc(100vh-2rem)] lg:h-[calc(100vh-2rem)] w-full flex flex-col relative overflow-hidden bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 rounded-2xl">
       {/* Enhanced animated background with subtle particles */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {hearts.map((heart) => (
@@ -1173,7 +1173,7 @@ export default function ChatRoomPage() {
             className="relative"
           >
             <div className="w-12 h-12 md:w-20 md:h-20 rounded-full bg-linear-to-br from-white to-rose-100 flex items-center justify-center shadow-2xl shadow-rose-300/60 ring-4 ring-white/60">
-              <span className="bg-linear-to-br from-rose-500 to-pink-500 bg-clip-text text-transparent font-bold text-2xl md:text-3xl">
+              <span className="bg-linear-to-br from-rose-500 to-pink-500 bg-clip-text text-transparent font-bold text-1xl md:text-2xl">
                 {otherParticipant?.username?.[0]?.toUpperCase()}
               </span>
             </div>
@@ -1386,7 +1386,7 @@ export default function ChatRoomPage() {
                   className={cn(
                     "max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl px-5 py-4 rounded-3xl relative overflow-hidden group",
                     isOwn
-                      ? "bg-gradient-to-r from-rose-500 via-pink-500 to-rose-500 text-white rounded-br-2xl shadow-2xl shadow-rose-300/70"
+                      ? "bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 text-white rounded-br-2xl shadow-2xl shadow-rose-300/70"
                       : "bg-white/95 backdrop-blur-md text-gray-800 rounded-bl-2xl shadow-xl shadow-pink-200/60 border border-rose-100/60",
                     isLoveMessage && "ring-4 ring-yellow-300/70",
                     message.deletedAt && "opacity-50",
@@ -1596,7 +1596,7 @@ export default function ChatRoomPage() {
       </div>
 
       {/* Enhanced Romantic Message Input */}
-      <footer className="relative z-10 w-full bg-gradient-to-r from-white/98 via-rose-50/98 to-white/98 backdrop-blur-2xl border-t border-rose-200/70 p-3 md:p-4 shadow-2xl flex-shrink-0">
+      <footer className="relative z-10 w-full bg-linear-to-r from-white/98 via-rose-50/98 to-white/98 backdrop-blur-2xl border-t border-rose-200/70 p-3 md:p-4 shadow-2xl shrink-0">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <motion.div
             animate={{ x: [0, 15, 0], y: [0, -5, 0], opacity: [0.3, 0.6, 0.3] }}
@@ -1713,7 +1713,7 @@ export default function ChatRoomPage() {
             value={newMessage}
             onChange={handleInputChange}
             placeholder="Write something sweet..."
-            className="flex-1 px-5 py-3 md:py-3.5 rounded-full bg-gradient-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-base md:text-lg"
+            className="flex-1 px-5 py-3 md:py-3.5 rounded-full bg-linear-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-base md:text-lg"
           />
 
           <button
@@ -1728,7 +1728,7 @@ export default function ChatRoomPage() {
             disabled={!newMessage.trim() || sendMessageMutation.isPending}
             whileHover={{ scale: 1.15 }}
             whileTap={{ scale: 0.9 }}
-            className="p-3 md:p-3.5 rounded-full bg-gradient-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-2xl shadow-rose-400/70 disabled:hover:scale-100"
+            className="p-3 md:p-3.5 rounded-full bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-2xl shadow-rose-400/70 disabled:hover:scale-100"
           >
             <Send className="w-5 h-5 md:w-5.5 md:h-5.5 text-white" />
           </motion.button>
