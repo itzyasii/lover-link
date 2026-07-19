@@ -39,6 +39,31 @@ export function RealtimeListener() {
     try {
       const socket = getSocket();
 
+      // Add socket connection debugging
+      console.log("[Socket] Initializing listeners, socket state:", {
+        id: socket.id,
+        connected: socket.connected,
+        disconnected: socket.disconnected,
+      });
+
+      // Log all socket events for debugging
+      socket.onAny((eventName, ...args) => {
+        console.log(`[Socket:any] Received event "${eventName}":`, args);
+      });
+
+      // Log connection status changes
+      socket.on("connect", () => {
+        console.log("[Socket] Connected successfully, socket ID:", socket.id);
+      });
+
+      socket.on("disconnect", (reason) => {
+        console.log("[Socket] Disconnected. Reason:", reason);
+      });
+
+      socket.on("connect_error", (error) => {
+        console.error("[Socket] Connection error:", error);
+      });
+
       // ============================================
       // Presence & Online Status Events (REALTIME_EVENTS.md)
       // ============================================
@@ -97,13 +122,59 @@ export function RealtimeListener() {
       socket.on(
         "chat:message",
         ({ chatId, message }: ChatMessageServerEvent) => {
+          // Debug log to inspect raw message data
+          console.log("[Socket:chat:message] Raw incoming message:", {
+            chatId,
+            message,
+            createdAtType: typeof message.createdAt,
+            createdAtValue: message.createdAt,
+            isDate: message.createdAt instanceof Date,
+            hasToISOString:
+              typeof message.createdAt?.toISOString === "function",
+          });
+
+          // Properly normalize createdAt regardless of format
+          let normalizedCreatedAt: string;
+          if (typeof message.createdAt === "string") {
+            normalizedCreatedAt = message.createdAt;
+          } else if (message.createdAt instanceof Date) {
+            normalizedCreatedAt = message.createdAt.toISOString();
+          } else if (
+            typeof message.createdAt === "object" &&
+            message.createdAt !== null
+          ) {
+            // Handle MongoDB { $date: "..." } format
+            const dateObj = message.createdAt as { $date?: string };
+            if (dateObj.$date) {
+              normalizedCreatedAt = dateObj.$date;
+            } else {
+              normalizedCreatedAt = new Date().toISOString();
+              console.warn(
+                "[Socket:chat:message] Could not parse createdAt, using current time:",
+                message.createdAt,
+              );
+            }
+          } else {
+            normalizedCreatedAt = new Date().toISOString();
+            console.warn(
+              "[Socket:chat:message] Invalid createdAt type, using current time:",
+              typeof message.createdAt,
+              message.createdAt,
+            );
+          }
+
+          console.log(
+            "[Socket:chat:message] Normalized createdAt:",
+            normalizedCreatedAt,
+          );
+
           // Don't increment unread count if this message was sent by us
           if (message.from !== user.id) {
             updateChatLastMessage(chatId, {
               id: message.id,
               text: message.text || "New message",
               from: message.from,
-              createdAt: message.createdAt.toISOString(),
+              createdAt: normalizedCreatedAt,
               type:
                 message.type === "share"
                   ? message.item?.kind || "share"
@@ -120,12 +191,56 @@ export function RealtimeListener() {
 
       // `share:item` - New media/file share received
       socket.on("share:item", ({ chatId, message }: ShareItemServerEvent) => {
+        // Debug log to inspect raw share message data
+        console.log("[Socket:share:item] Raw incoming share message:", {
+          chatId,
+          message,
+          createdAtType: typeof message.createdAt,
+          createdAtValue: message.createdAt,
+          isDate: message.createdAt instanceof Date,
+        });
+
+        // Properly normalize createdAt regardless of format
+        let normalizedCreatedAt: string;
+        if (typeof message.createdAt === "string") {
+          normalizedCreatedAt = message.createdAt;
+        } else if (message.createdAt instanceof Date) {
+          normalizedCreatedAt = message.createdAt.toISOString();
+        } else if (
+          typeof message.createdAt === "object" &&
+          message.createdAt !== null
+        ) {
+          // Handle MongoDB { $date: "..." } format
+          const dateObj = message.createdAt as { $date?: string };
+          if (dateObj.$date) {
+            normalizedCreatedAt = dateObj.$date;
+          } else {
+            normalizedCreatedAt = new Date().toISOString();
+            console.warn(
+              "[Socket:share:item] Could not parse createdAt, using current time:",
+              message.createdAt,
+            );
+          }
+        } else {
+          normalizedCreatedAt = new Date().toISOString();
+          console.warn(
+            "[Socket:share:item] Invalid createdAt type, using current time:",
+            typeof message.createdAt,
+            message.createdAt,
+          );
+        }
+
+        console.log(
+          "[Socket:share:item] Normalized createdAt:",
+          normalizedCreatedAt,
+        );
+
         if (message.from !== user.id) {
           updateChatLastMessage(chatId, {
             id: message.id,
             text: message.item?.originalName || "Shared media",
             from: message.from,
-            createdAt: message.createdAt.toISOString(),
+            createdAt: normalizedCreatedAt,
             type: "share",
             itemKind: message.item?.kind,
           });

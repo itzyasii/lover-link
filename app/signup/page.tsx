@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Eye, EyeOff, Heart, Mail, User as UserIcon } from "lucide-react";
 import { motion } from "framer-motion";
 import { Brand } from "@/components/Brand";
+import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import { useAuthStore } from "@/stores/auth";
 import { useToastStore } from "@/stores/toast";
 import { apiFetch } from "@/lib/api";
@@ -82,6 +83,11 @@ export default function SignupPage() {
       setIsLoading(false);
     }
   };
+
+  // Show heartbeat loading when creating account
+  if (isLoading) {
+    return <HeartbeatLoading fullScreen message="Creating your account..." />;
+  }
 
   return (
     <div className="min-h-screen bg-linear-to-br from-rose-50 via-pink-50 to-red-50 flex flex-col items-center justify-center p-4">

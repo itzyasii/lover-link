@@ -224,7 +224,9 @@ export default function FriendsPage() {
   };
 
   if (isLoading) {
-    return <HeartbeatLoading message="Loading your connections..." />;
+    return (
+      <HeartbeatLoading fullScreen message="Loading your connections..." />
+    );
   }
 
   return (

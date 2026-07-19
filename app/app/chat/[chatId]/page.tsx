@@ -189,31 +189,85 @@ export default function ChatRoomPage() {
       if (cursor) url += `&cursor=${cursor}`;
 
       try {
+        // Debug log for API message fetch
+        console.log("[Chat:fetchMessages] Fetching messages from API:", url);
+
         const response = await apiFetch<{
           ok: boolean;
           messages: Message[];
           nextCursor: string | null;
         }>(url);
+
+        console.log("[Chat:fetchMessages] API response received:", {
+          ok: response.ok,
+          messageCount: response.messages?.length,
+          firstMessage: response.messages?.[0]
+            ? {
+                id: response.messages[0].id,
+                createdAt: response.messages[0].createdAt,
+                createdAtType: typeof response.messages[0].createdAt,
+              }
+            : null,
+        });
+
         if (response.ok) {
-          // Normalize MongoDB ObjectIds
-          const normalizedMessages = response.messages.map((msg) => ({
-            ...msg,
-            id:
-              (msg as unknown as { _id?: { $oid: string } })._id?.$oid ||
-              msg.id,
-            chatId:
-              (msg as unknown as { chatId?: { $oid: string } }).chatId?.$oid ||
-              msg.chatId,
-            from:
-              (msg as unknown as { from?: { $oid: string } }).from?.$oid ||
-              msg.from,
-            createdAt:
-              (msg as unknown as { createdAt?: { $date: string } }).createdAt
-                ?.$date || msg.createdAt,
-            updatedAt:
-              (msg as unknown as { updatedAt?: { $date: string } }).updatedAt
-                ?.$date || msg.updatedAt,
-          }));
+          // Normalize MongoDB ObjectIds and dates
+          const normalizedMessages = response.messages.map((msg) => {
+            // Debug individual message
+            console.log("[Chat:fetchMessages] Processing message:", {
+              id: msg.id,
+              rawCreatedAt: msg.createdAt,
+              rawCreatedAtType: typeof msg.createdAt,
+            });
+
+            // Normalize createdAt properly
+            let normalizedCreatedAt: string;
+            if (typeof msg.createdAt === "string") {
+              normalizedCreatedAt = msg.createdAt;
+            } else if (
+              typeof msg.createdAt === "object" &&
+              msg.createdAt !== null
+            ) {
+              // Handle MongoDB { $date: "..." } format
+              const dateObj = msg.createdAt as { $date?: string };
+              normalizedCreatedAt = dateObj.$date || new Date().toISOString();
+            } else {
+              normalizedCreatedAt = new Date().toISOString();
+              console.warn(
+                "[Chat:fetchMessages] Invalid createdAt format, using current time:",
+                msg.createdAt,
+              );
+            }
+
+            // Normalize updatedAt similarly
+            let normalizedUpdatedAt: string;
+            if (typeof msg.updatedAt === "string") {
+              normalizedUpdatedAt = msg.updatedAt;
+            } else if (
+              typeof msg.updatedAt === "object" &&
+              msg.updatedAt !== null
+            ) {
+              const dateObj = msg.updatedAt as { $date?: string };
+              normalizedUpdatedAt = dateObj.$date || new Date().toISOString();
+            } else {
+              normalizedUpdatedAt = new Date().toISOString();
+            }
+
+            return {
+              ...msg,
+              id:
+                (msg as unknown as { _id?: { $oid: string } })._id?.$oid ||
+                msg.id,
+              chatId:
+                (msg as unknown as { chatId?: { $oid: string } }).chatId
+                  ?.$oid || msg.chatId,
+              from:
+                (msg as unknown as { from?: { $oid: string } }).from?.$oid ||
+                msg.from,
+              createdAt: normalizedCreatedAt,
+              updatedAt: normalizedUpdatedAt,
+            };
+          });
 
           if (cursor) {
             setMessages((prev) => [...normalizedMessages, ...prev]);
@@ -612,17 +666,127 @@ export default function ChatRoomPage() {
       const handleChatMessage = ({
         chatId: eventChatId,
         message,
-      }: import("@/types/realtime-events").ChatMessageServerEvent) => {
+      }:
+        | import("@/types/realtime-events").ChatMessageServerEvent
+        | import("@/types/realtime-events").ShareItemServerEvent) => {
         if (eventChatId === chatId) {
           // Normalize the incoming message and add to local state
-          const normalizedReceipts = message.receipts.map((receipt) => ({
-            userId: receipt.userId,
-            status:
-              receipt.status === "listened"
-                ? "read"
-                : (receipt.status as "delivered" | "read"),
-            timestamp: receipt.timestamp,
-          }));
+          // Normalize reactions timestamps
+          const normalizedReactions = message.reactions.map((reaction) => {
+            const rawCreatedAt = (
+              reaction as unknown as {
+                createdAt?: { $date: string } | Date | string;
+              }
+            ).createdAt;
+            // Handle MongoDB {$date: "iso-string"} format
+            if (
+              rawCreatedAt &&
+              typeof rawCreatedAt === "object" &&
+              "$date" in rawCreatedAt
+            ) {
+              return {
+                ...reaction,
+                createdAt: rawCreatedAt.$date,
+              };
+            }
+            // Handle Date object
+            if (
+              rawCreatedAt !== null &&
+              typeof rawCreatedAt === "object" &&
+              "toISOString" in rawCreatedAt
+            ) {
+              return {
+                ...reaction,
+                createdAt: (rawCreatedAt as Date).toISOString(),
+              };
+            }
+            // Already a string
+            return {
+              ...reaction,
+              createdAt: rawCreatedAt as string,
+            };
+          });
+
+          // Normalize receipts timestamps
+          const normalizedReceipts = message.receipts.map((receipt) => {
+            const rawTimestamp = (
+              receipt as unknown as {
+                timestamp?: { $date: string } | Date | string;
+              }
+            ).timestamp;
+            // Handle MongoDB {$date: "iso-string"} format
+            if (
+              rawTimestamp &&
+              typeof rawTimestamp === "object" &&
+              "$date" in rawTimestamp
+            ) {
+              return {
+                userId: receipt.userId,
+                status:
+                  receipt.status === "listened"
+                    ? "read"
+                    : (receipt.status as "delivered" | "read"),
+                timestamp: rawTimestamp.$date,
+              };
+            }
+            // Handle Date object
+            if (
+              rawTimestamp !== null &&
+              typeof rawTimestamp === "object" &&
+              "toISOString" in rawTimestamp
+            ) {
+              return {
+                userId: receipt.userId,
+                status:
+                  receipt.status === "listened"
+                    ? "read"
+                    : (receipt.status as "delivered" | "read"),
+                timestamp: (rawTimestamp as Date).toISOString(),
+              };
+            }
+            // Already a string
+            return {
+              userId: receipt.userId,
+              status:
+                receipt.status === "listened"
+                  ? "read"
+                  : (receipt.status as "delivered" | "read"),
+              timestamp: rawTimestamp as string,
+            };
+          });
+
+          // Normalize editedAt and deletedAt if they exist
+          const normalizedEditedAt = message.editedAt
+            ? (() => {
+                const rawEditedAt =
+                  (message.editedAt as unknown as { $date?: string })?.$date ||
+                  message.editedAt;
+                if (
+                  rawEditedAt !== null &&
+                  typeof rawEditedAt === "object" &&
+                  "toISOString" in rawEditedAt
+                ) {
+                  return (rawEditedAt as Date).toISOString();
+                }
+                return rawEditedAt as string;
+              })()
+            : undefined;
+
+          const normalizedDeletedAt = message.deletedAt
+            ? (() => {
+                const rawDeletedAt =
+                  (message.deletedAt as unknown as { $date?: string })?.$date ||
+                  message.deletedAt;
+                if (
+                  rawDeletedAt !== null &&
+                  typeof rawDeletedAt === "object" &&
+                  "toISOString" in rawDeletedAt
+                ) {
+                  return (rawDeletedAt as Date).toISOString();
+                }
+                return rawDeletedAt as string;
+              })()
+            : undefined;
 
           const normalizedMessage: Message = {
             ...message,
@@ -636,19 +800,42 @@ export default function ChatRoomPage() {
               (message as unknown as { from?: { $oid: string } }).from?.$oid ||
               message.from,
             clientMessageId: message.clientMessageId || undefined,
+            reactions: normalizedReactions,
             receipts: normalizedReceipts,
-            editedAt: message.editedAt
-              ? (message.editedAt as unknown as string)
-              : undefined,
-            deletedAt: message.deletedAt
-              ? (message.deletedAt as unknown as string)
-              : undefined,
-            createdAt:
-              (message as unknown as { createdAt?: { $date: string } })
-                .createdAt?.$date || (message.createdAt as unknown as string),
-            updatedAt:
-              (message as unknown as { updatedAt?: { $date: string } })
-                .updatedAt?.$date || (message.createdAt as unknown as string),
+            editedAt: normalizedEditedAt,
+            deletedAt: normalizedDeletedAt,
+            createdAt: (() => {
+              const rawCreatedAt =
+                (message as unknown as { createdAt?: { $date: string } })
+                  .createdAt?.$date || message.createdAt;
+              // If it's already a Date object, convert to ISO string
+              if (
+                rawCreatedAt &&
+                typeof rawCreatedAt === "object" &&
+                rawCreatedAt !== null &&
+                "toISOString" in rawCreatedAt
+              ) {
+                return (rawCreatedAt as Date).toISOString();
+              }
+              return rawCreatedAt as string;
+            })(),
+            updatedAt: (() => {
+              const rawUpdatedAt =
+                (message as unknown as { updatedAt?: { $date: string } })
+                  .updatedAt?.$date ||
+                message.updatedAt ||
+                message.createdAt;
+              // If it's already a Date object, convert to ISO string
+              if (
+                rawUpdatedAt &&
+                typeof rawUpdatedAt === "object" &&
+                rawUpdatedAt !== null &&
+                "toISOString" in rawUpdatedAt
+              ) {
+                return (rawUpdatedAt as Date).toISOString();
+              }
+              return rawUpdatedAt as string;
+            })(),
           };
 
           // Add new message to local state so it appears immediately

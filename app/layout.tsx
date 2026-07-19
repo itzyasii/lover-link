@@ -17,6 +17,11 @@ export const metadata: Metadata = {
   description:
     "A romantic chat application for couples to stay connected, share moments, and nurture their love.",
   keywords: ["love", "couple", "chat", "relationship", "romance", "loverlink"],
+  icons: {
+    icon: "/logo.svg",
+    shortcut: "/logo.svg",
+    apple: "/logo.svg",
+  },
 };
 
 export default function RootLayout({

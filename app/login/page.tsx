@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Eye, EyeOff, Heart, User } from "lucide-react";
 import { motion } from "framer-motion";
 import { Brand } from "@/components/Brand";
+import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import { useAuthStore } from "@/stores/auth";
 import { useToastStore } from "@/stores/toast";
 import { apiFetch } from "@/lib/api";
@@ -74,6 +75,11 @@ export default function LoginPage() {
   const handleGoogleLogin = async () => {
     window.location.href = `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/auth/oauth/google/url`;
   };
+
+  // Show heartbeat loading when processing login
+  if (isLoading) {
+    return <HeartbeatLoading fullScreen message="Signing you in..." />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4">

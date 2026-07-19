@@ -6,6 +6,7 @@ import { Heart, MessageCircle, Video, Bell, Shield } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuthStore } from "@/stores/auth";
 import { Brand } from "@/components/Brand";
+import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import Link from "next/link";
 
 export default function Home() {
@@ -19,8 +20,13 @@ export default function Home() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  // If still loading or already authenticated, don't show landing page
-  if (isLoading || isAuthenticated) {
+  // If still loading, show heartbeat animation
+  if (isLoading) {
+    return <HeartbeatLoading fullScreen />;
+  }
+
+  // If already authenticated, redirect (don't show landing page)
+  if (isAuthenticated) {
     return null;
   }
 

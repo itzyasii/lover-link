@@ -183,6 +183,11 @@ export default function CallsPage() {
     return isOutgoing ? "outgoing" : "incoming";
   };
 
+  // Show heartbeat loading when fetching calls
+  if (isLoading) {
+    return <HeartbeatLoading fullScreen message="Loading calls..." />;
+  }
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">

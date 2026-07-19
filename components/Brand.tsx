@@ -1,6 +1,6 @@
 "use client";
 
-import { Heart } from "lucide-react";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -17,18 +17,22 @@ export function Brand({ size = "md", showLogo = true, className }: BrandProps) {
     lg: "text-4xl",
   };
 
-  const heartSizes = {
-    sm: 16,
-    md: 24,
-    lg: 36,
+  const logoSizes = {
+    sm: 24,
+    md: 36,
+    lg: 52,
   };
 
   return (
     <Link href="/" className={cn("flex items-center gap-2", className)}>
       {showLogo && (
-        <Heart
-          size={heartSizes[size]}
-          className="text-rose-500 fill-rose-500 animate-pulse"
+        <Image
+          src="/logo.svg"
+          alt="LoverLink Logo"
+          width={logoSizes[size]}
+          height={logoSizes[size]}
+          className="animate-pulse"
+          priority
         />
       )}
       <span

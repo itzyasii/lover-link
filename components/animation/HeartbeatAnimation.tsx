@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { DotLottiePlayer } from "@dotlottie/player-component";
 import { Heart } from "lucide-react";
 import { motion } from "framer-motion";
@@ -18,57 +18,83 @@ export function HeartbeatAnimation({ size = 120 }: HeartbeatAnimationProps) {
 
   useEffect(() => {
     // Dynamically import the client-side only module
-    import("@dotlottie/player-component")
-      .then(() => {
-        // Small delay to ensure player is fully initialized in the DOM
-        setTimeout(() => {
-          try {
-            playerRef.current?.play();
-          } catch (e) {
-            console.warn(
-              "[HeartbeatAnimation] Failed to play lottie animation:",
-              e,
-            );
+    let isMounted = true;
+
+    const loadPlayer = async () => {
+      try {
+        // Import and register the player component
+        await import("@dotlottie/player-component");
+
+        if (!isMounted) return;
+
+        // Try to play immediately, with multiple attempts if needed
+        const tryPlay = (attempts = 0) => {
+          if (playerRef.current) {
+            try {
+              playerRef.current.play();
+            } catch (e) {
+              if (attempts < 3 && isMounted) {
+                // Retry a few times before giving up
+                setTimeout(() => tryPlay(attempts + 1), 200);
+              } else if (isMounted) {
+                setAnimationError(true);
+              }
+            }
+          } else if (attempts < 3 && isMounted) {
+            // Player ref not ready yet, retry
+            setTimeout(() => tryPlay(attempts + 1), 200);
+          } else if (isMounted) {
             setAnimationError(true);
           }
-        }, 100);
-      })
-      .catch((e) => {
-        console.warn("[HeartbeatAnimation] Failed to load lottie player:", e);
-        setAnimationError(true);
-      });
+        };
+
+        tryPlay();
+      } catch (e) {
+        if (isMounted) {
+          setAnimationError(true);
+        }
+      }
+    };
+
+    loadPlayer();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleSvgError = () => {
-    console.warn(
-      "[HeartbeatAnimation] Failed to load SVG animation, falling back to lucide heart",
-    );
     setUseSvgFallback(true);
+  };
+
+  const handleLottieError = (e: SyntheticEvent<HTMLElement>) => {
+    setAnimationError(true);
   };
 
   return (
     <>
       {!animationError ? (
-        // Primary: Lottie animation from components/animation folder
+        // Primary: Lottie animation from public root (fixed path)
         <dotlottie-player
           ref={playerRef}
           style={{ width: size, height: size }}
           loop={true}
           autoplay={true}
           src={heartbeatLottieUrl}
-          onError={() => setAnimationError(true)}
+          onError={handleLottieError}
         />
       ) : !useSvgFallback ? (
-        // First fallback: SVG animation from public/animation folder (Next.js standard static file serving)
+        // First fallback: SVG animation from public/animation folder
         <div style={{ width: size, height: size }}>
           <Image
             src={heartbeatSvgUrl}
             alt="Loading heartbeat"
             width={size}
             height={size}
-            className="w-full h-full"
+            className="w-full h-full object-contain"
             onError={handleSvgError}
             priority
+            unoptimized // SVG doesn't need optimization
           />
         </div>
       ) : (

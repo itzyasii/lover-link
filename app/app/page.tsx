@@ -70,7 +70,9 @@ export default function ChatsPage() {
   });
 
   if (isLoading && chats.length === 0) {
-    return <HeartbeatLoading message="Loading your conversations..." />;
+    return (
+      <HeartbeatLoading fullScreen message="Loading your conversations..." />
+    );
   }
 
   if (error) {
