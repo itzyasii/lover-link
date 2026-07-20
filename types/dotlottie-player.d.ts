@@ -6,8 +6,8 @@ declare module "react" {
       "dotlottie-player": React.DetailedHTMLProps<
         React.HTMLAttributes<HTMLElement> & {
           src?: string;
-          autoplay?: boolean;
-          loop?: boolean;
+          autoplay?: string | boolean;
+          loop?: string | boolean;
           background?: string;
           speed?: number;
         },
@@ -16,8 +16,8 @@ declare module "react" {
       "dotlottie-wc": React.DetailedHTMLProps<
         React.HTMLAttributes<HTMLElement> & {
           src?: string;
-          autoplay?: boolean;
-          loop?: boolean;
+          autoplay?: string | boolean;
+          loop?: string | boolean;
           background?: string;
           speed?: number;
         },

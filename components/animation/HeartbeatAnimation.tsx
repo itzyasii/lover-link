@@ -32,7 +32,7 @@ export function HeartbeatAnimation({ size = 120 }: HeartbeatAnimationProps) {
           if (playerRef.current) {
             try {
               // Add event listener for when player is ready
-              playerRef.current.addEventListener('ready', () => {
+              playerRef.current.addEventListener("ready", () => {
                 if (isMounted && playerRef.current) {
                   try {
                     playerRef.current.play();
@@ -89,8 +89,8 @@ export function HeartbeatAnimation({ size = 120 }: HeartbeatAnimationProps) {
         <dotlottie-player
           ref={playerRef}
           style={{ width: size, height: size }}
-          loop={true}
-          autoplay={true}
+          loop="true"
+          autoplay="true"
           src={heartbeatLottieUrl}
           onError={handleLottieError}
         />

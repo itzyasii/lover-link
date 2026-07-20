@@ -23,7 +23,7 @@ import { useToastStore } from "@/stores/toast";
 import { apiFetch, apiFormData } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { env } from "@/lib/env";
-import { VoiceRecorder } from "@/components/chat/VoiceRecorder";
+import { AudioRecorderUI } from "@/components/chat/AudioRecorderUI";
 import { VoiceNotePlayer } from "@/components/chat/VoiceNotePlayer";
 import { formatTime } from "@/lib/utils";
 import { HeartbeatLoading } from "@/components/HeartbeatLoading";
@@ -1056,6 +1056,7 @@ export default function ChatRoomPage() {
   const handleSendVoiceNote = async (blob: Blob, duration: number) => {
     if (!chatId || !user?.id) return;
 
+    setIsRecording(false);
     setIsUploadingVoice(true);
     try {
       const formData = new FormData();
@@ -1095,7 +1096,6 @@ export default function ChatRoomPage() {
       addToast("Failed to send voice note", "error");
     } finally {
       setIsUploadingVoice(false);
-      setIsRecording(false);
     }
   };
 
@@ -1912,7 +1912,7 @@ export default function ChatRoomPage() {
           className="max-w-4xl mx-auto flex items-center gap-2 relative"
         >
           {isRecording ? (
-            <VoiceRecorder
+            <AudioRecorderUI
               onSend={handleSendVoiceNote}
               onCancel={() => setIsRecording(false)}
             />
