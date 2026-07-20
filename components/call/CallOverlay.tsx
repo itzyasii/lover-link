@@ -257,6 +257,7 @@ export function CallOverlay() {
                 autoPlay
                 playsInline
                 muted
+                style={{ transform: "scaleX(-1)" }}
                 className={cn(
                   "w-full h-full object-cover",
                   isVideoOff && "invisible",
