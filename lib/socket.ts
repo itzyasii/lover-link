@@ -22,12 +22,15 @@ export function getSocket(): Socket<
       );
     }
 
-    socket = io(env.API_BASE_URL, {
+    socket = io(env.SOCKET_URL, {
       auth: {
         accessToken: accessToken,
         userId: user.id,
       },
       autoConnect: true,
+      // The API endpoint supports WebSocket upgrades. Avoid XHR polling, which
+      // can fail in the browser even when the backend is reachable.
+      transports: ["websocket"],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
@@ -43,7 +46,7 @@ export function getSocket(): Socket<
     });
 
     socket.on("connect_error", (error) => {
-      console.error("[Socket] Connection error:", error);
+      console.warn("[Socket] Connection attempt failed:", error.message);
       if (error.message.includes("invalid access token")) {
         console.log("[Socket] Invalid token, attempting re-authentication");
       }

@@ -4,6 +4,14 @@ import { env } from "./env";
 let isRefreshing = false;
 let refreshPromise: Promise<string | null> | null = null;
 
+function getApiUrl(endpoint: string) {
+  // Browser requests stay same-origin and are forwarded by the Next.js rewrite.
+  // This avoids browser-specific cross-origin connection failures in development.
+  return typeof window === "undefined"
+    ? `${env.API_BASE_URL}${endpoint}`
+    : endpoint;
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   if (isRefreshing) {
     return refreshPromise!;
@@ -17,7 +25,7 @@ async function refreshAccessToken(): Promise<string | null> {
         return null;
       }
 
-      const response = await fetch(`${env.API_BASE_URL}/api/auth/refresh`, {
+      const response = await fetch(getApiUrl("/api/auth/refresh"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -67,7 +75,7 @@ export async function apiFetch<T>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  let response = await fetch(`${env.API_BASE_URL}${endpoint}`, {
+  let response = await fetch(getApiUrl(endpoint), {
     ...options,
     headers,
     credentials: "include",
@@ -77,7 +85,7 @@ export async function apiFetch<T>(
     const newToken = await refreshAccessToken();
     if (newToken) {
       headers.set("Authorization", `Bearer ${newToken}`);
-      response = await fetch(`${env.API_BASE_URL}${endpoint}`, {
+      response = await fetch(getApiUrl(endpoint), {
         ...options,
         headers,
         credentials: "include",
@@ -105,7 +113,7 @@ export async function apiFormData<T>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  let response = await fetch(`${env.API_BASE_URL}${endpoint}`, {
+  let response = await fetch(getApiUrl(endpoint), {
     ...options,
     method: options.method || "POST",
     headers,
@@ -117,7 +125,7 @@ export async function apiFormData<T>(
     const newToken = await refreshAccessToken();
     if (newToken) {
       headers.set("Authorization", `Bearer ${newToken}`);
-      response = await fetch(`${env.API_BASE_URL}${endpoint}`, {
+      response = await fetch(getApiUrl(endpoint), {
         ...options,
         headers,
         body: formData,

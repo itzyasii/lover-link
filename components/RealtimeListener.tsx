@@ -61,10 +61,6 @@ export function RealtimeListener() {
         console.log("[Socket] Disconnected. Reason:", reason);
       });
 
-      socket.on("connect_error", (error) => {
-        console.error("[Socket] Connection error:", error);
-      });
-
       // ============================================
       // Presence & Online Status Events (REALTIME_EVENTS.md)
       // ============================================
