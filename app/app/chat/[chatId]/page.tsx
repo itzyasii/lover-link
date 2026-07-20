@@ -175,6 +175,7 @@ export default function ChatRoomPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const lastHeartEmitRef = useRef<number>(0);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -982,7 +983,7 @@ export default function ChatRoomPage() {
           const id = crypto.randomUUID();
           const x = 50 + Math.random() * 100;
           const y = window.innerHeight - 100 - Math.random() * 50;
-          setMessageHearts((prev) => [...prev, { id, x, y }]);
+          setMessageHearts((prev) => [...prev, { id, x, y }].slice(-10));
           setTimeout(() => {
             setMessageHearts((prev) => prev.filter((h) => h.id !== id));
           }, 2000);
@@ -1177,14 +1178,16 @@ export default function ChatRoomPage() {
       const x = e.clientX || 100;
       const y = e.clientY || window.innerHeight - 100;
 
-      setMessageHearts((prev) => [
-        ...prev,
-        {
-          id,
-          x,
-          y,
-        },
-      ]);
+      setMessageHearts((prev) =>
+        [
+          ...prev,
+          {
+            id,
+            x,
+            y,
+          },
+        ].slice(-10),
+      );
 
       // Remove after animation completes
       setTimeout(() => {
@@ -1192,8 +1195,10 @@ export default function ChatRoomPage() {
       }, 2000);
 
       const socket = getSocket();
-      if (socket && chatId) {
+      const now = Date.now();
+      if (socket && chatId && now - lastHeartEmitRef.current > 100) {
         socket.emit("chat:heart", { chatId }, () => {});
+        lastHeartEmitRef.current = now;
       }
     },
     [chatId],
@@ -1294,7 +1299,7 @@ export default function ChatRoomPage() {
         {messageHearts.map((mh) => (
           <motion.div
             key={mh.id}
-            className="fixed pointer-events-none z-[100] -translate-x-1/2 -translate-y-1/2"
+            className="fixed pointer-events-none z-100 -translate-x-1/2 -translate-y-1/2"
             style={{ left: mh.x, top: mh.y }}
           >
             {/* Main soaring heart */}
@@ -1310,7 +1315,7 @@ export default function ChatRoomPage() {
               className="relative flex items-center justify-center"
             >
               <Heart className="w-20 h-20 text-rose-500 fill-rose-500 drop-shadow-[0_0_25px_rgba(244,63,94,0.9)]" />
-              
+
               {/* Confetti mini-hearts exploding outward */}
               {[...Array(8)].map((_, i) => (
                 <motion.div
@@ -1318,7 +1323,9 @@ export default function ChatRoomPage() {
                   initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
                   animate={{
                     x: Math.cos((i * 45 * Math.PI) / 180) * 120,
-                    y: Math.sin((i * 45 * Math.PI) / 180) * 120 - Math.random() * 100,
+                    y:
+                      Math.sin((i * 45 * Math.PI) / 180) * 120 -
+                      Math.random() * 100,
                     scale: Math.random() * 1.5 + 0.5,
                     rotate: Math.random() * 360,
                     opacity: 0,
@@ -1331,7 +1338,7 @@ export default function ChatRoomPage() {
                       "w-6 h-6 drop-shadow-lg",
                       i % 2 === 0
                         ? "text-pink-400 fill-pink-400"
-                        : "text-rose-400 fill-rose-400"
+                        : "text-rose-400 fill-rose-400",
                     )}
                   />
                 </motion.div>
@@ -1349,7 +1356,11 @@ export default function ChatRoomPage() {
                     rotate: 180,
                     opacity: [0, 1, 0],
                   }}
-                  transition={{ duration: 1.5 + Math.random(), ease: "easeInOut", delay: 0.2 }}
+                  transition={{
+                    duration: 1.5 + Math.random(),
+                    ease: "easeInOut",
+                    delay: 0.2,
+                  }}
                   className="absolute"
                 >
                   <Sparkles className="w-7 h-7 text-yellow-300 drop-shadow-lg" />
