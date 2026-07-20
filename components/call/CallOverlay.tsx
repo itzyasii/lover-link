@@ -64,6 +64,8 @@ export function CallOverlay() {
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  // Dedicated audio element for remote stream playback (audio calls + audio track in video)
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   // Ringtone: play for callee (incoming) and optionally caller (calling)
   useRingtone(!!incomingCall);
@@ -78,8 +80,13 @@ export function CallOverlay() {
   useEffect(() => {
     if (remoteVideoRef.current && activeCall?.remoteStream) {
       remoteVideoRef.current.srcObject = activeCall.remoteStream;
-      // Trigger play explicitly to bypass autoplay policy
       remoteVideoRef.current.play().catch(() => {});
+    }
+    // Always pipe remote stream into dedicated audio element too
+    // This guarantees audio plays on both audio and video calls
+    if (remoteAudioRef.current && activeCall?.remoteStream) {
+      remoteAudioRef.current.srcObject = activeCall.remoteStream;
+      remoteAudioRef.current.play().catch(() => {});
     }
   }, [activeCall?.remoteStream]);
 
@@ -214,12 +221,17 @@ export function CallOverlay() {
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-9999 bg-gray-900 flex flex-col"
         >
+          {/* ── Hidden audio element — plays remote audio for ALL call types ── */}
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: "none" }} />
+
           {/* ── Remote video (full screen) ── */}
           {isVideo && (
             <video
               ref={remoteVideoRef}
               autoPlay
               playsInline
+              style={{ transform: "scaleX(-1)" }}
               className={cn(
                 "absolute inset-0 w-full h-full object-cover",
                 !hasRemoteVideo && "hidden",
@@ -248,9 +260,18 @@ export function CallOverlay() {
           {isVideo && activeCall.localStream && (
             <motion.div
               drag
-              dragMomentum={false}
-              dragConstraints={{ top: 60, bottom: -10, left: -10, right: 10 }}
-              className="absolute top-24 right-4 w-28 h-36 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 cursor-move z-10"
+              dragMomentum={true}
+              dragElastic={0.1}
+              dragTransition={{ bounceStiffness: 300, bounceDamping: 30 }}
+              dragConstraints={{
+                top: 0,
+                bottom: typeof window !== "undefined" ? window.innerHeight - 180 : 600,
+                left: 0,
+                right: typeof window !== "undefined" ? window.innerWidth - 120 : 300,
+              }}
+              whileDrag={{ scale: 1.06, boxShadow: "0 20px 40px rgba(0,0,0,0.5)" }}
+              className="absolute top-24 right-4 w-28 h-36 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 cursor-grab active:cursor-grabbing z-10"
+              style={{ touchAction: "none" }}
             >
               <video
                 ref={localVideoRef}
