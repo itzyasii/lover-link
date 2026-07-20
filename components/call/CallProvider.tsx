@@ -52,6 +52,27 @@ const ICE_CONFIG: RTCConfiguration = {
 export function CallProvider({ children }: { children: React.ReactNode }) {
   const { addToast } = useToastStore();
 
+  // Reactive auth state — needed to wire socket listeners after login
+  const [authed, setAuthed] = useState(() => {
+    const { accessToken, user } = useAuthStore.getState();
+    return !!(accessToken && user?.id);
+  });
+
+  useEffect(() => {
+    return useAuthStore.subscribe((state) => {
+      setAuthed(!!(state.accessToken && state.user?.id));
+    });
+  }, []);
+
+  // Clear any stale persisted activeCall on mount — a call object can never
+  // survive a full page reload as the WebRTC peer connection is gone.
+  useEffect(() => {
+    const { activeCall } = useCallsStore.getState();
+    if (activeCall) {
+      useCallsStore.getState().clearActiveCall();
+    }
+  }, []);
+
   // UI-only state (needs to drive re-renders)
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -304,6 +325,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         addToast("Call ended", "info");
 
       cleanupWebRTC();
+      // Use clearActiveCall which clears BOTH activeCall and incomingCall
       useCallsStore.getState().clearActiveCall();
     };
 
@@ -326,9 +348,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       socket.off("call:end", onCallEnd);
       socket.off("call:missed", onCallMissed);
     };
-    // intentionally empty deps — registered once, reads state via getState()
+    // Runs whenever auth changes so listeners are re-registered after login
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authed]);
 
   // ─────────────────────────────────────────────
   // Public actions
