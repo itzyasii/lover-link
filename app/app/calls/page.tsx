@@ -1,6 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import {
   Phone,
   Video,
@@ -30,117 +31,87 @@ export default function CallsPage() {
   const isBlockedEitherWay = (userId1: string, userId2: string): boolean => {
     return blockedUsers.some((b) => b.userId === userId2);
   };
-  const { data: callsData, isLoading } = useQuery<{ calls: CallHistoryItem[] }>(
-    {
-      queryKey: ["calls"],
-      queryFn: async () => {
-        // Backend API follows GET /api/calls specification from CALLS-MESSAGES-NOTIFICATIONS-GUIDE.md
-        console.log("[CallsPage] Fetching call history from API...");
-        const response = await apiFetch<{
-          ok: boolean;
-          nextCursor: string | null;
-          calls: Array<{
-            id: string;
-            callId: string;
-            caller: {
-              id: string;
-              email: string;
-              username: string;
-            };
-            callee: {
-              id: string;
-              email: string;
-              username: string;
-            };
-            callerId: string;
-            calleeId: string;
-            status: "ended" | "cancelled" | "declined" | "missed";
-            offeredAt: string;
-            answeredAt?: string;
-            endedAt?: string;
-            endedBy?: {
-              id: string;
-              email: string;
-              username: string;
-            };
-            reason?: string;
-            media?: "audio" | "video";
-            participant?: {
-              id: string;
-              username: string;
-              avatar?: string;
-            };
-          }>;
-        }>("/api/calls");
+  const observerTarget = useRef<HTMLDivElement>(null);
 
-        console.log(
-          "[CallsPage] Raw API response received:",
-          JSON.stringify(response, null, 2),
-        );
+  const {
+    data: callsData,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage
+  } = useInfiniteQuery<{ calls: CallHistoryItem[], nextCursor: string | null }>({
+    queryKey: ["call-history"],
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      interface RawCallItem extends CallHistoryItem {
+        caller: { id: string; username: string; email?: string };
+        callee: { id: string; username: string; email?: string };
+      }
 
-        if (!response.ok) {
-          console.error("[CallsPage] API response not ok:", response);
-          throw new Error("Failed to fetch call history");
-        }
+      const url = pageParam ? `/api/calls?cursor=${pageParam}` : `/api/calls`;
+      const response = await apiFetch<{ ok: boolean, calls: RawCallItem[], nextCursor: string | null }>(url);
 
-        console.log(
-          "[CallsPage] Number of calls received from API:",
-          response.calls?.length || 0,
-        );
+      if (!response.ok) {
+        throw new Error("Failed to fetch call history");
+      }
 
-        // Map backend call format to CallHistoryItem to match store expectations
-        const mappedCalls: CallHistoryItem[] = response.calls.map(
-          (call, index) => {
-            console.log(
-              `[CallsPage] Processing call #${index}:`,
-              JSON.stringify(call, null, 2),
-            );
-            // Determine which user is the other participant in the call
-            const isCurrentUserCaller = call.callerId === currentUser?.id;
-            const participant = isCurrentUserCaller ? call.callee : call.caller;
+      const mappedCalls: CallHistoryItem[] = response.calls.map(
+        (call: RawCallItem) => {
+          const isCurrentUserCaller = call.callerId === currentUser?.id;
+          const participant = isCurrentUserCaller ? call.callee : call.caller;
 
-            const mappedCall = {
-              ...call,
-              media: call.media || "video", // Default to video if not specified
-              duration:
-                call.answeredAt && call.endedAt
-                  ? Math.floor(
-                      (new Date(call.endedAt).getTime() -
-                        new Date(call.answeredAt).getTime()) /
-                        1000,
-                    )
-                  : undefined,
-              // Ensure participant field is always set correctly for CallHistoryItem
-              participant: participant
-                ? {
-                    id: participant.id,
-                    username: participant.username,
-                    email: participant.email,
-                  }
-                : call.participant || { id: "", username: "Unknown User" },
-            };
-            console.log(
-              `[CallsPage] Mapped call #${index}:`,
-              JSON.stringify(mappedCall, null, 2),
-            );
-            return mappedCall;
-          },
-        );
+          return {
+            ...call,
+            media: call.media || "video",
+            duration:
+              call.answeredAt && call.endedAt
+                ? Math.floor(
+                    (new Date(call.endedAt).getTime() -
+                      new Date(call.answeredAt).getTime()) /
+                      1000,
+                  )
+                : undefined,
+            participant: participant
+              ? {
+                  id: participant.id,
+                  username: participant.username,
+                  email: participant.email,
+                }
+              : call.participant || { id: "", username: "Unknown User" },
+          };
+        },
+      );
 
-        console.log(
-          "[CallsPage] All mapped calls:",
-          JSON.stringify(mappedCalls, null, 2),
-        );
-
-        // Update store with properly mapped call history
+      if (!pageParam) {
         setCallHistory(mappedCalls);
-        console.log("[CallsPage] Updated call history in store");
-        return { calls: mappedCalls };
-      },
-    },
-  );
+      }
 
-  const calls = callsData?.calls || callHistory;
+      return { calls: mappedCalls, nextCursor: response.nextCursor };
+    },
+    getNextPageParam: (lastPage) => {
+      if (!lastPage) return null;
+      return lastPage.nextCursor ? lastPage.nextCursor : null;
+    },
+  });
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { threshold: 1.0 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => observer.disconnect();
+  }, [hasNextPage, fetchNextPage, isFetchingNextPage]);
+
+  const calls = callsData ? callsData.pages.flatMap(page => page.calls) : callHistory;
 
   if (isLoading) {
     return <HeartbeatLoading message="Loading call history..." />;
@@ -328,6 +299,13 @@ export default function CallsPage() {
             })}
           </div>
         )}
+        
+        {/* Pagination Observer Target */}
+        <div ref={observerTarget} className="h-10 w-full flex items-center justify-center py-4">
+          {isFetchingNextPage && (
+            <div className="w-6 h-6 border-2 border-rose-300 border-t-rose-500 rounded-full animate-spin" />
+          )}
+        </div>
       </div>
     </div>
   );

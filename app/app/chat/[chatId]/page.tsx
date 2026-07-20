@@ -175,6 +175,16 @@ export default function ChatRoomPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   // Block check as required by CHATS_API.md
   const isBlockedEitherWay = (userId1: string, userId2: string): boolean => {
     return blockedUsers.some((b) => b.userId === userId2);
@@ -965,6 +975,18 @@ export default function ChatRoomPage() {
       socket.on("chat:like", handleChatLike);
       socket.on("chat:message:edited", handleMessageEdited);
       socket.on("chat:message:deleted", handleMessageDeleted);
+      
+      socket.on("chat:heart", (data) => {
+        if (data.from !== user?.id && data.chatId === chatId) {
+          const id = crypto.randomUUID();
+          const x = 50 + Math.random() * 100;
+          const y = window.innerHeight - 100 - Math.random() * 50;
+          setMessageHearts((prev) => [...prev, { id, x, y }]);
+          setTimeout(() => {
+            setMessageHearts((prev) => prev.filter((h) => h.id !== id));
+          }, 2000);
+        }
+      });
 
       return () => {
         clearInterval(chatPingInterval);
@@ -976,6 +998,7 @@ export default function ChatRoomPage() {
         socket.off("chat:like", handleChatLike);
         socket.off("chat:message:edited", handleMessageEdited);
         socket.off("chat:message:deleted", handleMessageDeleted);
+        socket.off("chat:heart");
         // `chat:leave` - Client → Server: Notify server we've left the chat (REALTIME_EVENTS.md)
         socket.emit("chat:leave", { chatId: chatId }, (response) => {
           if (response.ok) {
@@ -1149,12 +1172,15 @@ export default function ChatRoomPage() {
   // Function to send a floating love heart
   const sendLoveHeart = useCallback((e: React.MouseEvent) => {
     const id = crypto.randomUUID();
+    const x = e.clientX || 100;
+    const y = e.clientY || window.innerHeight - 100;
+
     setMessageHearts((prev) => [
       ...prev,
       {
         id,
-        x: e.clientX,
-        y: e.clientY,
+        x,
+        y,
       },
     ]);
 
@@ -1162,7 +1188,12 @@ export default function ChatRoomPage() {
     setTimeout(() => {
       setMessageHearts((prev) => prev.filter((h) => h.id !== id));
     }, 2000);
-  }, []);
+
+    const socket = getSocket();
+    if (socket && chatId) {
+      socket.emit("chat:heart", { chatId });
+    }
+  }, [chatId]);
 
   // Double tap/click to send love reaction
   const handleMessageDoubleClick = useCallback(
@@ -1516,7 +1547,7 @@ export default function ChatRoomPage() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   className={cn(
-                    "max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl px-5 py-4 rounded-3xl relative group",
+                    "max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl px-5 py-4 rounded-3xl relative group/message",
                     isOwn
                       ? "bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 text-white rounded-br-2xl shadow-2xl shadow-rose-300/70"
                       : "bg-white/95 backdrop-blur-md text-gray-800 rounded-bl-2xl shadow-xl shadow-pink-200/60 border border-rose-100/60",
@@ -1543,7 +1574,7 @@ export default function ChatRoomPage() {
                   {!message.deletedAt && (
                     <div
                       className={cn(
-                        "absolute -top-10 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10",
+                        "absolute -top-10 flex gap-1.5 opacity-0 group-hover/message:opacity-100 transition-all duration-200 z-10",
                         isOwn ? "right-2" : "left-2",
                       )}
                     >
@@ -1702,7 +1733,7 @@ export default function ChatRoomPage() {
                     <div className="flex items-end justify-between mt-2 gap-3">
                       <div className="flex gap-1 items-center">
                         {message.likes && message.likes.length > 0 && (
-                          <div className="relative group">
+                          <div className="relative group/likes">
                             <motion.div
                               initial={{ scale: 0 }}
                               animate={{ scale: 1 }}
@@ -1729,7 +1760,7 @@ export default function ChatRoomPage() {
                               </span>
                             </motion.div>
                             {/* Beautiful tooltip showing who liked */}
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none opacity-0 group-hover/likes:opacity-100 transition-opacity duration-200">
                               <div className="bg-gradient-to-br from-rose-500 to-pink-600 text-white px-3 py-2 rounded-xl shadow-xl max-w-xs">
                                 <div className="flex items-center gap-2">
                                   <Heart className="w-3 h-3 fill-white" />

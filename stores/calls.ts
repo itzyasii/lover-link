@@ -7,6 +7,7 @@ export type CallStatus =
   | "idle"
   | "ringing" // Incoming call, waiting to be answered
   | "calling" // Outgoing call, ringing for recipient
+  | "connecting" // Call answered, ICE negotiating
   | "connected" // Call is active
   | "ending"; // Call is in process of ending
 
@@ -30,6 +31,7 @@ export interface ActiveCall {
   peerConnection: RTCPeerConnection | null;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  pendingOffer?: RTCSessionDescriptionInit; // stored on callee side until answered
 }
 
 export interface CallHistoryItem {

@@ -119,6 +119,19 @@ export interface ChatTypingServerEvent {
   isTyping: boolean;
 }
 
+export interface ChatHeartClientEvent {
+  chatId: string;
+}
+
+export interface ChatHeartServerResponse {
+  ok: boolean;
+}
+
+export interface ChatHeartServerEvent {
+  chatId: string;
+  from: string;
+}
+
 // ============================================
 // Chat Messaging Events
 // ============================================
@@ -577,6 +590,7 @@ export interface ServerToClientEvents {
   // Message reaction events
   "chat:reaction": (data: ChatReactionServerEvent) => void;
   "chat:like": (data: ChatLikeServerEvent) => void;
+  "chat:heart": (data: ChatHeartServerEvent) => void;
 
   // Voice message events
   "chat:voice:listened": (data: ChatVoiceListenedServerEvent) => void;
@@ -653,6 +667,10 @@ export interface ClientToServerEvents {
   "chat:like": (
     data: ChatLikeClientEvent,
     callback: (response: ChatLikeServerResponse) => void,
+  ) => void;
+  "chat:heart": (
+    data: ChatHeartClientEvent,
+    callback: (response: ChatHeartServerResponse) => void,
   ) => void;
 
   // Voice message events

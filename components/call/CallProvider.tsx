@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { useCallsStore, ActiveCall } from "@/stores/calls";
 import { useAuthStore } from "@/stores/auth";
 import { useFriendsStore } from "@/stores/friends";
@@ -8,6 +15,9 @@ import { useToastStore } from "@/stores/toast";
 import { getSocket } from "@/lib/socket";
 import { apiFetch } from "@/lib/api";
 
+// ─────────────────────────────────────────────
+// Context
+// ─────────────────────────────────────────────
 interface CallContextType {
   initiateCall: (
     callee: string | { id: string; username: string },
@@ -18,573 +28,517 @@ interface CallContextType {
   endCall: () => void;
   toggleMute: () => void;
   toggleVideo: () => void;
+  isMuted: boolean;
+  isVideoOff: boolean;
 }
 
 const CallContext = createContext<CallContextType | null>(null);
 
+// ─────────────────────────────────────────────
+// ICE servers – add TURN here if needed
+// ─────────────────────────────────────────────
+const ICE_CONFIG: RTCConfiguration = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+  ],
+  iceTransportPolicy: "all",
+};
+
+// ─────────────────────────────────────────────
+// Provider
+// ─────────────────────────────────────────────
 export function CallProvider({ children }: { children: React.ReactNode }) {
-  const {
-    activeCall,
-    incomingCall,
-    setActiveCall,
-    setIncomingCall,
-    setPeerConnection,
-    setLocalStream,
-    setRemoteStream,
-    endActiveCall,
-    clearActiveCall,
-  } = useCallsStore();
-  const { user } = useAuthStore();
-  const { blockedUsers } = useFriendsStore();
   const { addToast } = useToastStore();
 
-  // Check if either user has blocked the other (required by CALLS-MESSAGES-NOTIFICATIONS-GUIDE)
-  const isBlockedEitherWay = (userId1: string, userId2: string): boolean => {
-    // Check if current user has blocked the other user
-    const isBlockedByCurrentUser = blockedUsers.some(
-      (b) => b.userId === userId2,
-    );
-    // Note: Server-side also checks if the other user has blocked current user
-    // This is a client-side pre-check to prevent unnecessary API calls
-    return isBlockedByCurrentUser;
-  };
+  // UI-only state (needs to drive re-renders)
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
 
+  // ── Refs: never stale inside socket/WebRTC callbacks ──
+  const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const isMutedRef = useRef(false);
-  const isVideoOffRef = useRef(false);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  // Queue ICE candidates that arrive before remote description is set
+  const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
+  // Track whether remote description has been applied
+  const remoteDescSet = useRef(false);
 
-  // Store pending offer to share between socket listener and answerCall
-  const pendingOfferRef = useRef<{
-    callId: string;
-    offer: RTCSessionDescriptionInit;
-    from: string;
-  } | null>(null);
+  // ─────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────
 
-  // Queue pending ICE candidates to add after remote description is set
-  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(
-    new Map(),
-  );
+  /** Safely stop all tracks and close the peer connection */
+  const cleanupWebRTC = useCallback(() => {
+    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    remoteStreamRef.current?.getTracks().forEach((t) => t.stop());
+    localStreamRef.current = null;
+    remoteStreamRef.current = null;
 
-  const ICE_CONFIG = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-    ],
-  };
-
-  // Helper to add all queued ICE candidates after remote description is set
-  const addQueuedIceCandidates = async (
-    callId: string,
-    pc: RTCPeerConnection,
-  ) => {
-    const queuedCandidates = pendingIceCandidatesRef.current.get(callId) || [];
-    console.log(
-      `[CallProvider] Adding ${queuedCandidates.length} queued ICE candidates for call ${callId}`,
-    );
-
-    for (const candidate of queuedCandidates) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (error) {
-        console.error(
-          "[CallProvider] Error adding queued ICE candidate:",
-          error,
-        );
-      }
+    if (pcRef.current) {
+      pcRef.current.ontrack = null;
+      pcRef.current.onicecandidate = null;
+      pcRef.current.onconnectionstatechange = null;
+      pcRef.current.close();
+      pcRef.current = null;
     }
 
-    // Clear the queue after processing
-    pendingIceCandidatesRef.current.delete(callId);
-  };
+    iceCandidateQueue.current = [];
+    remoteDescSet.current = false;
+    setIsMuted(false);
+    setIsVideoOff(false);
+  }, []);
 
-  // Initialize socket event listeners for WebRTC signaling
+  /** Drain the ICE candidate queue once remote description is applied */
+  const drainIceQueue = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    const queued = iceCandidateQueue.current.splice(0);
+    for (const candidate of queued) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.warn("[Call] Failed to add queued ICE candidate:", e);
+      }
+    }
+  }, []);
+
+  /** Create a new RTCPeerConnection and wire all handlers immediately */
+  const createPC = useCallback(
+    (callId: string): RTCPeerConnection => {
+      // Clean up any existing connection first
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
+
+      const pc = new RTCPeerConnection(ICE_CONFIG);
+      pcRef.current = pc;
+
+      // ── ICE candidate → send to peer ──
+      pc.onicecandidate = (event) => {
+        if (!event.candidate) return;
+        const { activeCall } = useCallsStore.getState();
+        const { user } = useAuthStore.getState();
+        if (!activeCall || !user) return;
+
+        const to =
+          activeCall.callerId === user.id
+            ? activeCall.calleeId
+            : activeCall.callerId;
+
+        try {
+          getSocket().emit(
+            "call:ice-candidate",
+            {
+              to,
+              callId,
+              candidate: event.candidate.toJSON(),
+            },
+            () => {},
+          );
+        } catch (e) {
+          console.error("[Call] Failed to send ICE candidate:", e);
+        }
+      };
+
+      // ── Remote track → store in remoteStream ──
+      pc.ontrack = (event) => {
+        console.log("[Call] ontrack fired, streams:", event.streams.length);
+        const stream = event.streams[0] ?? new MediaStream([event.track]);
+        remoteStreamRef.current = stream;
+        useCallsStore.getState().setRemoteStream(stream);
+      };
+
+      // ── Connection state changes ──
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        console.log("[Call] connectionState:", state);
+        if (state === "connected") {
+          useCallsStore.getState().updateActiveCallStatus("connected");
+        } else if (
+          state === "disconnected" ||
+          state === "failed" ||
+          state === "closed"
+        ) {
+          console.log("[Call] Peer disconnected/failed, ending call");
+          useCallsStore.getState().endActiveCall();
+          cleanupWebRTC();
+        }
+      };
+
+      // ── ICE connection state (fallback for older browsers) ──
+      pc.oniceconnectionstatechange = () => {
+        console.log("[Call] iceConnectionState:", pc.iceConnectionState);
+        if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+          useCallsStore.getState().updateActiveCallStatus("connected");
+        }
+      };
+
+      return pc;
+    },
+    [cleanupWebRTC],
+  );
+
+  /** Get mic+camera (or mic-only) stream */
+  const getMediaStream = useCallback(
+    async (media: "audio" | "video"): Promise<MediaStream> => {
+      const constraints: MediaStreamConstraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video:
+          media === "video"
+            ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
+            : false,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      localStreamRef.current = stream;
+      return stream;
+    },
+    [],
+  );
+
+  // ─────────────────────────────────────────────
+  // Socket listeners — registered ONCE
+  // All state is read via store.getState() to avoid stale closures
+  // ─────────────────────────────────────────────
   useEffect(() => {
     const { accessToken, user } = useAuthStore.getState();
     if (!accessToken || !user?.id) return;
 
+    let socket: ReturnType<typeof getSocket>;
     try {
-      const socket = getSocket();
-
-      // Handle incoming call offer from server
-      socket.on(
-        "call:offer",
-        async (data: {
-          from: string;
-          to: string;
-          callId: string;
-          media: "audio" | "video";
-          offer: RTCSessionDescriptionInit;
-          fromUser?: {
-            id: string;
-            email: string;
-            username: string;
-          };
-          callerName?: string;
-        }) => {
-          console.log("[CallProvider] Incoming call offer:", data);
-
-          // Store the offer to use when answering
-          pendingOfferRef.current = {
-            callId: data.callId,
-            offer: data.offer,
-            from: data.from,
-          };
-
-          // Extract caller name from fromUser object if available (new backend format)
-          const callerName =
-            data.fromUser?.username || data.callerName || "Unknown User";
-          const incomingCallData: ActiveCall = {
-            callId: data.callId,
-            callerId: data.from,
-            calleeId: data.to,
-            media: data.media,
-            status: "ringing",
-            participant: {
-              id: data.from,
-              username: callerName,
-            },
-            isInitiator: false,
-            offeredAt: new Date().toISOString(),
-            peerConnection: null,
-            localStream: null,
-            remoteStream: null,
-          };
-
-          console.log(
-            "[CallProvider] Created incoming call data:",
-            incomingCallData,
-          );
-          setIncomingCall(incomingCallData);
-          addToast(`Incoming ${data.media} call from ${callerName}!`, "info");
-        },
-      );
-
-      // Handle call answer from caller
-      socket.on(
-        "call:answer",
-        async (data: {
-          from: string;
-          to: string;
-          callId: string;
-          answer: RTCSessionDescriptionInit;
-        }) => {
-          console.log("[CallProvider] Call answered:", data);
-
-          if (peerConnectionRef.current && activeCall?.callId === data.callId) {
-            await peerConnectionRef.current.setRemoteDescription(
-              new RTCSessionDescription(data.answer),
-            );
-            // Add all queued ICE candidates after setting remote description
-            await addQueuedIceCandidates(
-              data.callId,
-              peerConnectionRef.current,
-            );
-            useCallsStore.getState().updateActiveCallStatus("connected");
-          }
-        },
-      );
-
-      // Handle incoming ICE candidates
-      socket.on(
-        "call:ice-candidate",
-        async (data: {
-          to: string;
-          callId: string;
-          candidate: RTCIceCandidateInit;
-        }) => {
-          console.log("[CallProvider] Received ICE candidate:", data);
-
-          if (peerConnectionRef.current && activeCall?.callId === data.callId) {
-            // If remote description is already set, add the candidate immediately
-            if (peerConnectionRef.current.remoteDescription) {
-              try {
-                await peerConnectionRef.current.addIceCandidate(
-                  new RTCIceCandidate(data.candidate),
-                );
-              } catch (error) {
-                console.error(
-                  "[CallProvider] Error adding ICE candidate:",
-                  error,
-                );
-              }
-            } else {
-              // Queue the candidate to add after remote description is set
-              const candidates =
-                pendingIceCandidatesRef.current.get(data.callId) || [];
-              candidates.push(data.candidate);
-              pendingIceCandidatesRef.current.set(data.callId, candidates);
-              console.log(
-                `[CallProvider] Queued ICE candidate for call ${data.callId}`,
-              );
-            }
-          }
-        },
-      );
-
-      // Handle call end from server
-      socket.on(
-        "call:end",
-        (data: { ok: boolean; callId: string; reason: string }) => {
-          console.log("[CallProvider] Call ended:", data);
-
-          if (
-            activeCall?.callId === data.callId ||
-            incomingCall?.callId === data.callId ||
-            pendingOfferRef.current?.callId === data.callId
-          ) {
-            // Clear pending offer if this was the call that ended
-            if (pendingOfferRef.current?.callId === data.callId) {
-              pendingOfferRef.current = null;
-            }
-            // Clear any queued ICE candidates for this call
-            pendingIceCandidatesRef.current.delete(data.callId);
-            if (data.reason === "declined") {
-              addToast("Call was declined", "info");
-            } else if (data.reason === "cancelled") {
-              addToast("Call was cancelled", "info");
-            }
-            clearActiveCall();
-          }
-        },
-      );
-
-      // Handle missed call notification
-      socket.on(
-        "call:missed",
-        (data: { callId: string; from: string; at: string }) => {
-          console.log("[CallProvider] Missed call:", data);
-          addToast("You missed a call!", "warning");
-          setIncomingCall(null);
-        },
-      );
-
-      return () => {
-        socket.off("call:offer");
-        socket.off("call:answer");
-        socket.off("call:ice-candidate");
-        socket.off("call:end");
-        socket.off("call:missed");
-      };
-    } catch (error) {
-      console.error("[CallProvider] Failed to initialize socket:", error);
-    }
-  }, [activeCall, incomingCall, addToast, setIncomingCall, clearActiveCall]);
-
-  // Initialize peer connection event handlers
-  useEffect(() => {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.onicecandidate = (event) => {
-        if (event.candidate && activeCall) {
-          const { accessToken, user } = useAuthStore.getState();
-          if (!accessToken || !user?.id) return;
-
-          try {
-            const socket = getSocket();
-            socket.emit(
-              "call:ice-candidate",
-              {
-                to:
-                  activeCall.callerId === user.id
-                    ? activeCall.calleeId
-                    : activeCall.callerId,
-                callId: activeCall.callId,
-                candidate: event.candidate,
-              },
-              () => {},
-            );
-          } catch (error) {
-            console.error(
-              "[CallProvider] Failed to send ICE candidate:",
-              error,
-            );
-          }
-        }
-      };
-
-      peerConnectionRef.current.ontrack = (event) => {
-        const [remoteStream] = event.streams;
-        setRemoteStream(remoteStream);
-      };
-
-      peerConnectionRef.current.onconnectionstatechange = () => {
-        if (peerConnectionRef.current?.connectionState === "disconnected") {
-          endActiveCall();
-        }
-      };
-    }
-  }, [activeCall, user?.id, setRemoteStream, endActiveCall]);
-
-  const createPeerConnection = async (): Promise<RTCPeerConnection> => {
-    const pc = new RTCPeerConnection(ICE_CONFIG);
-    peerConnectionRef.current = pc;
-    setPeerConnection(pc);
-    return pc;
-  };
-
-  const getMediaStream = async (
-    media: "audio" | "video",
-  ): Promise<MediaStream> => {
-    const constraints: MediaStreamConstraints = {
-      audio: true,
-      video: media === "video" ? { width: 1280, height: 720 } : false,
-    };
-
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    localStreamRef.current = stream;
-    setLocalStream(stream);
-    return stream;
-  };
-
-  const initiateCall = async (
-    callee: string | { id: string; username: string },
-    media: "audio" | "video",
-  ) => {
-    if (!user) return;
-
-    // Extract calleeId and username
-    const calleeId = typeof callee === "string" ? callee : callee.id;
-    const calleeUsername =
-      typeof callee === "object" && callee.username
-        ? callee.username
-        : "Unknown User";
-    console.log(
-      "[CallProvider] Extracted calleeUsername:",
-      calleeUsername,
-      "from callee:",
-      callee,
-    );
-
-    // Block check as required by CALLS-MESSAGES-NOTIFICATIONS-GUIDE
-    if (isBlockedEitherWay(user.id, calleeId)) {
-      addToast("Cannot call this user - you have blocked them", "error");
+      socket = getSocket();
+    } catch {
       return;
     }
 
-    try {
-      // First create call via REST API to get callId (matches backend /api/calls/start endpoint)
-      const res = await apiFetch<{
-        ok: boolean;
-        callId: string;
-        error?: string;
-      }>("/api/calls/start", {
-        method: "POST",
-        body: JSON.stringify({ calleeId, media }),
-      });
+    // ── call:offer ──────────────────────────────
+    const onCallOffer = (data: {
+      from: string;
+      to: string;
+      callId: string;
+      media: "audio" | "video";
+      offer: RTCSessionDescriptionInit;
+      fromUser?: { id: string; username: string; email?: string };
+      callerName?: string;
+    }) => {
+      console.log("[Call] Incoming call:offer", data);
+      const callerName =
+        data.fromUser?.username || data.callerName || "Someone";
 
-      if (!res.ok) {
-        throw new Error(res.error || "Failed to initiate call");
+      const incoming: ActiveCall = {
+        callId: data.callId,
+        callerId: data.from,
+        calleeId: data.to,
+        media: data.media,
+        status: "ringing",
+        participant: { id: data.from, username: callerName },
+        isInitiator: false,
+        offeredAt: new Date().toISOString(),
+        peerConnection: null,
+        localStream: null,
+        remoteStream: null,
+        pendingOffer: data.offer,
+      };
+
+      useCallsStore.getState().setIncomingCall(incoming);
+    };
+
+    // ── call:answer ──────────────────────────────
+    const onCallAnswer = async (data: {
+      from: string;
+      callId: string;
+      answer: RTCSessionDescriptionInit;
+    }) => {
+      console.log("[Call] Received call:answer", data);
+      const pc = pcRef.current;
+      if (!pc) return;
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        remoteDescSet.current = true;
+        await drainIceQueue();
+        // Status will move to "connected" via onconnectionstatechange
+      } catch (e) {
+        console.error("[Call] Failed to set remote description from answer:", e);
       }
-      const { callId } = res;
+    };
 
-      // Create peer connection and get media stream
-      const pc = await createPeerConnection();
-      const stream = await getMediaStream(media);
+    // ── call:ice-candidate ───────────────────────
+    const onIceCandidate = async (data: {
+      callId: string;
+      candidate: RTCIceCandidateInit;
+    }) => {
+      const pc = pcRef.current;
+      if (!pc || !data.candidate) return;
 
-      // Add all tracks to peer connection
-      stream.getTracks().forEach((track) => {
-        if (localStreamRef.current) {
-          pc.addTrack(track, localStreamRef.current);
+      if (remoteDescSet.current) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (e) {
+          console.warn("[Call] Failed to add ICE candidate:", e);
         }
-      });
+      } else {
+        // Queue until remote description is applied
+        iceCandidateQueue.current.push(data.candidate);
+      }
+    };
 
-      // Create and send WebRTC offer
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+    // ── call:end ─────────────────────────────────
+    const onCallEnd = (data: { callId: string; reason?: string }) => {
+      console.log("[Call] call:end received", data);
+      const { activeCall, incomingCall } = useCallsStore.getState();
+      const isOurs =
+        activeCall?.callId === data.callId ||
+        incomingCall?.callId === data.callId;
+      if (!isOurs) return;
 
-      // Send offer via socket with caller info for the callee
-      const socket = getSocket();
-      if (pc.localDescription) {
-        socket.emit(
+      const reason = data.reason || "ended";
+      if (reason === "declined") addToast("Call declined 📵", "info");
+      else if (reason === "cancelled" || reason === "timeout")
+        addToast("Call ended", "info");
+
+      cleanupWebRTC();
+      useCallsStore.getState().clearActiveCall();
+    };
+
+    // ── call:missed ──────────────────────────────
+    const onCallMissed = () => {
+      addToast("Missed call 📵", "warning");
+      useCallsStore.getState().setIncomingCall(null);
+    };
+
+    socket.on("call:offer", onCallOffer);
+    socket.on("call:answer", onCallAnswer);
+    socket.on("call:ice-candidate", onIceCandidate);
+    socket.on("call:end", onCallEnd);
+    socket.on("call:missed", onCallMissed);
+
+    return () => {
+      socket.off("call:offer", onCallOffer);
+      socket.off("call:answer", onCallAnswer);
+      socket.off("call:ice-candidate", onIceCandidate);
+      socket.off("call:end", onCallEnd);
+      socket.off("call:missed", onCallMissed);
+    };
+    // intentionally empty deps — registered once, reads state via getState()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─────────────────────────────────────────────
+  // Public actions
+  // ─────────────────────────────────────────────
+
+  const initiateCall = useCallback(
+    async (
+      callee: string | { id: string; username: string },
+      media: "audio" | "video",
+    ) => {
+      const { user } = useAuthStore.getState();
+      if (!user) return;
+
+      const calleeId = typeof callee === "string" ? callee.trim() : callee.id;
+      const calleeUsername =
+        typeof callee === "object" ? callee.username : "Unknown";
+
+      // Block check
+      const { blockedUsers } = useFriendsStore.getState();
+      if (blockedUsers.some((b) => b.userId === calleeId)) {
+        addToast("Cannot call — you have blocked this user", "error");
+        return;
+      }
+
+      try {
+        // 1. Create call on server → get callId
+        const res = await apiFetch<{ ok: boolean; callId: string; error?: string }>(
+          "/api/calls/start",
+          { method: "POST", body: JSON.stringify({ calleeId, media }) },
+        );
+        if (!res.ok) throw new Error(res.error || "Failed to start call");
+
+        const { callId } = res;
+
+        // 2. Create peer connection (handlers wired immediately)
+        const pc = createPC(callId);
+
+        // 3. Get media stream and add tracks
+        const stream = await getMediaStream(media);
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+        // 4. Set active call in store BEFORE sending offer so the ICE handler can read it
+        const newCall: ActiveCall = {
+          callId,
+          callerId: user.id,
+          calleeId,
+          media,
+          status: "calling",
+          participant: { id: calleeId, username: calleeUsername },
+          isInitiator: true,
+          offeredAt: new Date().toISOString(),
+          peerConnection: pc,
+          localStream: stream,
+          remoteStream: null,
+        };
+        useCallsStore.getState().setActiveCall(newCall);
+        useCallsStore.getState().setLocalStream(stream);
+
+        // 5. Create offer and send via socket
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        getSocket().emit(
           "call:offer",
           {
             to: calleeId,
             callId,
             media,
-            offer: pc.localDescription,
-            // Send caller's user info so the callee sees the correct username
-            fromUser: {
-              id: user.id,
-              email: user.email,
-              username: user.username,
-            },
+            offer,
+            fromUser: { id: user.id, username: user.username, email: user.email },
           },
           () => {},
         );
+
+        addToast("Calling…", "info");
+      } catch (err) {
+        console.error("[Call] initiateCall failed:", err);
+        addToast("Failed to start call", "error");
+        cleanupWebRTC();
+        useCallsStore.getState().clearActiveCall();
       }
+    },
+    [createPC, getMediaStream, cleanupWebRTC, addToast],
+  );
 
-      // Get the callee's username from friends list
-      // If we only have an ID, still try to find the user in friends list as fallback
-      const friends = useFriendsStore.getState().friends;
-      console.log("[CallProvider] Current friends list:", friends);
-      console.log("[CallProvider] Looking for calleeId:", calleeId);
-      const foundFriend = friends.find((f) => f.id === calleeId);
-      console.log("[CallProvider] Found friend:", foundFriend);
-
-      const finalCalleeUsername =
-        calleeUsername !== "Unknown User"
-          ? calleeUsername
-          : foundFriend?.username || "Unknown User";
-      console.log(
-        "[CallProvider] Using callee username:",
-        finalCalleeUsername,
-        "calleeId:",
-        calleeId,
-      );
-
-      // Set active call state
-      const newCall: ActiveCall = {
-        callId,
-        callerId: user.id,
-        calleeId,
-        media,
-        status: "calling",
-        participant: { id: calleeId, username: finalCalleeUsername },
-        isInitiator: true,
-        offeredAt: new Date().toISOString(),
-        peerConnection: pc,
-        localStream: stream,
-        remoteStream: null,
-      };
-      console.log("[CallProvider] Created outgoing active call:", newCall);
-
-      setActiveCall(newCall);
-      addToast(`Calling...`, "info");
-    } catch (error) {
-      console.error("[CallProvider] Failed to initiate call:", error);
-      addToast("Failed to start call", "error");
-    }
-  };
-
-  const answerCall = async () => {
+  const answerCall = useCallback(async () => {
+    const { incomingCall } = useCallsStore.getState();
+    const { user } = useAuthStore.getState();
     if (!incomingCall || !user) return;
 
-    // Block check as required by CALLS-MESSAGES-NOTIFICATIONS-GUIDE
-    if (isBlockedEitherWay(user.id, incomingCall.callerId)) {
-      addToast("Cannot answer call - you have blocked this user", "error");
-      declineCall();
+    const offer = incomingCall.pendingOffer;
+    if (!offer) {
+      addToast("No offer found — call may have expired", "error");
       return;
     }
 
     try {
-      const socket = getSocket();
-      const pc = await createPeerConnection();
+      // 1. Create PC (handlers wired immediately)
+      const pc = createPC(incomingCall.callId);
+
+      // 2. Get media
       const stream = await getMediaStream(incomingCall.media);
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-      // Add tracks to peer connection
-      stream.getTracks().forEach((track) => {
-        if (localStreamRef.current) {
-          pc.addTrack(track, localStreamRef.current);
-        }
-      });
+      // 3. Move call to active state BEFORE touching SDP so ICE can be routed
+      const activeCallData: ActiveCall = {
+        ...incomingCall,
+        status: "connecting",
+        answeredAt: new Date().toISOString(),
+        peerConnection: pc,
+        localStream: stream,
+        remoteStream: null,
+      };
+      useCallsStore.getState().setActiveCall(activeCallData);
+      useCallsStore.getState().setIncomingCall(null);
+      useCallsStore.getState().setLocalStream(stream);
 
-      // Set the remote description from the pending offer
-      if (
-        pendingOfferRef.current &&
-        pendingOfferRef.current.callId === incomingCall.callId
-      ) {
-        await pc.setRemoteDescription(
-          new RTCSessionDescription(pendingOfferRef.current.offer),
-        );
-        // Add all queued ICE candidates after setting remote description
-        await addQueuedIceCandidates(incomingCall.callId, pc);
-      } else {
-        throw new Error("No pending offer found for this call");
-      }
+      // 4. Set remote description, drain queue, create answer
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      remoteDescSet.current = true;
+      await drainIceQueue();
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      // Send answer via socket
-      if (pc.localDescription) {
-        socket.emit(
-          "call:answer",
-          {
-            to: incomingCall.callerId,
-            callId: incomingCall.callId,
-            answer: pc.localDescription,
-          },
-          () => {},
-        );
-      }
-
-      // Move incoming call to active call
-      const activeCallData: ActiveCall = {
-        ...incomingCall,
-        status: "connected",
-        answeredAt: new Date().toISOString(),
-        peerConnection: pc,
-        localStream: stream,
-      };
-
-      setActiveCall(activeCallData);
-      setIncomingCall(null);
-      addToast("Call connected!", "success");
-    } catch (error) {
-      console.error("[CallProvider] Failed to answer call:", error);
+      // 5. Send answer
+      getSocket().emit(
+        "call:answer",
+        {
+          to: incomingCall.callerId,
+          callId: incomingCall.callId,
+          answer,
+        },
+        () => {},
+      );
+    } catch (err) {
+      console.error("[Call] answerCall failed:", err);
       addToast("Failed to answer call", "error");
+      cleanupWebRTC();
+      useCallsStore.getState().clearActiveCall();
     }
-  };
+  }, [createPC, getMediaStream, drainIceQueue, cleanupWebRTC, addToast]);
 
-  const declineCall = () => {
+  const declineCall = useCallback(() => {
+    const { incomingCall } = useCallsStore.getState();
     if (!incomingCall) return;
+    try {
+      getSocket().emit(
+        "call:end",
+        {
+          to: incomingCall.callerId,
+          callId: incomingCall.callId,
+          reason: "declined",
+        },
+        () => {},
+      );
+    } catch {}
+    useCallsStore.getState().setIncomingCall(null);
+  }, []);
 
-    const socket = getSocket();
-    socket.emit(
-      "call:end",
-      {
-        to: incomingCall.callerId,
-        callId: incomingCall.callId,
-        reason: "declined",
-      },
-      () => {},
-    );
+  const endCall = useCallback(() => {
+    const { activeCall } = useCallsStore.getState();
+    const { user } = useAuthStore.getState();
+    if (!activeCall || !user) return;
 
-    setIncomingCall(null);
-  };
+    const to =
+      activeCall.callerId === user.id
+        ? activeCall.calleeId
+        : activeCall.callerId;
 
-  const endCall = () => {
-    if (!activeCall) return;
+    try {
+      getSocket().emit(
+        "call:end",
+        {
+          to,
+          callId: activeCall.callId,
+          reason: "user_initiated",
+        },
+        () => {},
+      );
+    } catch {}
 
-    // Clear any queued ICE candidates for this call
-    pendingIceCandidatesRef.current.delete(activeCall.callId);
+    cleanupWebRTC();
+    useCallsStore.getState().endActiveCall();
+  }, [cleanupWebRTC]);
 
-    const socket = getSocket();
-    socket.emit(
-      "call:end",
-      {
-        to:
-          activeCall.callerId === user?.id
-            ? activeCall.calleeId
-            : activeCall.callerId,
-        callId: activeCall.callId,
-        reason: "user_initiated",
-      },
-      () => {},
-    );
-
-    endActiveCall();
-  };
-
-  const toggleMute = () => {
-    if (!localStreamRef.current) return;
-
-    const audioTracks = localStreamRef.current.getAudioTracks();
-    audioTracks.forEach((track) => {
-      track.enabled = !track.enabled;
+  const toggleMute = useCallback(() => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    stream.getAudioTracks().forEach((t) => {
+      t.enabled = !t.enabled;
     });
-    isMutedRef.current = !isMutedRef.current;
-  };
+    setIsMuted((prev) => !prev);
+  }, []);
 
-  const toggleVideo = () => {
-    if (!localStreamRef.current) return;
-
-    const videoTracks = localStreamRef.current.getVideoTracks();
-    videoTracks.forEach((track) => {
-      track.enabled = !track.enabled;
+  const toggleVideo = useCallback(() => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    stream.getVideoTracks().forEach((t) => {
+      t.enabled = !t.enabled;
     });
-    isVideoOffRef.current = !isVideoOffRef.current;
-  };
+    setIsVideoOff((prev) => !prev);
+  }, []);
+
+  // Cleanup on provider unmount
+  useEffect(() => {
+    return () => {
+      cleanupWebRTC();
+    };
+  }, [cleanupWebRTC]);
 
   return (
     <CallContext.Provider
@@ -595,6 +549,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         endCall,
         toggleMute,
         toggleVideo,
+        isMuted,
+        isVideoOff,
       }}
     >
       {children}
@@ -603,9 +559,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useCall() {
-  const context = useContext(CallContext);
-  if (!context) {
-    throw new Error("useCall must be used within a CallProvider");
-  }
-  return context;
+  const ctx = useContext(CallContext);
+  if (!ctx) throw new Error("useCall must be used within a CallProvider");
+  return ctx;
 }
