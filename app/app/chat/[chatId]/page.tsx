@@ -29,6 +29,7 @@ import { formatTime } from "@/lib/utils";
 import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import { cn } from "@/lib/utils";
 import { usePresenceStore } from "@/stores/presence";
+import Image from "next/image";
 
 type MessageType = "text" | "share" | "event";
 type EventKind = "call_started" | "call_ended";
@@ -221,10 +222,10 @@ export default function ChatRoomPage() {
           messageCount: response.messages?.length,
           firstMessage: response.messages?.[0]
             ? {
-              id: response.messages[0].id,
-              createdAt: response.messages[0].createdAt,
-              createdAtType: typeof response.messages[0].createdAt,
-            }
+                id: response.messages[0].id,
+                createdAt: response.messages[0].createdAt,
+                createdAtType: typeof response.messages[0].createdAt,
+              }
             : null,
         });
 
@@ -777,34 +778,34 @@ export default function ChatRoomPage() {
           // Normalize editedAt and deletedAt if they exist
           const normalizedEditedAt = message.editedAt
             ? (() => {
-              const rawEditedAt =
-                (message.editedAt as unknown as { $date?: string })?.$date ||
-                message.editedAt;
-              if (
-                rawEditedAt !== null &&
-                typeof rawEditedAt === "object" &&
-                "toISOString" in rawEditedAt
-              ) {
-                return (rawEditedAt as Date).toISOString();
-              }
-              return rawEditedAt as string;
-            })()
+                const rawEditedAt =
+                  (message.editedAt as unknown as { $date?: string })?.$date ||
+                  message.editedAt;
+                if (
+                  rawEditedAt !== null &&
+                  typeof rawEditedAt === "object" &&
+                  "toISOString" in rawEditedAt
+                ) {
+                  return (rawEditedAt as Date).toISOString();
+                }
+                return rawEditedAt as string;
+              })()
             : undefined;
 
           const normalizedDeletedAt = message.deletedAt
             ? (() => {
-              const rawDeletedAt =
-                (message.deletedAt as unknown as { $date?: string })?.$date ||
-                message.deletedAt;
-              if (
-                rawDeletedAt !== null &&
-                typeof rawDeletedAt === "object" &&
-                "toISOString" in rawDeletedAt
-              ) {
-                return (rawDeletedAt as Date).toISOString();
-              }
-              return rawDeletedAt as string;
-            })()
+                const rawDeletedAt =
+                  (message.deletedAt as unknown as { $date?: string })?.$date ||
+                  message.deletedAt;
+                if (
+                  rawDeletedAt !== null &&
+                  typeof rawDeletedAt === "object" &&
+                  "toISOString" in rawDeletedAt
+                ) {
+                  return (rawDeletedAt as Date).toISOString();
+                }
+                return rawDeletedAt as string;
+              })()
             : undefined;
 
           const normalizedMessage: Message = {
@@ -975,7 +976,7 @@ export default function ChatRoomPage() {
       socket.on("chat:like", handleChatLike);
       socket.on("chat:message:edited", handleMessageEdited);
       socket.on("chat:message:deleted", handleMessageDeleted);
-      
+
       socket.on("chat:heart", (data) => {
         if (data.from !== user?.id && data.chatId === chatId) {
           const id = crypto.randomUUID();
@@ -1111,7 +1112,7 @@ export default function ChatRoomPage() {
             clientMessageId,
             item: response.item,
           },
-          () => { },
+          () => {},
         );
       }
     } catch (error) {
@@ -1170,30 +1171,33 @@ export default function ChatRoomPage() {
   };
 
   // Function to send a floating love heart
-  const sendLoveHeart = useCallback((e: React.MouseEvent) => {
-    const id = crypto.randomUUID();
-    const x = e.clientX || 100;
-    const y = e.clientY || window.innerHeight - 100;
+  const sendLoveHeart = useCallback(
+    (e: React.MouseEvent) => {
+      const id = crypto.randomUUID();
+      const x = e.clientX || 100;
+      const y = e.clientY || window.innerHeight - 100;
 
-    setMessageHearts((prev) => [
-      ...prev,
-      {
-        id,
-        x,
-        y,
-      },
-    ]);
+      setMessageHearts((prev) => [
+        ...prev,
+        {
+          id,
+          x,
+          y,
+        },
+      ]);
 
-    // Remove after animation completes
-    setTimeout(() => {
-      setMessageHearts((prev) => prev.filter((h) => h.id !== id));
-    }, 2000);
+      // Remove after animation completes
+      setTimeout(() => {
+        setMessageHearts((prev) => prev.filter((h) => h.id !== id));
+      }, 2000);
 
-    const socket = getSocket();
-    if (socket && chatId) {
-      socket.emit("chat:heart", { chatId });
-    }
-  }, [chatId]);
+      const socket = getSocket();
+      if (socket && chatId) {
+        socket.emit("chat:heart", { chatId }, () => {});
+      }
+    },
+    [chatId],
+  );
 
   // Double tap/click to send love reaction
   const handleMessageDoubleClick = useCallback(
@@ -1227,9 +1231,9 @@ export default function ChatRoomPage() {
                 likes: hasLiked
                   ? currentLikes.filter((l) => l.userId !== user.id)
                   : [
-                    ...currentLikes,
-                    { userId: user.id, createdAt: new Date().toISOString() },
-                  ],
+                      ...currentLikes,
+                      { userId: user.id, createdAt: new Date().toISOString() },
+                    ],
               };
             }
             return m;
@@ -1285,19 +1289,73 @@ export default function ChatRoomPage() {
         </motion.div>
       </div>
 
-      {/* Enhanced floating hearts with multiple heart styles */}
+      {/* Spectacular romantic floating hearts burst */}
       <AnimatePresence>
         {messageHearts.map((mh) => (
           <motion.div
             key={mh.id}
-            initial={{ y: 0, scale: 0, opacity: 1 }}
-            animate={{ y: -350, scale: 2.5, rotate: 360, opacity: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 2.5, ease: "easeOut" }}
-            className="fixed pointer-events-none z-50"
+            className="fixed pointer-events-none z-[100] -translate-x-1/2 -translate-y-1/2"
             style={{ left: mh.x, top: mh.y }}
           >
-            <Heart className="w-16 h-16 text-rose-500 fill-rose-500 drop-shadow-2xl" />
+            {/* Main soaring heart */}
+            <motion.div
+              initial={{ y: 0, scale: 0.5, opacity: 0 }}
+              animate={{
+                y: -500,
+                scale: [1, 2.5, 3, 2.5],
+                rotate: [-15, 15, -15, 10, 0],
+                opacity: [0, 1, 1, 0],
+              }}
+              transition={{ duration: 3.5, ease: "easeOut" }}
+              className="relative flex items-center justify-center"
+            >
+              <Heart className="w-20 h-20 text-rose-500 fill-rose-500 drop-shadow-[0_0_25px_rgba(244,63,94,0.9)]" />
+              
+              {/* Confetti mini-hearts exploding outward */}
+              {[...Array(8)].map((_, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
+                  animate={{
+                    x: Math.cos((i * 45 * Math.PI) / 180) * 120,
+                    y: Math.sin((i * 45 * Math.PI) / 180) * 120 - Math.random() * 100,
+                    scale: Math.random() * 1.5 + 0.5,
+                    rotate: Math.random() * 360,
+                    opacity: 0,
+                  }}
+                  transition={{ duration: 2 + Math.random(), ease: "easeOut" }}
+                  className="absolute"
+                >
+                  <Heart
+                    className={cn(
+                      "w-6 h-6 drop-shadow-lg",
+                      i % 2 === 0
+                        ? "text-pink-400 fill-pink-400"
+                        : "text-rose-400 fill-rose-400"
+                    )}
+                  />
+                </motion.div>
+              ))}
+
+              {/* Shimmering sparkles */}
+              {[...Array(6)].map((_, i) => (
+                <motion.div
+                  key={`sparkle-${i}`}
+                  initial={{ x: 0, y: 0, scale: 0, opacity: 0 }}
+                  animate={{
+                    x: Math.cos(((i * 60 + 30) * Math.PI) / 180) * 90,
+                    y: Math.sin(((i * 60 + 30) * Math.PI) / 180) * 90 - 50,
+                    scale: [0, 1.5, 0],
+                    rotate: 180,
+                    opacity: [0, 1, 0],
+                  }}
+                  transition={{ duration: 1.5 + Math.random(), ease: "easeInOut", delay: 0.2 }}
+                  className="absolute"
+                >
+                  <Sparkles className="w-7 h-7 text-yellow-300 drop-shadow-lg" />
+                </motion.div>
+              ))}
+            </motion.div>
           </motion.div>
         ))}
       </AnimatePresence>
@@ -1661,7 +1719,7 @@ export default function ChatRoomPage() {
                         {message.replyTo.from === user?.id
                           ? "yourself"
                           : message.replyTo.fromName ||
-                          otherParticipant?.username}
+                            otherParticipant?.username}
                       </p>
                       <p className="text-sm leading-relaxed line-clamp-2">
                         {message.replyTo.text || "Media message"}
@@ -1761,7 +1819,7 @@ export default function ChatRoomPage() {
                             </motion.div>
                             {/* Beautiful tooltip showing who liked */}
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none opacity-0 group-hover/likes:opacity-100 transition-opacity duration-200">
-                              <div className="bg-gradient-to-br from-rose-500 to-pink-600 text-white px-3 py-2 rounded-xl shadow-xl max-w-xs">
+                              <div className="bg-linear-to-br from-rose-500 to-pink-600 text-white px-3 py-2 rounded-xl shadow-xl max-w-xs">
                                 <div className="flex items-center gap-2">
                                   <Heart className="w-3 h-3 fill-white" />
                                   <span className="text-[11px] font-semibold">
@@ -1779,7 +1837,7 @@ export default function ChatRoomPage() {
                                         className="flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2 py-1 rounded-full"
                                       >
                                         {liker?.avatar ? (
-                                          <img
+                                          <Image
                                             src={liker.avatar}
                                             alt={liker.username}
                                             className="w-4 h-4 rounded-full object-cover"
@@ -1801,7 +1859,7 @@ export default function ChatRoomPage() {
                                 </div>
                               </div>
                               {/* Arrow */}
-                              <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-1.5 h-1.5 bg-gradient-to-br from-rose-500 to-pink-600 rotate-45" />
+                              <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-1.5 h-1.5 bg-linear-to-br from-rose-500 to-pink-600 rotate-45" />
                             </div>
                           </div>
                         )}
