@@ -37,7 +37,7 @@ const CallContext = createContext<CallContextType | null>(null);
 // ─────────────────────────────────────────────
 // ICE servers – add TURN here if needed
 // ─────────────────────────────────────────────
-const ICE_CONFIG: RTCConfiguration = {
+const FALLBACK_ICE_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
@@ -45,6 +45,33 @@ const ICE_CONFIG: RTCConfiguration = {
   ],
   iceTransportPolicy: "all",
 };
+
+type IceServersResponse = {
+  ok: boolean;
+  iceServers?: RTCIceServer[];
+};
+
+async function getIceConfiguration(): Promise<RTCConfiguration> {
+  try {
+    const response = await apiFetch<IceServersResponse>("/api/rtc/ice-servers");
+    if (
+      !response.ok ||
+      !Array.isArray(response.iceServers) ||
+      response.iceServers.length === 0
+    ) {
+      throw new Error("The ICE server response was empty");
+    }
+
+    // The backend returns Cloudflare TURN entries before all fallbacks.
+    return { iceServers: response.iceServers, iceTransportPolicy: "all" };
+  } catch (error) {
+    console.warn(
+      "[Call] Unable to load Cloudflare ICE servers; using STUN fallback:",
+      error,
+    );
+    return FALLBACK_ICE_CONFIG;
+  }
+}
 
 // ─────────────────────────────────────────────
 // Provider
@@ -127,14 +154,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   /** Create a new RTCPeerConnection and wire all handlers immediately */
   const createPC = useCallback(
-    (callId: string): RTCPeerConnection => {
+    async (callId: string): Promise<RTCPeerConnection> => {
       // Clean up any existing connection first
       if (pcRef.current) {
         pcRef.current.close();
         pcRef.current = null;
       }
 
-      const pc = new RTCPeerConnection(ICE_CONFIG);
+      const pc = new RTCPeerConnection(await getIceConfiguration());
       pcRef.current = pc;
 
       // ── ICE candidate → send to peer ──
@@ -386,7 +413,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const { callId } = res;
 
         // 2. Create peer connection (handlers wired immediately)
-        const pc = createPC(callId);
+        const pc = await createPC(callId);
 
         // 3. Get media stream and add tracks
         const stream = await getMediaStream(media);
@@ -449,7 +476,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     try {
       // 1. Create PC (handlers wired immediately)
-      const pc = createPC(incomingCall.callId);
+      const pc = await createPC(incomingCall.callId);
 
       // 2. Get media
       const stream = await getMediaStream(incomingCall.media);
