@@ -1339,21 +1339,30 @@ export default function ChatRoomPage() {
   const handleMessageDoubleClick = useCallback(
     (messageId: string, e: React.MouseEvent) => {
       e.preventDefault();
-      setShowLoveReaction(messageId);
-      const heartId = crypto.randomUUID();
-      setMessageHearts((prev) => [
-        ...prev,
-        {
-          id: heartId,
-          x: e.clientX,
-          y: e.clientY,
-        },
-      ]);
 
-      setTimeout(() => {
-        setShowLoveReaction(null);
-        setMessageHearts((prev) => prev.filter((h) => h.id !== heartId));
-      }, 1500);
+      // First check if we're adding a like (not removing it)
+      const message = messages.find((m) => m.id === messageId);
+      const currentLikes = message?.likes || [];
+      const hasLiked = currentLikes.some((l) => l.userId === user?.id);
+
+      // Only show heart animation when ADDING a like (not when unliking/removing)
+      if (!hasLiked && user?.id) {
+        setShowLoveReaction(messageId);
+        const heartId = crypto.randomUUID();
+        setMessageHearts((prev) => [
+          ...prev,
+          {
+            id: heartId,
+            x: e.clientX,
+            y: e.clientY,
+          },
+        ]);
+
+        setTimeout(() => {
+          setShowLoveReaction(null);
+          setMessageHearts((prev) => prev.filter((h) => h.id !== heartId));
+        }, 1500);
+      }
 
       // Optimistic update
       if (user?.id) {
