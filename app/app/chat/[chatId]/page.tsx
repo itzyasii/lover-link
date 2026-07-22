@@ -223,19 +223,48 @@ export default function ChatRoomPage() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [activeMessageActions, setActiveMessageActions] = useState<
+    string | null
+  >(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const messageActionsRef = useRef<HTMLDivElement>(null);
   const lastHeartEmitRef = useRef<number>(0);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+    function handleClickOutside(event: MouseEvent | TouchEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setIsMenuOpen(false);
       }
+      // Close message actions if clicking outside
+      if (
+        messageActionsRef.current &&
+        !messageActionsRef.current.contains(event.target as Node)
+      ) {
+        setActiveMessageActions(null);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
   }, []);
+
+  // Handle long press for mobile
+  const handleMessageTouchStart = (messageId: string) => {
+    longPressTimerRef.current = setTimeout(() => {
+      setActiveMessageActions(messageId);
+    }, 500); // 500ms long press
+  };
+
+  const handleMessageTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+  };
 
   // Block check as required by CHATS_API.md
   const isBlockedEitherWay = (userId1: string, userId2: string): boolean => {
@@ -972,6 +1001,27 @@ export default function ChatRoomPage() {
         };
 
         if (eventChatId === chatId) {
+          // If a like was added and it's not from the current user, show the love animation
+          if (action === "added" && userId !== user?.id) {
+            // Show the heart animation
+            const heartId = crypto.randomUUID();
+            // Position the heart in the middle of the screen for the receiver
+            const x = window.innerWidth / 2 + Math.random() * 100 - 50;
+            const y = window.innerHeight / 2 + Math.random() * 100 - 50;
+            setMessageHearts((prev) => [
+              ...prev,
+              {
+                id: heartId,
+                x,
+                y,
+              },
+            ]);
+
+            setTimeout(() => {
+              setMessageHearts((prev) => prev.filter((h) => h.id !== heartId));
+            }, 2000);
+          }
+
           // Update local messages state
           setMessages((prev) =>
             prev.map((msg) => {
@@ -1542,7 +1592,12 @@ export default function ChatRoomPage() {
                   Online • {otherParticipant?.username}
                 </span>
               ) : (
-                <span className="text-white/70">Last seen recently</span>
+                <span className="text-white/70">
+                  Last seen{" "}
+                  {presence?.lastSeenAt
+                    ? formatTime(presence.lastSeenAt)
+                    : "recently"}
+                </span>
               )}
             </p>
           </div>
@@ -1678,10 +1733,16 @@ export default function ChatRoomPage() {
             return (
               <motion.div
                 key={message.id}
+                ref={
+                  activeMessageActions === message.id ? messageActionsRef : null
+                }
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, ease: "easeOut" }}
                 onDoubleClick={(e) => handleMessageDoubleClick(message.id, e)}
+                onTouchStart={() => handleMessageTouchStart(message.id)}
+                onTouchEnd={handleMessageTouchEnd}
+                onTouchCancel={handleMessageTouchEnd}
                 className={cn(
                   "flex items-end gap-3 cursor-pointer",
                   isOwn ? "flex-row-reverse" : "flex-row",
@@ -1730,7 +1791,13 @@ export default function ChatRoomPage() {
                   {!message.deletedAt && (
                     <div
                       className={cn(
-                        "absolute -top-10 flex gap-1.5 opacity-0 group-hover/message:opacity-100 transition-all duration-200 z-10",
+                        "absolute -top-10 flex gap-1.5 transition-all duration-200 z-10",
+                        activeMessageActions === message.id
+                          ? "opacity-100"
+                          : "md:opacity-0 group-hover/message:opacity-100",
+                        activeMessageActions === message.id
+                          ? "flex"
+                          : "md:flex",
                         isOwn ? "right-2" : "left-2",
                       )}
                     >
@@ -2209,9 +2276,9 @@ export default function ChatRoomPage() {
               <button
                 type="button"
                 onClick={() => setIsRecording(true)}
-                className="p-2.5 md:p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
+                className="p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110 md:p-3"
               >
-                <Mic className="w-5 h-5 md:w-5.5 md:h-5.5 text-rose-400" />
+                <Mic className="w-6 h-6 text-rose-500 md:w-5.5 md:h-5.5" />
               </button>
 
               <motion.button
