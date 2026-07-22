@@ -598,9 +598,16 @@ export default function ChatRoomPage() {
   // Define proper types for sending messages as per CHATS_API.md
   interface ReplyToMessage {
     id: string;
-    text?: string;
+    text?: string | null;
     from: string;
     fromName?: string;
+    type?: "text" | "share" | "event";
+    item?: {
+      kind?: string;
+      meta?: {
+        duration?: number;
+      };
+    };
   }
 
   interface SendTextMessage {
@@ -853,14 +860,24 @@ export default function ChatRoomPage() {
           setMessages((prev) =>
             prev.some((current) => current.id === normalizedMessage.id)
               ? prev.map((current) =>
-                  current.id === normalizedMessage.id ? normalizedMessage : current,
+                  current.id === normalizedMessage.id
+                    ? normalizedMessage
+                    : current,
                 )
               : [...prev, normalizedMessage],
           );
 
           if (normalizedMessage.from !== user?.id) {
-            socket.emit("chat:delivered", { messageIds: [normalizedMessage.id] }, () => {});
-            socket.emit("chat:read", { messageIds: [normalizedMessage.id] }, () => {});
+            socket.emit(
+              "chat:delivered",
+              { messageIds: [normalizedMessage.id] },
+              () => {},
+            );
+            socket.emit(
+              "chat:read",
+              { messageIds: [normalizedMessage.id] },
+              () => {},
+            );
           }
         }
         queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
@@ -916,7 +933,12 @@ export default function ChatRoomPage() {
                   ...message,
                   receipts: message.receipts.map((receipt) =>
                     receipt.userId === userId
-                      ? { ...receipt, deliveredAt: receipt.deliveredAt || at, readAt: receipt.readAt || at, listenedAt: at }
+                      ? {
+                          ...receipt,
+                          deliveredAt: receipt.deliveredAt || at,
+                          readAt: receipt.readAt || at,
+                          listenedAt: at,
+                        }
                       : receipt,
                   ),
                 },
@@ -1796,27 +1818,7 @@ export default function ChatRoomPage() {
                             otherParticipant?.username}
                       </p>
                       <p className="text-sm leading-relaxed line-clamp-2">
-                        {message.replyTo.item?.kind === "audio" ? (
-                            <div className="flex items-center gap-2">
-                              <div className="flex gap-0.5">
-                                {[...Array(5)].map((_, i) => (
-                                  <div
-                                    key={i}
-                                    className="w-1 h-3 bg-rose-400 rounded-full"
-                                    style={{
-                                      animation: "pulse 1s ease-in-out infinite",
-                                      animationDelay: (i * 0.1) + "s",
-                                    }}
-                                  />
-                                ))}
-                              </div>
-                              <span className="text-xs text-rose-200">
-                                {message.replyTo.item.meta?.duration
-                                  ? Math.floor(message.replyTo.item.meta.duration) + "s"
-                                  : "Voice note"}
-                              </span>
-                            </div>
-                          ) : message.replyTo.text || "Media message"}
+                        {message.replyTo.text || "Media message"}
                       </p>
                     </div>
                   )}
@@ -1921,7 +1923,7 @@ export default function ChatRoomPage() {
                                   </span>
                                 </div>
                                 <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                  {message.likes.map((like, index) => {
+                                  {message.likes.map((like) => {
                                     const liker = chat?.members?.find(
                                       (m) => m.id === like.userId,
                                     );
@@ -1970,11 +1972,20 @@ export default function ChatRoomPage() {
                         {formatTime(message.createdAt)}
                         {isOwn &&
                           (isRead ? (
-                            <CheckCheck className="w-4 h-4 text-rose-100" aria-label="Read" />
+                            <CheckCheck
+                              className="w-4 h-4 text-rose-100"
+                              aria-label="Read"
+                            />
                           ) : isDelivered ? (
-                            <CheckCheck className="w-4 h-4 text-rose-200/80" aria-label="Delivered" />
+                            <CheckCheck
+                              className="w-4 h-4 text-rose-200/80"
+                              aria-label="Delivered"
+                            />
                           ) : (
-                            <Check className="w-4 h-4 text-rose-200/80" aria-label="Sent" />
+                            <Check
+                              className="w-4 h-4 text-rose-200/80"
+                              aria-label="Sent"
+                            />
                           ))}
                         {isOwn &&
                           message.type === "share" &&
@@ -2070,26 +2081,30 @@ export default function ChatRoomPage() {
                   </p>
                   <p className="text-sm text-gray-700 truncate max-w-md">
                     {replyingTo.item?.kind === "audio" ? (
-                    <div className="flex items-center gap-2">
-                      <div className="flex gap-0.5">
-                        {[...Array(5)].map((_, i) => (
-                          <div
-                            key={i}
-                            className="w-1 h-3 bg-rose-400 rounded-full"
-                            style={{
-                              animation: "pulse 1s ease-in-out infinite",
-                              animationDelay: (i * 0.1) + "s",
-                            }}
-                          />
-                        ))}
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-0.5">
+                          {[...Array(5)].map((_, i) => (
+                            <div
+                              key={i}
+                              className="w-1 h-3 bg-rose-400 rounded-full"
+                              style={{
+                                animation: "pulse 1s ease-in-out infinite",
+                                animationDelay: i * 0.1 + "s",
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <span className="text-xs text-rose-600">
+                          {replyingTo.item.meta?.duration
+                            ? Math.floor(
+                                Number(replyingTo.item.meta.duration),
+                              ) + "s"
+                            : "Voice note"}
+                        </span>
                       </div>
-                      <span className="text-xs text-rose-600">
-                        {replyingTo.item.meta?.duration
-                          ? Math.floor(replyingTo.item.meta.duration) + "s"
-                          : "Voice note"}
-                      </span>
-                    </div>
-                  ) : replyingTo.text || "Media message"}
+                    ) : (
+                      replyingTo.text || "Media message"
+                    )}
                   </p>
                 </div>
               </div>
