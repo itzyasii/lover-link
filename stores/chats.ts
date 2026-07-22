@@ -75,23 +75,21 @@ export const useChatsStore = create<ChatsState & ChatsActions>()(
           }
         });
 
-        // Merge server unread counts with any existing local unread counts
-        // This preserves any new unread messages that came in via websocket while fetching
+        // Use server unread counts as the source of truth
+        // Only preserve local unread counts if they are newer (messages received after server fetch)
         const currentUnreadCounts = get().unreadCounts;
         const mergedUnreadCounts: Record<string, number> = {
           ...serverUnreadMap,
         };
+
+        // For any local unread counts that aren't in server map but chat exists, keep them
+        // These are messages that came in via websocket while fetching chats
         Object.keys(currentUnreadCounts).forEach((chatId) => {
-          if (mergedUnreadCounts[chatId]) {
-            mergedUnreadCounts[chatId] = Math.max(
-              mergedUnreadCounts[chatId],
-              currentUnreadCounts[chatId],
-            );
-          } else {
-            // Only keep local unread counts if the chat still exists
-            if (chats.some((c) => c.id === chatId)) {
-              mergedUnreadCounts[chatId] = currentUnreadCounts[chatId];
-            }
+          if (
+            !mergedUnreadCounts[chatId] &&
+            chats.some((c) => c.id === chatId)
+          ) {
+            mergedUnreadCounts[chatId] = currentUnreadCounts[chatId];
           }
         });
 

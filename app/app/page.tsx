@@ -36,7 +36,6 @@ export default function ChatsPage() {
     updateChatLastMessage,
     incrementUnread,
     unreadCounts,
-    resetUnread,
   } = useChatsStore();
   const { isSomeoneTyping } = useTypingStore();
   const { getUserPresence, fetchPresence } = usePresenceStore();
@@ -67,18 +66,6 @@ export default function ChatsPage() {
 
         setChats(normalizedChats);
 
-        // Initialize local unreadCounts from server values to synchronize state
-        // This fixes the issue where local stored unread counts persist after page reload
-        const serverUnreadCounts: Record<string, number> = {};
-        normalizedChats.forEach((chat) => {
-          if (chat.unreadCount > 0) {
-            serverUnreadCounts[chat.id] = chat.unreadCount;
-          } else {
-            // Reset any local unread count if server says 0
-            resetUnread(chat.id);
-          }
-        });
-
         // Fetch presence for all chat members to enable real-time online status
         const allMemberIds = normalizedChats.flatMap((chat) =>
           chat.members.map((member) => member.id),
@@ -100,6 +87,10 @@ export default function ChatsPage() {
 
     try {
       socket = getSocket();
+
+      // Remove any existing listeners first to prevent duplicates
+      socket.off("chat:message");
+      socket.off("share:item");
 
       // Listen for new incoming messages
       const handleNewMessage: ServerToClientEvents["chat:message"] = ({
@@ -439,16 +430,13 @@ export default function ChatsPage() {
                             })()
                           )}
                         </p>
-                        {(unreadCounts[chat.id] || 0) +
-                          (chat.unreadCount || 0) >
-                          0 && (
+                        {(unreadCounts[chat.id] || 0) > 0 && (
                           <motion.span
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
                             className="ml-2 bg-linear-to-r from-rose-500 to-pink-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg shadow-rose-300"
                           >
-                            {(unreadCounts[chat.id] || 0) +
-                              (chat.unreadCount || 0)}
+                            {unreadCounts[chat.id] || 0}
                           </motion.span>
                         )}
                       </div>
