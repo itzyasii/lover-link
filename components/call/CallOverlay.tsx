@@ -23,10 +23,7 @@ function useRingtone(active: boolean) {
 
   useEffect(() => {
     if (active) {
-      // Use a reliable online ringtone (standard telephone ring)
-      const audio = new Audio(
-        "https://www.soundjay.com/phone/sounds/phone-calling-1.mp3",
-      );
+      const audio = new Audio("/sounds/incoming_call.mp3");
       audio.loop = true;
       audio.volume = 0.5;
       audio.play().catch(() => {
@@ -221,9 +218,12 @@ export function CallOverlay() {
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-9999 bg-gray-900 flex flex-col"
         >
-          {/* ── Hidden audio element — plays remote audio for ALL call types ── */}
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: "none" }} />
+          <audio
+            ref={remoteAudioRef}
+            autoPlay
+            playsInline
+            style={{ display: "none" }}
+          />
 
           {/* ── Remote video (full screen) ── */}
           {isVideo && (
@@ -265,11 +265,18 @@ export function CallOverlay() {
               dragTransition={{ bounceStiffness: 300, bounceDamping: 30 }}
               dragConstraints={{
                 top: 0,
-                bottom: typeof window !== "undefined" ? window.innerHeight - 180 : 600,
+                bottom:
+                  typeof window !== "undefined"
+                    ? window.innerHeight - 180
+                    : 600,
                 left: 0,
-                right: typeof window !== "undefined" ? window.innerWidth - 120 : 300,
+                right:
+                  typeof window !== "undefined" ? window.innerWidth - 120 : 300,
               }}
-              whileDrag={{ scale: 1.06, boxShadow: "0 20px 40px rgba(0,0,0,0.5)" }}
+              whileDrag={{
+                scale: 1.06,
+                boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
+              }}
               className="absolute top-24 right-4 w-28 h-36 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 cursor-grab active:cursor-grabbing z-10"
               style={{ touchAction: "none" }}
             >

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { getSocket, updateSocketToken } from "@/lib/socket";
 import { useAuthStore } from "@/stores/auth";
 import { useChatsStore } from "@/stores/chats";
@@ -21,6 +22,7 @@ import type {
 } from "@/types/realtime-events";
 
 export function RealtimeListener() {
+  const pathname = usePathname();
   const {
     updateChatLastMessage,
     incrementUnread,
@@ -32,6 +34,18 @@ export function RealtimeListener() {
   const { setInitialOnlineUsers, updatePresence } = usePresenceStore();
   const { accessToken, user } = useAuthStore();
   const queryClient = useQueryClient();
+
+  // Helper function to play message receive sound
+  const playMessageSound = () => {
+    try {
+      const audio = new Audio("/sounds/chat_message_receive.mp3");
+      audio.play().catch((error) => {
+        console.warn("[Sound] Failed to play message receive sound:", error);
+      });
+    } catch (error) {
+      console.warn("[Sound] Could not create audio element:", error);
+    }
+  };
 
   useEffect(() => {
     // Only initialize socket listeners if we have valid authentication
@@ -179,6 +193,12 @@ export function RealtimeListener() {
               itemKind: message.item?.kind,
             });
             incrementUnread(chatId);
+
+            // Play message receive sound only if user is NOT in this specific chat
+            const isInCurrentChat = pathname === `/app/chat/${chatId}`;
+            if (!isInCurrentChat) {
+              playMessageSound();
+            }
           }
           queryClient.invalidateQueries({
             queryKey: ["messages", chatId],
@@ -242,6 +262,12 @@ export function RealtimeListener() {
             itemKind: message.item?.kind,
           });
           incrementUnread(chatId);
+
+          // Play message receive sound only if user is NOT in this specific chat
+          const isInCurrentChat = pathname === `/app/chat/${chatId}`;
+          if (!isInCurrentChat) {
+            playMessageSound();
+          }
         }
         queryClient.invalidateQueries({
           queryKey: ["messages", chatId],
@@ -291,14 +317,11 @@ export function RealtimeListener() {
       );
 
       // `chat:like` - A message like was added or removed
-      socket.on(
-        "chat:like",
-        ({ chatId }: ChatLikeServerEvent) => {
-          queryClient.invalidateQueries({
-            queryKey: ["messages", chatId],
-          });
-        },
-      );
+      socket.on("chat:like", ({ chatId }: ChatLikeServerEvent) => {
+        queryClient.invalidateQueries({
+          queryKey: ["messages", chatId],
+        });
+      });
 
       // ============================================
       // Voice Message Specific Events (REALTIME_EVENTS.md)
@@ -366,6 +389,7 @@ export function RealtimeListener() {
     queryClient,
     accessToken,
     user?.id,
+    pathname,
   ]);
 
   // Update socket auth when accessToken or user changes

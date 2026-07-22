@@ -15,6 +15,8 @@ import {
   Check,
   CheckCheck,
   Headphones,
+  Camera,
+  Image as ImageIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuthStore } from "@/stores/auth";
@@ -23,10 +25,12 @@ import { useTypingStore } from "@/stores/typing";
 import { useFriendsStore } from "@/stores/friends";
 import { useCall } from "@/components/call/CallProvider";
 import { useToastStore } from "@/stores/toast";
+import { useCallsStore } from "@/stores/calls";
 import { apiFetch, apiFormData } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { env } from "@/lib/env";
 import { AudioRecorderUI } from "@/components/chat/AudioRecorderUI";
+import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { VoiceNotePlayer } from "@/components/chat/VoiceNotePlayer";
 import { formatTime } from "@/lib/utils";
 import { HeartbeatLoading } from "@/components/HeartbeatLoading";
@@ -226,6 +230,13 @@ export default function ChatRoomPage() {
   const [activeMessageActions, setActiveMessageActions] = useState<
     string | null
   >(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioRecorderPauseRef = useRef<(() => void) | null>(null);
+  const audioRecorderResumeRef = useRef<(() => void) | null>(null);
+  const wasRecordingBeforeCall = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const messageActionsRef = useRef<HTMLDivElement>(null);
@@ -272,6 +283,7 @@ export default function ChatRoomPage() {
   };
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [newMessage, setNewMessage] = useState("");
   const [typingTimeout, setTypingTimeout] = useState<NodeJS.Timeout | null>(
@@ -1212,6 +1224,228 @@ export default function ChatRoomPage() {
     } catch (error) {
       console.error("[Chat] Failed to emit typing event:", error);
     }
+  };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setIsCameraOpen(true);
+    } catch (error) {
+      console.error("Failed to access camera:", error);
+      addToast("Could not access camera. Please check permissions.", "error");
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraOpen(false);
+  };
+
+  // Handle media file selection from device gallery
+  const handleMediaFileSelect = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "video/mp4",
+      "video/webm",
+      "video/quicktime",
+    ];
+    if (!validTypes.includes(file.type)) {
+      addToast("Please select a valid image or video file", "error");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    // Validate file size (max 50MB)
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    if (file.size > maxSize) {
+      addToast("File is too large. Maximum size is 50MB", "error");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await apiFormData<{
+        ok: boolean;
+        item: ShareItem;
+      }>("/api/uploads", formData);
+
+      if (!response.ok || !response.item) throw new Error("Upload failed");
+
+      // Set correct item kind based on file type
+      response.item.kind = file.type.startsWith("video/") ? "video" : "image";
+      // Prepend API base URL to ensure media loads from correct domain
+      if (response.item.url && !response.item.url.startsWith("http")) {
+        response.item.url = `${env.API_BASE_URL}${response.item.url}`;
+      }
+
+      const clientMessageId = crypto.randomUUID();
+      const socket = getSocket();
+      if (socket && otherParticipant) {
+        socket.emit(
+          "share:item",
+          {
+            to: otherParticipant.id,
+            clientMessageId,
+            item: response.item,
+          },
+          () => {},
+        );
+      }
+
+      addToast(
+        `${file.type.startsWith("video/") ? "Video" : "Image"} sent successfully!`,
+        "success",
+      );
+    } catch (error) {
+      console.error("Failed to upload media file:", error);
+      addToast("Failed to upload file. Please try again.", "error");
+    } finally {
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // Wrapper component to expose audio recorder controls
+  function AudioRecorderUIWithControls({
+    onSend,
+    onCancel,
+    setPauseFn,
+    setResumeFn,
+  }: {
+    onSend: (blob: Blob, duration: number) => void;
+    onCancel: () => void;
+    setPauseFn: (fn: () => void) => void;
+    setResumeFn: (fn: () => void) => void;
+  }) {
+    const { pause, resume } = useAudioRecorder();
+
+    useEffect(() => {
+      setPauseFn(pause);
+      setResumeFn(resume);
+    }, [pause, resume, setPauseFn, setResumeFn]);
+
+    return <AudioRecorderUI onSend={onSend} onCancel={onCancel} />;
+  }
+
+  // Monitor call state to auto-pause voice recording when a call is received
+  useEffect(() => {
+    const { activeCall, incomingCall } = useCallsStore.getState();
+    const isInAnyCall = !!activeCall || !!incomingCall;
+
+    // If we get a call while recording, pause the recording
+    if (
+      isInAnyCall &&
+      isRecording &&
+      audioRecorderPauseRef.current &&
+      !wasRecordingBeforeCall.current
+    ) {
+      wasRecordingBeforeCall.current = true;
+      audioRecorderPauseRef.current();
+      addToast("Call received - voice recording paused", "info");
+    }
+
+    const unsubscribe = useCallsStore.subscribe((state) => {
+      const { activeCall: newActiveCall, incomingCall: newIncomingCall } =
+        state;
+      const isStillInCall = !!newActiveCall || !!newIncomingCall;
+
+      if (!isStillInCall && wasRecordingBeforeCall.current) {
+        wasRecordingBeforeCall.current = false;
+        addToast(
+          "Call ended - voice recording is paused, tap play to resume",
+          "info",
+        );
+      }
+    });
+
+    return () => unsubscribe();
+  }, [isRecording, addToast]);
+
+  const captureAndSendPhoto = async () => {
+    if (
+      !videoRef.current ||
+      !canvasRef.current ||
+      !chatId ||
+      !user?.id ||
+      !otherParticipant
+    )
+      return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0);
+
+    // Convert canvas to blob
+    canvas.toBlob(
+      async (blob) => {
+        if (!blob) return;
+
+        stopCamera();
+
+        try {
+          const formData = new FormData();
+          formData.append("file", blob, `camera_photo.jpg`);
+
+          const response = await apiFormData<{
+            ok: boolean;
+            item: ShareItem;
+          }>("/api/uploads", formData);
+
+          if (!response.ok || !response.item) throw new Error("Upload failed");
+
+          response.item.kind = "image";
+          if (response.item.url && !response.item.url.startsWith("http")) {
+            response.item.url = `${env.API_BASE_URL}${response.item.url}`;
+          }
+
+          const clientMessageId = crypto.randomUUID();
+          const socket = getSocket();
+          if (socket && otherParticipant) {
+            socket.emit(
+              "share:item",
+              {
+                to: otherParticipant.id,
+                clientMessageId,
+                item: response.item,
+              },
+              () => {},
+            );
+          }
+        } catch (error) {
+          console.error("Photo upload error:", error);
+          addToast("Failed to send photo", "error");
+        }
+      },
+      "image/jpeg",
+      0.9,
+    );
   };
 
   const handleSendVoiceNote = async (blob: Blob, duration: number) => {
@@ -2307,20 +2541,29 @@ export default function ChatRoomPage() {
 
           <form
             onSubmit={handleSendMessage}
-            className="max-w-4xl mx-auto flex items-center gap-2 relative"
+            className="max-w-4xl mx-auto flex items-center gap-1.5 md:gap-2 relative px-2"
           >
             {isRecording ? (
-              <AudioRecorderUI
+              <AudioRecorderUIWithControls
                 onSend={handleSendVoiceNote}
-                onCancel={() => setIsRecording(false)}
+                onCancel={() => {
+                  setIsRecording(false);
+                  wasRecordingBeforeCall.current = false;
+                }}
+                setPauseFn={(fn) => {
+                  audioRecorderPauseRef.current = fn;
+                }}
+                setResumeFn={(fn) => {
+                  audioRecorderResumeRef.current = fn;
+                }}
               />
             ) : (
               <>
-                {/* Hide smiley on mobile, show heart in its place */}
+                {/* Hide smiley on mobile, show heart in its place - mobile optimized */}
                 <button
                   type="button"
                   onClick={sendLoveHeart}
-                  className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90 md:hidden"
+                  className="p-2 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90 md:hidden touch-manipulation shrink-0"
                 >
                   <motion.div
                     animate={{ scale: [1, 1.1, 1] }}
@@ -2352,22 +2595,49 @@ export default function ChatRoomPage() {
                   </motion.div>
                 </button>
 
+                {/* Hidden file input for media attachment */}
                 <input
-                  ref={inputRef}
-                  type="text"
-                  value={newMessage}
-                  onChange={handleInputChange}
-                  placeholder="Write something sweet..."
-                  className="flex-1 px-5 py-3 md:py-3.5 rounded-full bg-linear-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-base md:text-lg"
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*,video/*"
+                  onChange={handleMediaFileSelect}
+                  className="hidden"
                 />
 
-                {/* Add mic to mobile view, keep on desktop */}
+                {/* Input field with camera icon (left) and image attachment icon (right) inside - mobile optimized */}
+                <div className="flex-1 relative flex items-center">
+                  <button
+                    type="button"
+                    onClick={startCamera}
+                    className="absolute left-3 z-10 p-1 rounded-full hover:bg-rose-200/50 transition-all duration-300 hover:scale-110 active:scale-90 touch-manipulation"
+                  >
+                    <Camera className="w-4.5 h-4.5 md:w-5 md:h-5 text-rose-400" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute right-3 z-20 w-10 h-10 md:w-11 md:h-11 flex items-center justify-center rounded-full hover:bg-rose-200/50 transition-all duration-300 hover:scale-110 active:scale-90 touch-manipulation"
+                    aria-label="Attach image or video"
+                  >
+                    <ImageIcon className="w-5 h-5 md:w-6 md:h-6 text-rose-400" />
+                  </button>
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={newMessage}
+                    onChange={handleInputChange}
+                    placeholder="Write something sweet..."
+                    className="w-full pl-12 md:pl-14 pr-16 md:pr-20 py-3 md:py-3.5 rounded-full bg-linear-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-sm md:text-base lg:text-lg"
+                  />
+                </div>
+
+                {/* Add mic to mobile view - tightly spaced for mobile */}
                 <button
                   type="button"
                   onClick={() => setIsRecording(true)}
-                  className="p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
+                  className="p-2 md:p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110 active:scale-90 touch-manipulation shrink-0"
                 >
-                  <Mic className="w-6 h-6 text-rose-500" />
+                  <Mic className="w-5 h-5 md:w-6 md:h-6 text-rose-500" />
                 </button>
 
                 <motion.button
@@ -2379,7 +2649,7 @@ export default function ChatRoomPage() {
                   }
                   whileHover={{ scale: 1.15 }}
                   whileTap={{ scale: 0.9 }}
-                  className="p-3 md:p-3.5 rounded-full bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-2xl shadow-rose-400/70 disabled:hover:scale-100"
+                  className="p-3 md:p-3.5 rounded-full bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-2xl shadow-rose-400/70 disabled:hover:scale-100 shrink-0 touch-manipulation"
                 >
                   <Send className="w-5 h-5 md:w-5.5 md:h-5.5 text-white" />
                 </motion.button>
@@ -2387,6 +2657,64 @@ export default function ChatRoomPage() {
             )}
           </form>
         </footer>
+
+        {/* Camera Modal - Mobile Optimized */}
+        <AnimatePresence>
+          {isCameraOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-100 bg-black flex flex-col"
+              style={{
+                paddingTop: "env(safe-area-inset-top)",
+                paddingBottom: "env(safe-area-inset-bottom)",
+              }}
+            >
+              {/* Close button - safe area aware for mobile notch */}
+              <div className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 z-10">
+                <button
+                  onClick={stopCamera}
+                  className="p-3 rounded-full bg-black/50 hover:bg-black/70 active:bg-black/80 transition-colors touch-manipulation"
+                >
+                  <svg
+                    className="w-6 h-6 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Video element - mobile optimized with proper viewport handling */}
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="flex-1 w-full h-full object-cover"
+              />
+              <canvas ref={canvasRef} className="hidden" />
+
+              {/* Capture button - safe area aware for mobile home indicators */}
+              <div className="absolute bottom-[calc(2rem+env(safe-area-inset-bottom))] left-0 right-0 flex justify-center">
+                <button
+                  onClick={captureAndSendPhoto}
+                  className="p-4 md:p-5 rounded-full bg-white hover:bg-gray-100 active:bg-gray-200 transition-all hover:scale-110 active:scale-95 shadow-xl touch-manipulation"
+                >
+                  <div className="w-14 h-14 md:w-16 md:h-16 rounded-full border-4 border-gray-800 bg-white" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </>
   );
