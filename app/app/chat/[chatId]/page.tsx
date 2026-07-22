@@ -1793,11 +1793,8 @@ export default function ChatRoomPage() {
                       className={cn(
                         "absolute -top-10 flex gap-1.5 transition-all duration-200 z-10",
                         activeMessageActions === message.id
-                          ? "opacity-100"
-                          : "md:opacity-0 group-hover/message:opacity-100",
-                        activeMessageActions === message.id
-                          ? "flex"
-                          : "md:flex",
+                          ? "opacity-100 flex"
+                          : "opacity-0 pointer-events-none md:group-hover/message:opacity-100 md:pointer-events-auto",
                         isOwn ? "right-2" : "left-2",
                       )}
                     >
@@ -2276,9 +2273,9 @@ export default function ChatRoomPage() {
               <button
                 type="button"
                 onClick={() => setIsRecording(true)}
-                className="p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110 md:p-3"
+                className="p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
               >
-                <Mic className="w-6 h-6 text-rose-500 md:w-5.5 md:h-5.5" />
+                <Mic className="w-6 h-6 text-rose-500" />
               </button>
 
               <motion.button
