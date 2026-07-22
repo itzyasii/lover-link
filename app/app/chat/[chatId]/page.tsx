@@ -1654,7 +1654,7 @@ export default function ChatRoomPage() {
           box-shadow: 0 0 20px rgba(251, 191, 36, 0.8), 0 0 40px rgba(251, 191, 36, 0.4), 0 0 60px rgba(251, 191, 36, 0.2);
         }
       `}</style>
-      <div className="h-dvh w-full flex flex-col relative overflow-hidden bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 md:h-[calc(100vh-2rem)] md:rounded-2xl md:mx-auto md:max-w-6xl md:my-4">
+      <div className="h-full w-full flex flex-col relative bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 md:h-full md:rounded-2xl md:mx-auto md:max-w-6xl">
         {/* Enhanced animated background with subtle particles */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           {hearts.map((heart) => (

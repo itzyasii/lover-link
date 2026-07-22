@@ -19,6 +19,7 @@
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
   background:
     radial-gradient(
       1200px 600px at 20% 10%,
@@ -32,6 +33,7 @@ body {
     ),
     linear-gradient(180deg, var(--bg0), var(--bg1));
   color: var(--text);
+  overflow-x: hidden;
 }
 
 * {

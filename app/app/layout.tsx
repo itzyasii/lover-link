@@ -74,10 +74,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-rose-50 via-pink-50 to-red-50">
-      <div className="flex flex-col lg:flex-row min-h-screen">
+    <div className="min-h-screen min-h-dvh bg-linear-to-br from-rose-50 via-pink-50 to-red-50">
+      <div className="flex flex-col lg:flex-row min-h-screen min-h-dvh">
         {/* Sidebar Navigation */}
-        <aside className="lg:w-20 xl:w-64 lg:min-h-screen bg-white/80 backdrop-blur-lg border-b lg:border-b-0 lg:border-r border-rose-100 p-4">
+        <aside className="w-full lg:w-20 xl:w-64 h-auto lg:h-full bg-white/80 backdrop-blur-lg border-b lg:border-b-0 lg:border-r border-rose-100 p-4 shrink-0">
           <div className="flex lg:flex-col items-center justify-between h-full">
             <div className="flex lg:flex-col items-center gap-6">
               <div className="hidden lg:block mb-4">
@@ -141,11 +141,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 lg:overflow-hidden">
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="h-full p-2 lg:p-4"
+            className="flex-1 p-2 lg:p-4 overflow-auto"
           >
             {children}
           </motion.div>
