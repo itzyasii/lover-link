@@ -278,6 +278,13 @@ export default function ChatRoomPage() {
     null,
   );
 
+  // Mark chat as read whenever we enter it
+  useEffect(() => {
+    if (chatId) {
+      markAsRead(chatId);
+    }
+  }, [chatId, markAsRead]);
+
   // Fetch messages with pagination (CHATS_API.md: GET /chats/:chatId/messages)
   const fetchMessages = useCallback(
     async (cursor?: string) => {
