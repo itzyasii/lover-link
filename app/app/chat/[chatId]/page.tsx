@@ -1395,7 +1395,7 @@ export default function ChatRoomPage() {
         });
       }
     },
-    [user?.id],
+    [user?.id, messages],
   );
 
   if (isLoading || !chat) {
