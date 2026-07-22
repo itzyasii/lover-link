@@ -1394,7 +1394,7 @@ export default function ChatRoomPage() {
   }
 
   return (
-    <div className="h-[100dvh] w-full flex flex-col relative overflow-hidden bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 md:h-[calc(100vh-2rem)] md:rounded-2xl md:mx-auto md:max-w-6xl md:my-4">
+    <div className="h-dvh w-full flex flex-col relative overflow-hidden bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 md:h-[calc(100vh-2rem)] md:rounded-2xl md:mx-auto md:max-w-6xl md:my-4">
       {/* Enhanced animated background with subtle particles */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {hearts.map((heart) => (

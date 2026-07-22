@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Search, Heart, MessageSquare, Sparkles, Flower2 } from "lucide-react";
-import { useChatsStore, Chat, ChatMember } from "@/stores/chats";
+import { useChatsStore, Chat, ChatMember, LastMessage } from "@/stores/chats";
 import { useAuthStore } from "@/stores/auth";
 import { useTypingStore } from "@/stores/typing";
 import { usePresenceStore } from "@/stores/presence";
@@ -12,6 +12,9 @@ import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
+import { useEffect } from "react";
+import { getSocket } from "@/lib/socket";
+import type { ServerToClientEvents } from "@/types/realtime-events";
 
 // Interface for raw MongoDB documents before normalization
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -27,7 +30,13 @@ interface MongoDBChat extends MongoDBDocument<Chat>, Omit<Chat, "members"> {
 
 export default function ChatsPage() {
   const { user } = useAuthStore();
-  const { setChats, chats } = useChatsStore();
+  const {
+    setChats,
+    chats,
+    updateChatLastMessage,
+    incrementUnread,
+    unreadCounts,
+  } = useChatsStore();
   const { isSomeoneTyping } = useTypingStore();
   const { getUserPresence, fetchPresence } = usePresenceStore();
 
@@ -68,6 +77,75 @@ export default function ChatsPage() {
       throw new Error("Failed to fetch chats");
     },
   });
+
+  // Setup socket listeners for real-time message updates
+  useEffect(() => {
+    let socket: ReturnType<typeof getSocket> | null = null;
+
+    try {
+      socket = getSocket();
+
+      // Listen for new incoming messages
+      const handleNewMessage: ServerToClientEvents["chat:message"] = ({
+        chatId,
+        message,
+      }) => {
+        // Only process if the message is from someone else (not sent by current user)
+        if (message.from !== user?.id) {
+          // Convert the socket message to match LastMessage interface
+          const lastMessage: LastMessage = {
+            id: message.id,
+            text: message.text,
+            from: message.from,
+            createdAt: new Date(message.createdAt).toISOString(),
+            type: message.type as LastMessage["type"],
+            itemKind: message.item?.kind,
+          };
+
+          // Update the chat's last message
+          updateChatLastMessage(chatId, lastMessage);
+
+          // Increment unread count for this chat
+          incrementUnread(chatId);
+        }
+      };
+
+      // Also handle shared items (media, files, etc.)
+      const handleShareItem: ServerToClientEvents["share:item"] = ({
+        chatId,
+        message,
+      }) => {
+        if (message.from !== user?.id) {
+          const lastMessage: LastMessage = {
+            id: message.id,
+            text: message.text,
+            from: message.from,
+            createdAt: new Date(message.createdAt).toISOString(),
+            type: "share",
+            itemKind: message.item?.kind,
+          };
+
+          updateChatLastMessage(chatId, lastMessage);
+          incrementUnread(chatId);
+        }
+      };
+
+      socket.on("chat:message", handleNewMessage);
+      socket.on("share:item", handleShareItem);
+
+      // Cleanup listeners on unmount
+      return () => {
+        if (socket) {
+          socket.off("chat:message", handleNewMessage);
+          socket.off("share:item", handleShareItem);
+        }
+      };
+    } catch (err) {
+      // Socket not initialized (user not authenticated), ignore
+      console.log("Socket not available:", err);
+      return;
+    }
+  }, [user?.id, updateChatLastMessage, incrementUnread]);
 
   if (isLoading && chats.length === 0) {
     return (
@@ -205,144 +283,161 @@ export default function ChatsPage() {
 
       {/* Chat List */}
       <div className="space-y-4">
-        {chats.map((chat, index) => {
-          const otherMember = chat.members.find((m) => m.id !== user?.id);
-          const isTyping = isSomeoneTyping(chat.id);
-          const presence = otherMember ? getUserPresence(otherMember.id) : null;
-          const isUserOnline = presence?.isOnline === true;
+        {/* Sort chats by most recent last message */}
+        {[...chats]
+          .sort((a, b) => {
+            const dateA = a.lastMessage
+              ? new Date(a.lastMessage.createdAt).getTime()
+              : 0;
+            const dateB = b.lastMessage
+              ? new Date(b.lastMessage.createdAt).getTime()
+              : 0;
+            return dateB - dateA;
+          })
+          .map((chat, index) => {
+            const otherMember = chat.members.find((m) => m.id !== user?.id);
+            const isTyping = isSomeoneTyping(chat.id);
+            const presence = otherMember
+              ? getUserPresence(otherMember.id)
+              : null;
+            const isUserOnline = presence?.isOnline === true;
 
-          return (
-            <motion.div
-              key={chat.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.1 }}
-            >
-              <Link
-                href={`/app/chat/${chat.id}`}
-                className="block bg-white/70 backdrop-blur-sm rounded-3xl border border-rose-100/50 p-5 hover:shadow-2xl hover:shadow-rose-100/60 hover:border-rose-200 transition-all group relative overflow-hidden"
+            return (
+              <motion.div
+                key={chat.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.1 }}
               >
-                {/* Romantic background decoration */}
-                <div className="absolute top-0 right-0 w-32 h-32 bg-linear-to-br from-rose-100/30 to-transparent rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700"></div>
+                <Link
+                  href={`/app/chat/${chat.id}`}
+                  className="block bg-white/70 backdrop-blur-sm rounded-3xl border border-rose-100/50 p-5 hover:shadow-2xl hover:shadow-rose-100/60 hover:border-rose-200 transition-all group relative overflow-hidden"
+                >
+                  {/* Romantic background decoration */}
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-linear-to-br from-rose-100/30 to-transparent rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700"></div>
 
-                <div className="flex items-center gap-5 relative z-10">
-                  {/* Avatar */}
-                  <div className="relative">
-                    <motion.div
-                      whileHover={{ scale: 1.05 }}
-                      className="w-16 h-16 rounded-full bg-linear-to-br from-rose-400 via-pink-400 to-rose-500 flex items-center justify-center text-white text-2xl shadow-lg shadow-rose-200"
-                    >
-                      {otherMember?.username?.[0]?.toUpperCase() || "?"}
-                    </motion.div>
-                    {isUserOnline && (
+                  <div className="flex items-center gap-5 relative z-10">
+                    {/* Avatar */}
+                    <div className="relative">
                       <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        className="absolute bottom-0 right-0 w-5 h-5 bg-green-500 rounded-full border-3 border-white shadow-md animate-pulse"
-                      ></motion.div>
-                    )}
-                    {/* Tiny heart decoration on avatar */}
-                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full flex items-center justify-center">
-                      <Heart className="w-2 h-2 text-white fill-white" />
-                    </div>
-                  </div>
-
-                  {/* Chat Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <h3
-                        className="font-semibold text-gray-900 group-hover:text-rose-500 transition-colors text-xl"
-                        style={{ fontFamily: "var(--font-windsong), cursive" }}
+                        whileHover={{ scale: 1.05 }}
+                        className="w-16 h-16 rounded-full bg-linear-to-br from-rose-400 via-pink-400 to-rose-500 flex items-center justify-center text-white text-2xl shadow-lg shadow-rose-200"
                       >
-                        {otherMember?.username || "Unknown"}
-                      </h3>
-                      {chat.lastMessage && (
-                        <span className="text-xs text-gray-400 font-light">
-                          {formatTime(chat.lastMessage.createdAt)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <p
-                        className={cn(
-                          "text-sm truncate",
-                          isTyping
-                            ? "text-rose-500 font-medium"
-                            : "text-gray-500",
-                        )}
-                      >
-                        {isTyping ? (
-                          <span className="flex items-center gap-1">
-                            typing...
-                            <span className="flex gap-0.5">
-                              <span
-                                className="w-1 h-1 bg-rose-500 rounded-full animate-bounce"
-                                style={{ animationDelay: "0ms" }}
-                              ></span>
-                              <span
-                                className="w-1 h-1 bg-rose-500 rounded-full animate-bounce"
-                                style={{ animationDelay: "150ms" }}
-                              ></span>
-                              <span
-                                className="w-1 h-1 bg-rose-500 rounded-full animate-bounce"
-                                style={{ animationDelay: "300ms" }}
-                              ></span>
-                            </span>
-                          </span>
-                        ) : (
-                          (() => {
-                            if (!chat.lastMessage)
-                              return "Start a beautiful conversation ✨";
-
-                            // Handle different message types with appropriate previews
-                            switch (chat.lastMessage.type) {
-                              case "text":
-                                return chat.lastMessage.text;
-                              case "image":
-                                return "📷 Shared a photo";
-                              case "file":
-                                return "📎 Shared a file";
-                              case "voice":
-                                return "🎤 Voice message";
-                              case "share":
-                                if (chat.lastMessage.itemKind === "audio") {
-                                  return "🎵 Shared an audio track";
-                                } else if (
-                                  chat.lastMessage.itemKind === "video"
-                                ) {
-                                  return "🎥 Shared a video";
-                                } else if (
-                                  chat.lastMessage.itemKind === "image"
-                                ) {
-                                  return "🖼️ Shared an image";
-                                } else if (
-                                  chat.lastMessage.itemKind === "link"
-                                ) {
-                                  return "🔗 Shared a link";
-                                }
-                                return "📤 Shared something";
-                              default:
-                                return chat.lastMessage.text || "New message";
-                            }
-                          })()
-                        )}
-                      </p>
-                      {chat.unreadCount && chat.unreadCount > 0 && (
-                        <motion.span
+                        {otherMember?.username?.[0]?.toUpperCase() || "?"}
+                      </motion.div>
+                      {isUserOnline && (
+                        <motion.div
                           initial={{ scale: 0 }}
                           animate={{ scale: 1 }}
-                          className="ml-2 bg-linear-to-r from-rose-500 to-pink-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg shadow-rose-300"
-                        >
-                          {chat.unreadCount}
-                        </motion.span>
+                          className="absolute bottom-0 right-0 w-5 h-5 bg-green-500 rounded-full border-3 border-white shadow-md animate-pulse"
+                        ></motion.div>
                       )}
+                      {/* Tiny heart decoration on avatar */}
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full flex items-center justify-center">
+                        <Heart className="w-2 h-2 text-white fill-white" />
+                      </div>
+                    </div>
+
+                    {/* Chat Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <h3
+                          className="font-semibold text-gray-900 group-hover:text-rose-500 transition-colors text-xl"
+                          style={{
+                            fontFamily: "var(--font-windsong), cursive",
+                          }}
+                        >
+                          {otherMember?.username || "Unknown"}
+                        </h3>
+                        {chat.lastMessage && (
+                          <span className="text-xs text-gray-400 font-light">
+                            {formatTime(chat.lastMessage.createdAt)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between mt-2">
+                        <p
+                          className={cn(
+                            "text-sm truncate",
+                            isTyping
+                              ? "text-rose-500 font-medium"
+                              : "text-gray-500",
+                          )}
+                        >
+                          {isTyping ? (
+                            <span className="flex items-center gap-1">
+                              typing...
+                              <span className="flex gap-0.5">
+                                <span
+                                  className="w-1 h-1 bg-rose-500 rounded-full animate-bounce"
+                                  style={{ animationDelay: "0ms" }}
+                                ></span>
+                                <span
+                                  className="w-1 h-1 bg-rose-500 rounded-full animate-bounce"
+                                  style={{ animationDelay: "150ms" }}
+                                ></span>
+                                <span
+                                  className="w-1 h-1 bg-rose-500 rounded-full animate-bounce"
+                                  style={{ animationDelay: "300ms" }}
+                                ></span>
+                              </span>
+                            </span>
+                          ) : (
+                            (() => {
+                              if (!chat.lastMessage)
+                                return "Start a beautiful conversation ✨";
+
+                              // Handle different message types with appropriate previews
+                              switch (chat.lastMessage.type) {
+                                case "text":
+                                  return chat.lastMessage.text;
+                                case "image":
+                                  return "📷 Shared a photo";
+                                case "file":
+                                  return "📎 Shared a file";
+                                case "voice":
+                                  return "🎤 Voice message";
+                                case "share":
+                                  if (chat.lastMessage.itemKind === "audio") {
+                                    return "🎵 Shared an audio track";
+                                  } else if (
+                                    chat.lastMessage.itemKind === "video"
+                                  ) {
+                                    return "🎥 Shared a video";
+                                  } else if (
+                                    chat.lastMessage.itemKind === "image"
+                                  ) {
+                                    return "🖼️ Shared an image";
+                                  } else if (
+                                    chat.lastMessage.itemKind === "link"
+                                  ) {
+                                    return "🔗 Shared a link";
+                                  }
+                                  return "📤 Shared something";
+                                default:
+                                  return chat.lastMessage.text || "New message";
+                              }
+                            })()
+                          )}
+                        </p>
+                        {(unreadCounts[chat.id] > 0 ||
+                          (chat.unreadCount && chat.unreadCount > 0)) && (
+                          <motion.span
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className="ml-2 bg-linear-to-r from-rose-500 to-pink-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg shadow-rose-300"
+                          >
+                            {(unreadCounts[chat.id] || 0) +
+                              (chat.unreadCount || 0)}
+                          </motion.span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </Link>
-            </motion.div>
-          );
-        })}
+                </Link>
+              </motion.div>
+            );
+          })}
       </div>
 
       {/* Romantic footer decoration */}
