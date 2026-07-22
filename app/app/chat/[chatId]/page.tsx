@@ -1394,7 +1394,7 @@ export default function ChatRoomPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-2rem)] lg:h-[calc(100vh-2rem)] w-full flex flex-col relative overflow-hidden bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 rounded-2xl">
+    <div className="h-[100dvh] w-full flex flex-col relative overflow-hidden bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 md:h-[calc(100vh-2rem)] md:rounded-2xl md:mx-auto md:max-w-6xl md:my-4">
       {/* Enhanced animated background with subtle particles */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {hearts.map((heart) => (
@@ -1503,7 +1503,7 @@ export default function ChatRoomPage() {
       </AnimatePresence>
 
       {/* Enhanced Romantic Header with glassmorphism */}
-      <header className="relative z-20 w-full bg-linear-to-r from-rose-400/95 via-pink-400/95 to-rose-400/95 backdrop-blur-2xl border-b border-rose-200/60 p-3 md:p-3 shadow-2xl shadow-rose-300/60 shrink-0">
+      <header className="relative z-20 w-full bg-linear-to-r from-rose-400/95 via-pink-400/95 to-rose-400/95 backdrop-blur-2xl border-b border-rose-200/60 p-2 md:p-3 shadow-2xl shadow-rose-300/60 shrink-0">
         <div className="absolute inset-0 overflow-hidden">
           <motion.div
             animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3] }}
@@ -1521,7 +1521,7 @@ export default function ChatRoomPage() {
           </motion.div>
         </div>
 
-        <div className="max-w-4xl mx-auto flex items-center gap-3 relative">
+        <div className="max-w-4xl mx-auto flex items-center gap-1 md:gap-3 relative">
           <button
             onClick={() => router.back()}
             className="p-2 rounded-full hover:bg-white/20 transition-all duration-300 lg:hidden backdrop-blur-sm"
@@ -1535,8 +1535,8 @@ export default function ChatRoomPage() {
             transition={{ type: "spring", bounce: 0.5 }}
             className="relative"
           >
-            <div className="w-12 h-12 md:w-20 md:h-20 rounded-full bg-linear-to-br from-white to-rose-100 flex items-center justify-center shadow-2xl shadow-rose-300/60 ring-4 ring-white/60">
-              <span className="bg-linear-to-br from-rose-500 to-pink-500 bg-clip-text text-transparent font-bold text-1xl md:text-2xl">
+            <div className="w-10 h-10 md:w-20 md:h-20 rounded-full bg-linear-to-br from-white to-rose-100 flex items-center justify-center shadow-2xl shadow-rose-300/60 ring-4 ring-white/60">
+              <span className="bg-linear-to-br from-rose-500 to-pink-500 bg-clip-text text-transparent font-bold text-lg md:text-2xl">
                 {otherParticipant?.username?.[0]?.toUpperCase()}
               </span>
             </div>
@@ -1544,7 +1544,7 @@ export default function ChatRoomPage() {
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="absolute bottom-1 right-1 w-4 h-4 md:w-5 md:h-5 bg-green-400 rounded-full border-4 border-white shadow-xl"
+                className="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 md:w-5 md:h-5 bg-green-400 rounded-full border-4 border-white shadow-xl"
               >
                 <motion.div
                   animate={{ scale: [1, 1.5, 1] }}
@@ -1556,9 +1556,9 @@ export default function ChatRoomPage() {
             <motion.div
               animate={{ rotate: [0, 10, -10, 0], scale: [1, 1.1, 1] }}
               transition={{ duration: 3, repeat: Infinity }}
-              className="absolute -top-3 -right-3"
+              className="absolute -top-2 -right-2 md:-top-3 md:-right-3"
             >
-              <Heart className="w-7 h-7 md:w-8 md:h-8 text-rose-300 fill-rose-300 drop-shadow-lg" />
+              <Heart className="w-6 h-6 md:w-8 md:h-8 text-rose-300 fill-rose-300 drop-shadow-lg" />
             </motion.div>
           </motion.div>
 
@@ -1615,7 +1615,7 @@ export default function ChatRoomPage() {
                 initiateCall(otherParticipant, "audio");
               }
             }}
-            className="p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
+            className="p-2 md:p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
           >
             <Phone className="w-5 h-5 text-white" />
           </button>
@@ -1632,7 +1632,7 @@ export default function ChatRoomPage() {
                 initiateCall(otherParticipant, "video");
               }
             }}
-            className="p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
+            className="p-2 md:p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
           >
             <Video className="w-5 h-5 text-white" />
           </button>
@@ -1641,7 +1641,7 @@ export default function ChatRoomPage() {
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
+              className="p-2 md:p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
             >
               <svg
                 className="w-5 h-5 text-white"
@@ -1790,6 +1790,11 @@ export default function ChatRoomPage() {
                   {/* Message actions for all messages */}
                   {!message.deletedAt && (
                     <div
+                      ref={
+                        activeMessageActions === message.id
+                          ? messageActionsRef
+                          : null
+                      }
                       className={cn(
                         "absolute -top-10 flex gap-1.5 transition-all duration-200 z-10",
                         activeMessageActions === message.id
@@ -2241,17 +2246,33 @@ export default function ChatRoomPage() {
             />
           ) : (
             <>
+              {/* Hide smiley on mobile, show heart in its place */}
               <button
                 type="button"
-                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
+                onClick={sendLoveHeart}
+                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90 md:hidden"
+              >
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                >
+                  <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+                </motion.div>
+              </button>
+
+              {/* Keep smiley only on desktop */}
+              <button
+                type="button"
+                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110 hidden md:flex"
               >
                 <Smile className="w-5 h-5 text-rose-400" />
               </button>
 
+              {/* Keep heart only on desktop */}
               <button
                 type="button"
                 onClick={sendLoveHeart}
-                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90"
+                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90 hidden md:flex"
               >
                 <motion.div
                   animate={{ scale: [1, 1.1, 1] }}
@@ -2270,6 +2291,7 @@ export default function ChatRoomPage() {
                 className="flex-1 px-5 py-3 md:py-3.5 rounded-full bg-linear-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-base md:text-lg"
               />
 
+              {/* Add mic to mobile view, keep on desktop */}
               <button
                 type="button"
                 onClick={() => setIsRecording(true)}
