@@ -51,6 +51,22 @@ interface EventItem {
   media?: "audio" | "video";
 }
 
+interface ReplyToMessage {
+  id: string;
+  text?: string | null;
+  from: string;
+  fromName?: string;
+  type?: "text" | "share" | "event";
+  item?: {
+    kind?: "file" | "image" | "video" | "audio";
+    url?: string;
+    originalName?: string;
+    mime?: string;
+    size?: number;
+    meta?: Record<string, unknown>;
+  };
+}
+
 interface Message {
   id: string;
   chatId: string;
@@ -60,7 +76,11 @@ interface Message {
   text?: string | null;
   item?: ShareItem;
   event?: EventItem;
-  reactions: Array<{ emoji: string; userId: string; createdAt: string }>;
+  reactions: Array<{
+    emoji: string;
+    userId: string;
+    createdAt: string;
+  }>;
   likes?: Array<{ userId: string; createdAt: string }>;
   receipts: Array<{
     userId: string;
@@ -76,12 +96,7 @@ interface Message {
   };
   editedAt?: string;
   deletedAt?: string;
-  replyTo?: {
-    id: string;
-    text?: string | null;
-    from: string;
-    fromName?: string;
-  };
+  replyTo?: ReplyToMessage;
   createdAt: string;
   updatedAt: string;
 }
@@ -596,19 +611,6 @@ export default function ChatRoomPage() {
   });
 
   // Define proper types for sending messages as per CHATS_API.md
-  interface ReplyToMessage {
-    id: string;
-    text?: string | null;
-    from: string;
-    fromName?: string;
-    type?: "text" | "share" | "event";
-    item?: {
-      kind?: string;
-      meta?: {
-        duration?: number;
-      };
-    };
-  }
 
   interface SendTextMessage {
     type: "text";
@@ -1817,9 +1819,42 @@ export default function ChatRoomPage() {
                           : message.replyTo.fromName ||
                             otherParticipant?.username}
                       </p>
-                      <p className="text-sm leading-relaxed line-clamp-2">
-                        {message.replyTo.text || "Media message"}
-                      </p>
+                      {message.replyTo.item?.kind === "audio" ? (
+                        <div className="mt-1 max-w-50">
+                          <VoiceNotePlayer
+                            audioUrl={message.replyTo.item.url || ""}
+                            duration={
+                              message.replyTo.item.meta?.duration
+                                ? Number(message.replyTo.item.meta.duration)
+                                : 0
+                            }
+                            messageId={message.replyTo.id}
+                            isOwn={message.from === user?.id}
+                            isListened={
+                              message.receipts?.some(
+                                (r) => r.userId === user?.id && r.listenedAt,
+                              ) || false
+                            }
+                          />
+                        </div>
+                      ) : message.replyTo.item?.kind === "image" ? (
+                        <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
+                          📷 Image message
+                        </p>
+                      ) : message.replyTo.item?.kind === "video" ? (
+                        <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
+                          🎥 Video message
+                        </p>
+                      ) : message.replyTo.item?.kind === "file" ? (
+                        <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
+                          📎 File:{" "}
+                          {message.replyTo.item.originalName || "Attachment"}
+                        </p>
+                      ) : (
+                        <p className="text-sm leading-relaxed line-clamp-2">
+                          {message.replyTo.text || "Media message"}
+                        </p>
+                      )}
                     </div>
                   )}
 
