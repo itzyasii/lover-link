@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 const LoginSchema = z.object({
   emailOrUsername: z.string().min(1, "Email or username is required"),
   password: z.string().min(1, "Password is required"),
+  fcmToken: z.string().optional(),
 });
 
 type LoginFormData = z.infer<typeof LoginSchema>;
@@ -61,8 +62,8 @@ export default function LoginPage() {
 
       if (response.ok) {
         login(response.accessToken, response.refreshToken, response.user);
-        addToast("Welcome back to LoverLink! ❤️", "success");
         router.push("/app");
+        addToast("Welcome back to LoverLink! ❤️", "success");
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Login failed";
