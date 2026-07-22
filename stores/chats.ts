@@ -66,7 +66,36 @@ export const useChatsStore = create<ChatsState & ChatsActions>()(
       ...initialState,
 
       setChats: (chats: Chat[]) => {
-        set({ chats });
+        // When setting chats from server, synchronize unread counts
+        // This ensures server state takes precedence over any stale local state
+        const serverUnreadMap: Record<string, number> = {};
+        chats.forEach((chat) => {
+          if (chat.unreadCount > 0) {
+            serverUnreadMap[chat.id] = chat.unreadCount;
+          }
+        });
+
+        // Merge server unread counts with any existing local unread counts
+        // This preserves any new unread messages that came in via websocket while fetching
+        const currentUnreadCounts = get().unreadCounts;
+        const mergedUnreadCounts: Record<string, number> = {
+          ...serverUnreadMap,
+        };
+        Object.keys(currentUnreadCounts).forEach((chatId) => {
+          if (mergedUnreadCounts[chatId]) {
+            mergedUnreadCounts[chatId] = Math.max(
+              mergedUnreadCounts[chatId],
+              currentUnreadCounts[chatId],
+            );
+          } else {
+            // Only keep local unread counts if the chat still exists
+            if (chats.some((c) => c.id === chatId)) {
+              mergedUnreadCounts[chatId] = currentUnreadCounts[chatId];
+            }
+          }
+        });
+
+        set({ chats, unreadCounts: mergedUnreadCounts });
       },
 
       addChat: (chat: Chat) => {
@@ -91,6 +120,12 @@ export const useChatsStore = create<ChatsState & ChatsActions>()(
             ...state.unreadCounts,
             [chatId]: (state.unreadCounts[chatId] || 0) + 1,
           },
+          // Also increment the chat's own unreadCount property to maintain consistency
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? { ...chat, unreadCount: (chat.unreadCount || 0) + 1 }
+              : chat,
+          ),
         }));
       },
 
@@ -98,7 +133,11 @@ export const useChatsStore = create<ChatsState & ChatsActions>()(
         set((state) => {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { [chatId]: _, ...rest } = state.unreadCounts;
-          return { unreadCounts: rest };
+          // Also update the chat's own unreadCount property to ensure consistency
+          const updatedChats = state.chats.map((chat) =>
+            chat.id === chatId ? { ...chat, unreadCount: 0 } : chat,
+          );
+          return { unreadCounts: rest, chats: updatedChats };
         });
       },
 
@@ -106,7 +145,11 @@ export const useChatsStore = create<ChatsState & ChatsActions>()(
         set((state) => {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { [chatId]: _, ...rest } = state.unreadCounts;
-          return { unreadCounts: rest };
+          // Also update the chat's own unreadCount property to ensure consistency
+          const updatedChats = state.chats.map((chat) =>
+            chat.id === chatId ? { ...chat, unreadCount: 0 } : chat,
+          );
+          return { unreadCounts: rest, chats: updatedChats };
         });
       },
 
@@ -158,6 +201,14 @@ export const useChatsStore = create<ChatsState & ChatsActions>()(
     }),
     {
       name: "chats-storage",
+      version: 2, // Increment version to trigger migration and clear stale data
+      migrate: (persistedState: unknown, version: number) => {
+        // If loading from version 1 or older, reset to initial state to clear stale unread counts
+        if (version < 2) {
+          return { ...initialState };
+        }
+        return persistedState as ChatsState & ChatsActions;
+      },
     },
   ),
 );

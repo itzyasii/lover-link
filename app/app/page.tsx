@@ -36,6 +36,7 @@ export default function ChatsPage() {
     updateChatLastMessage,
     incrementUnread,
     unreadCounts,
+    resetUnread,
   } = useChatsStore();
   const { isSomeoneTyping } = useTypingStore();
   const { getUserPresence, fetchPresence } = usePresenceStore();
@@ -59,10 +60,25 @@ export default function ChatsPage() {
               id: member._id?.$oid || member.id,
             }));
           }
+          // Ensure unreadCount is always a number
+          normalized.unreadCount = normalized.unreadCount || 0;
           return normalized as Chat;
         });
 
         setChats(normalizedChats);
+
+        // Initialize local unreadCounts from server values to synchronize state
+        // This fixes the issue where local stored unread counts persist after page reload
+        const serverUnreadCounts: Record<string, number> = {};
+        normalizedChats.forEach((chat) => {
+          if (chat.unreadCount > 0) {
+            serverUnreadCounts[chat.id] = chat.unreadCount;
+          } else {
+            // Reset any local unread count if server says 0
+            resetUnread(chat.id);
+          }
+        });
+
         // Fetch presence for all chat members to enable real-time online status
         const allMemberIds = normalizedChats.flatMap((chat) =>
           chat.members.map((member) => member.id),
@@ -90,22 +106,21 @@ export default function ChatsPage() {
         chatId,
         message,
       }) => {
-        // Only process if the message is from someone else (not sent by current user)
+        // Convert the socket message to match LastMessage interface
+        const lastMessage: LastMessage = {
+          id: message.id,
+          text: message.text,
+          from: message.from,
+          createdAt: new Date(message.createdAt).toISOString(),
+          type: message.type as LastMessage["type"],
+          itemKind: message.item?.kind,
+        };
+
+        // Always update the last message to ensure real-time updates work for all messages
+        updateChatLastMessage(chatId, lastMessage);
+
+        // Only increment unread count if the message is from someone else (not sent by current user)
         if (message.from !== user?.id) {
-          // Convert the socket message to match LastMessage interface
-          const lastMessage: LastMessage = {
-            id: message.id,
-            text: message.text,
-            from: message.from,
-            createdAt: new Date(message.createdAt).toISOString(),
-            type: message.type as LastMessage["type"],
-            itemKind: message.item?.kind,
-          };
-
-          // Update the chat's last message
-          updateChatLastMessage(chatId, lastMessage);
-
-          // Increment unread count for this chat
           incrementUnread(chatId);
         }
       };
@@ -115,17 +130,21 @@ export default function ChatsPage() {
         chatId,
         message,
       }) => {
-        if (message.from !== user?.id) {
-          const lastMessage: LastMessage = {
-            id: message.id,
-            text: message.text,
-            from: message.from,
-            createdAt: new Date(message.createdAt).toISOString(),
-            type: "share",
-            itemKind: message.item?.kind,
-          };
+        // Convert the socket message to match LastMessage interface
+        const lastMessage: LastMessage = {
+          id: message.id,
+          text: message.text,
+          from: message.from,
+          createdAt: new Date(message.createdAt).toISOString(),
+          type: "share",
+          itemKind: message.item?.kind,
+        };
 
-          updateChatLastMessage(chatId, lastMessage);
+        // Always update the last message to ensure real-time updates work for all messages
+        updateChatLastMessage(chatId, lastMessage);
+
+        // Only increment unread count if the message is from someone else (not sent by current user)
+        if (message.from !== user?.id) {
           incrementUnread(chatId);
         }
       };
@@ -420,8 +439,9 @@ export default function ChatsPage() {
                             })()
                           )}
                         </p>
-                        {(unreadCounts[chat.id] > 0 ||
-                          (chat.unreadCount && chat.unreadCount > 0)) && (
+                        {(unreadCounts[chat.id] || 0) +
+                          (chat.unreadCount || 0) >
+                          0 && (
                           <motion.span
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
