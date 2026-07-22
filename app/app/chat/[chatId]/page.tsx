@@ -1394,929 +1394,984 @@ export default function ChatRoomPage() {
   }
 
   return (
-    <div className="h-dvh w-full flex flex-col relative overflow-hidden bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 md:h-[calc(100vh-2rem)] md:rounded-2xl md:mx-auto md:max-w-6xl md:my-4">
-      {/* Enhanced animated background with subtle particles */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {hearts.map((heart) => (
-          <FloatingHeart key={heart.id} delay={heart.delay} x={heart.x} />
-        ))}
-        {/* Additional romantic particles */}
-        <motion.div
-          animate={{
-            y: [0, -30, 0],
-            x: [0, 15, -15, 0],
-            opacity: [0.2, 0.4, 0.2],
-          }}
-          transition={{ duration: 6, repeat: Infinity, delay: 0.5 }}
-          className="absolute top-1/4 left-1/4"
-        >
-          <Sparkles className="w-4 h-4 text-pink-300" />
-        </motion.div>
-        <motion.div
-          animate={{
-            y: [0, -25, 0],
-            x: [0, -10, 10, 0],
-            opacity: [0.15, 0.35, 0.15],
-          }}
-          transition={{ duration: 7, repeat: Infinity, delay: 2 }}
-          className="absolute top-1/3 right-1/4"
-        >
-          <Sparkles className="w-3 h-3 text-rose-300" />
-        </motion.div>
-      </div>
-
-      {/* Spectacular romantic floating hearts burst */}
-      <AnimatePresence>
-        {messageHearts.map((mh) => (
-          <motion.div
-            key={mh.id}
-            className="fixed pointer-events-none z-100 -translate-x-1/2 -translate-y-1/2"
-            style={{ left: mh.x, top: mh.y }}
-          >
-            {/* Main soaring heart */}
-            <motion.div
-              initial={{ y: 0, scale: 0.5, opacity: 0 }}
-              animate={{
-                y: -500,
-                scale: [1, 2.5, 3, 2.5],
-                rotate: [-15, 15, -15, 10, 0],
-                opacity: [0, 1, 1, 0],
-              }}
-              transition={{ duration: 3.5, ease: "easeOut" }}
-              className="relative flex items-center justify-center"
-            >
-              <Heart className="w-20 h-20 text-rose-500 fill-rose-500 drop-shadow-[0_0_25px_rgba(244,63,94,0.9)]" />
-
-              {/* Confetti mini-hearts exploding outward */}
-              {[...Array(8)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
-                  animate={{
-                    x: Math.cos((i * 45 * Math.PI) / 180) * 120,
-                    y:
-                      Math.sin((i * 45 * Math.PI) / 180) * 120 -
-                      Math.random() * 100,
-                    scale: Math.random() * 1.5 + 0.5,
-                    rotate: Math.random() * 360,
-                    opacity: 0,
-                  }}
-                  transition={{ duration: 2 + Math.random(), ease: "easeOut" }}
-                  className="absolute"
-                >
-                  <Heart
-                    className={cn(
-                      "w-6 h-6 drop-shadow-lg",
-                      i % 2 === 0
-                        ? "text-pink-400 fill-pink-400"
-                        : "text-rose-400 fill-rose-400",
-                    )}
-                  />
-                </motion.div>
-              ))}
-
-              {/* Shimmering sparkles */}
-              {[...Array(6)].map((_, i) => (
-                <motion.div
-                  key={`sparkle-${i}`}
-                  initial={{ x: 0, y: 0, scale: 0, opacity: 0 }}
-                  animate={{
-                    x: Math.cos(((i * 60 + 30) * Math.PI) / 180) * 90,
-                    y: Math.sin(((i * 60 + 30) * Math.PI) / 180) * 90 - 50,
-                    scale: [0, 1.5, 0],
-                    rotate: 180,
-                    opacity: [0, 1, 0],
-                  }}
-                  transition={{
-                    duration: 1.5 + Math.random(),
-                    ease: "easeInOut",
-                    delay: 0.2,
-                  }}
-                  className="absolute"
-                >
-                  <Sparkles className="w-7 h-7 text-yellow-300 drop-shadow-lg" />
-                </motion.div>
-              ))}
-            </motion.div>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-
-      {/* Enhanced Romantic Header with glassmorphism */}
-      <header className="relative z-20 w-full bg-linear-to-r from-rose-400/95 via-pink-400/95 to-rose-400/95 backdrop-blur-2xl border-b border-rose-200/60 p-2 md:p-3 shadow-2xl shadow-rose-300/60 shrink-0">
-        <div className="absolute inset-0 overflow-hidden">
-          <motion.div
-            animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3] }}
-            transition={{ duration: 4, repeat: Infinity }}
-            className="absolute -top-8 -right-8"
-          >
-            <Heart className="w-32 h-32 text-white/20 fill-white/20" />
-          </motion.div>
-          <motion.div
-            animate={{ scale: [1, 1.15, 1], opacity: [0.2, 0.4, 0.2] }}
-            transition={{ duration: 5, repeat: Infinity, delay: 1 }}
-            className="absolute -bottom-4 -left-4"
-          >
-            <Heart className="w-24 h-24 text-white/20 fill-white/20" />
-          </motion.div>
-        </div>
-
-        <div className="max-w-4xl mx-auto flex items-center gap-1 md:gap-3 relative">
-          <button
-            onClick={() => router.back()}
-            className="p-2 rounded-full hover:bg-white/20 transition-all duration-300 lg:hidden backdrop-blur-sm"
-          >
-            <ArrowLeft className="w-5 h-5 text-white" />
-          </button>
-
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ type: "spring", bounce: 0.5 }}
-            className="relative"
-          >
-            <div className="w-10 h-10 md:w-20 md:h-20 rounded-full bg-linear-to-br from-white to-rose-100 flex items-center justify-center shadow-2xl shadow-rose-300/60 ring-4 ring-white/60">
-              <span className="bg-linear-to-br from-rose-500 to-pink-500 bg-clip-text text-transparent font-bold text-lg md:text-2xl">
-                {otherParticipant?.username?.[0]?.toUpperCase()}
-              </span>
-            </div>
-            {isUserOnline && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 md:w-5 md:h-5 bg-green-400 rounded-full border-4 border-white shadow-xl"
-              >
-                <motion.div
-                  animate={{ scale: [1, 1.5, 1] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                  className="w-full h-full bg-green-400 rounded-full"
-                />
-              </motion.div>
-            )}
-            <motion.div
-              animate={{ rotate: [0, 10, -10, 0], scale: [1, 1.1, 1] }}
-              transition={{ duration: 3, repeat: Infinity }}
-              className="absolute -top-2 -right-2 md:-top-3 md:-right-3"
-            >
-              <Heart className="w-6 h-6 md:w-8 md:h-8 text-rose-300 fill-rose-300 drop-shadow-lg" />
-            </motion.div>
-          </motion.div>
-
-          <div className="flex-1">
-            <motion.h2
-              initial={{ x: -20, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              className="font-bold text-white text-xl drop-shadow-md"
-            >
-              {otherParticipant?.username}
-            </motion.h2>
-            <p className="text-sm text-white/90">
-              {isTyping ? (
-                <motion.span
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-white font-medium flex items-center gap-1"
-                >
-                  typing
-                  <motion.span
-                    animate={{ opacity: [1, 0, 1] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                  >
-                    ...
-                  </motion.span>
-                  <Heart className="w-4 h-4 ml-1 text-white fill-white animate-pulse" />
-                </motion.span>
-              ) : isUserOnline === true ? (
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 bg-green-300 rounded-full animate-pulse" />
-                  Online • {otherParticipant?.username}
-                </span>
-              ) : (
-                <span className="text-white/70">
-                  Last seen{" "}
-                  {presence?.lastSeenAt
-                    ? formatTime(presence.lastSeenAt)
-                    : "recently"}
-                </span>
-              )}
-            </p>
-          </div>
-
-          <button
-            onClick={() => {
-              if (otherParticipant?.id && user?.id) {
-                if (isBlockedEitherWay(user.id, otherParticipant.id)) {
-                  addToast(
-                    "Cannot call this user - you have blocked them",
-                    "error",
-                  );
-                  return;
-                }
-                initiateCall(otherParticipant, "audio");
-              }
-            }}
-            className="p-2 md:p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
-          >
-            <Phone className="w-5 h-5 text-white" />
-          </button>
-          <button
-            onClick={() => {
-              if (otherParticipant?.id && user?.id) {
-                if (isBlockedEitherWay(user.id, otherParticipant.id)) {
-                  addToast(
-                    "Cannot call this user - you have blocked them",
-                    "error",
-                  );
-                  return;
-                }
-                initiateCall(otherParticipant, "video");
-              }
-            }}
-            className="p-2 md:p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
-          >
-            <Video className="w-5 h-5 text-white" />
-          </button>
-
-          {/* Chat actions menu */}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="p-2 md:p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
-            >
-              <svg
-                className="w-5 h-5 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                />
-              </svg>
-            </button>
-            <div
-              className={`absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl transition-all duration-200 z-50 border border-rose-100 ${isMenuOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
-            >
-              <button
-                onClick={() =>
-                  currentChat?.isPinned
-                    ? unpinChatMutation.mutate()
-                    : pinChatMutation.mutate()
-                }
-                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-rose-50 first:rounded-t-xl flex items-center gap-2 transition-colors"
-              >
-                {currentChat?.isPinned ? "📌 Unpin chat" : "📌 Pin chat"}
-              </button>
-              <button
-                onClick={() =>
-                  currentChat?.isMuted
-                    ? unmuteChatMutation.mutate()
-                    : muteChatMutation.mutate()
-                }
-                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-rose-50 last:rounded-b-xl flex items-center gap-2 transition-colors"
-              >
-                {currentChat?.isMuted ? "🔊 Unmute chat" : "🔇 Mute chat"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Enhanced Romantic Messages Container */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-y-auto p-2 md:p-3 relative z-10 scrollbar-thin scrollbar-thumb-rose-300 scrollbar-track-transparent"
-      >
-        <div className="w-full mx-auto space-y-6 md:space-y-8">
-          {/* Loading more indicator */}
-          {isLoadingMore && (
-            <div className="flex justify-center">
-              <span className="px-4 py-2 rounded-full bg-white/70 text-rose-500 text-sm">
-                Loading more messages...
-              </span>
-            </div>
-          )}
-
-          {/* Date separator */}
-          {messages.length > 0 && (
-            <div className="flex justify-center">
-              <motion.span
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="px-4 py-1.5 rounded-full bg-white/70 backdrop-blur-sm text-rose-500 text-xs font-medium shadow-md border border-rose-200/50 flex items-center gap-1"
-              >
-                <Heart className="w-3 h-3 fill-current" /> Today&rsquo;s
-                Messages
-              </motion.span>
-            </div>
-          )}
-
-          {messages.map((message, index) => {
-            const isOwn = message.from === user?.id;
-            const showAvatar =
-              index === 0 || messages[index - 1]?.from !== message.from;
-            const isLoveMessage =
-              message.text?.toLowerCase().includes("love") ||
-              message.text?.toLowerCase().includes("❤");
-            const isShowingLove = showLoveReaction === message.id;
-            const isEditing = editingMessageId === message.id;
-            const recipientReceipt = message.receipts?.find(
-              (receipt) => receipt.userId !== user?.id,
-            );
-            const isRead = Boolean(recipientReceipt?.readAt);
-            const isDelivered = Boolean(recipientReceipt?.deliveredAt);
-            const isVoiceListened = Boolean(recipientReceipt?.listenedAt);
-
-            return (
-              <motion.div
-                key={message.id}
-                ref={
-                  activeMessageActions === message.id ? messageActionsRef : null
-                }
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, ease: "easeOut" }}
-                onDoubleClick={(e) => handleMessageDoubleClick(message.id, e)}
-                onTouchStart={() => handleMessageTouchStart(message.id)}
-                onTouchEnd={handleMessageTouchEnd}
-                onTouchCancel={handleMessageTouchEnd}
-                className={cn(
-                  "flex items-end gap-3 cursor-pointer",
-                  isOwn ? "flex-row-reverse" : "flex-row",
-                )}
-              >
-                {showAvatar && !isOwn ? (
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="w-12 h-12 rounded-full bg-linear-to-br from-rose-400 via-pink-400 to-rose-500 flex items-center justify-center text-white text-base font-bold shrink-0 shadow-xl shadow-rose-300/60 ring-4 ring-white/60"
-                  >
-                    {otherParticipant?.username?.[0]?.toUpperCase()}
-                  </motion.div>
-                ) : !isOwn ? (
-                  <div className="w-12" />
-                ) : null}
-
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={cn(
-                    "max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl px-5 py-4 rounded-3xl relative group/message",
-                    isOwn
-                      ? "bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 text-white rounded-br-2xl shadow-2xl shadow-rose-300/70"
-                      : "bg-white/95 backdrop-blur-md text-gray-800 rounded-bl-2xl shadow-xl shadow-pink-200/60 border border-rose-100/60",
-                    isLoveMessage && "ring-4 ring-yellow-300/70",
-                    message.deletedAt && "opacity-50",
-                  )}
-                >
-                  {isLoveMessage && <MessageSparkles />}
-
-                  <AnimatePresence>
-                    {isShowingLove && (
-                      <motion.div
-                        initial={{ scale: 0, rotate: -20 }}
-                        animate={{ scale: 1.5, rotate: 0 }}
-                        exit={{ scale: 0 }}
-                        className="absolute inset-0 flex items-center justify-center bg-rose-500/30 rounded-3xl z-10"
-                      >
-                        <Heart className="w-16 h-16 text-white fill-white drop-shadow-2xl" />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* Message actions for all messages */}
-                  {!message.deletedAt && (
-                    <div
-                      ref={
-                        activeMessageActions === message.id
-                          ? messageActionsRef
-                          : null
-                      }
-                      className={cn(
-                        "absolute -top-10 flex gap-1.5 transition-all duration-200 z-10",
-                        activeMessageActions === message.id
-                          ? "opacity-100 flex"
-                          : "opacity-0 pointer-events-none md:group-hover/message:opacity-100 md:pointer-events-auto",
-                        isOwn ? "right-2" : "left-2",
-                      )}
-                    >
-                      {/* Reply button - available for all messages */}
-                      <button
-                        onClick={() => {
-                          setReplyingTo(message);
-                          inputRef.current?.focus();
-                        }}
-                        className="p-2 rounded-full bg-white hover:bg-rose-50 shadow-lg transition-all hover:scale-110 border border-rose-200"
-                        title="Reply to message"
-                      >
-                        <svg
-                          className="w-4 h-4 text-rose-500"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                          />
-                        </svg>
-                      </button>
-                      {/* Edit button - only for own messages */}
-                      {isOwn && message.type === "text" && (
-                        <button
-                          onClick={() => {
-                            setEditingMessageId(message.id);
-                            setEditText(message.text || "");
-                          }}
-                          className="p-2 rounded-full bg-white hover:bg-gray-100 shadow-lg transition-all hover:scale-110 border border-gray-200"
-                          title="Edit message"
-                        >
-                          <svg
-                            className="w-4 h-4 text-gray-600"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                            />
-                          </svg>
-                        </button>
-                      )}
-                      {/* Delete button - only for own messages */}
-                      {isOwn && (
-                        <button
-                          onClick={() =>
-                            deleteMessageMutation.mutate(message.id)
-                          }
-                          className="p-2 rounded-full bg-white hover:bg-red-50 shadow-lg transition-all hover:scale-110 border border-red-200"
-                          title="Delete message"
-                        >
-                          <svg
-                            className="w-4 h-4 text-red-500"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Display reply-to message if this message is a reply */}
-                  {message.replyTo && !message.deletedAt && (
-                    <div className="mb-2 px-3 py-2 rounded-lg bg-black/10 border-l-2 border-rose-400">
-                      <p className="text-xs font-medium text-rose-300 mb-1">
-                        Replied to{" "}
-                        {message.replyTo.from === user?.id
-                          ? "yourself"
-                          : message.replyTo.fromName ||
-                            otherParticipant?.username}
-                      </p>
-                      {message.replyTo.item?.kind === "audio" ? (
-                        <div className="mt-1 max-w-50">
-                          <VoiceNotePlayer
-                            audioUrl={message.replyTo.item.url || ""}
-                            duration={
-                              message.replyTo.item.meta?.duration
-                                ? Number(message.replyTo.item.meta.duration)
-                                : 0
-                            }
-                            messageId={message.replyTo.id}
-                            isOwn={message.from === user?.id}
-                            isListened={
-                              message.receipts?.some(
-                                (r) => r.userId === user?.id && r.listenedAt,
-                              ) || false
-                            }
-                          />
-                        </div>
-                      ) : message.replyTo.item?.kind === "image" ? (
-                        <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
-                          📷 Image message
-                        </p>
-                      ) : message.replyTo.item?.kind === "video" ? (
-                        <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
-                          🎥 Video message
-                        </p>
-                      ) : message.replyTo.item?.kind === "file" ? (
-                        <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
-                          📎 File:{" "}
-                          {message.replyTo.item.originalName || "Attachment"}
-                        </p>
-                      ) : (
-                        <p className="text-sm leading-relaxed line-clamp-2">
-                          {message.replyTo.text || "Media message"}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {isEditing ? (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (editText.trim()) {
-                          editMessageMutation.mutate({
-                            messageId: message.id,
-                            text: editText.trim(),
-                          });
-                        }
-                      }}
-                      className="mt-1"
-                    >
-                      <input
-                        type="text"
-                        value={editText}
-                        onChange={(e) => setEditText(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg bg-white/20 text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50 text-sm"
-                        autoFocus
-                      />
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          type="submit"
-                          className="text-xs px-3 py-1 bg-white text-rose-500 rounded-full font-medium hover:bg-rose-50 transition-colors"
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingMessageId(null);
-                            setEditText("");
-                          }}
-                          className="text-xs px-3 py-1 bg-white/20 text-white rounded-full font-medium hover:bg-white/30 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  ) : message.deletedAt ? (
-                    <p className="text-sm leading-relaxed italic">
-                      This message was deleted
-                    </p>
-                  ) : message.type === "share" &&
-                    message.item?.kind === "audio" ? (
-                    <VoiceNotePlayer
-                      audioUrl={message.item.url}
-                      duration={
-                        message.item.meta?.duration as number | undefined
-                      }
-                      messageId={message.id}
-                      isOwn={isOwn}
-                      isListened={message.receipts?.some(
-                        (r) => r.userId === user?.id && r.listenedAt,
-                      )}
-                    />
-                  ) : (
-                    <p className="text-sm leading-relaxed">{message.text}</p>
-                  )}
-
-                  {!isEditing && !message.deletedAt && (
-                    <div className="flex items-end justify-between mt-2 gap-3">
-                      <div className="flex gap-1 items-center">
-                        {message.likes && message.likes.length > 0 && (
-                          <div className="relative group/likes">
-                            <motion.div
-                              initial={{ scale: 0 }}
-                              animate={{ scale: 1 }}
-                              className={cn(
-                                "bg-white/30 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1 border cursor-pointer",
-                                isOwn
-                                  ? "border-rose-300/50"
-                                  : "border-rose-100/50",
-                              )}
-                            >
-                              <Heart
-                                className={cn(
-                                  "w-3 h-3 fill-rose-500",
-                                  isOwn ? "text-rose-200" : "text-rose-500",
-                                )}
-                              />
-                              <span
-                                className={cn(
-                                  "text-[11px] font-bold",
-                                  isOwn ? "text-white" : "text-rose-600",
-                                )}
-                              >
-                                {message.likes.length}
-                              </span>
-                            </motion.div>
-                            {/* Beautiful tooltip showing who liked */}
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none opacity-0 group-hover/likes:opacity-100 transition-opacity duration-200">
-                              <div className="bg-linear-to-br from-rose-500 to-pink-600 text-white px-3 py-2 rounded-xl shadow-xl max-w-xs">
-                                <div className="flex items-center gap-2">
-                                  <Heart className="w-3 h-3 fill-white" />
-                                  <span className="text-[11px] font-semibold">
-                                    Liked by
-                                  </span>
-                                </div>
-                                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                  {message.likes.map((like) => {
-                                    const liker = chat?.members?.find(
-                                      (m) => m.id === like.userId,
-                                    );
-                                    return (
-                                      <div
-                                        key={like.userId}
-                                        className="flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2 py-1 rounded-full"
-                                      >
-                                        {liker?.avatar ? (
-                                          <Image
-                                            src={liker.avatar}
-                                            alt={liker.username}
-                                            className="w-4 h-4 rounded-full object-cover"
-                                          />
-                                        ) : (
-                                          <div className="w-4 h-4 rounded-full bg-white/30 flex items-center justify-center">
-                                            <span className="text-[9px] font-bold">
-                                              {liker?.username?.[0]?.toUpperCase() ||
-                                                "?"}
-                                            </span>
-                                          </div>
-                                        )}
-                                        <span className="text-[11px] font-medium">
-                                          {liker?.username || "Unknown"}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                              {/* Arrow */}
-                              <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-1.5 h-1.5 bg-linear-to-br from-rose-500 to-pink-600 rotate-45" />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <p
-                        className={cn(
-                          "text-xs flex items-center gap-1",
-                          isOwn ? "text-rose-100" : "text-gray-400",
-                        )}
-                      >
-                        {message.editedAt && (
-                          <span className="mr-1">(edited)</span>
-                        )}
-                        {formatTime(message.createdAt)}
-                        {isOwn &&
-                          (isRead ? (
-                            <CheckCheck
-                              className="w-4 h-4 text-rose-100"
-                              aria-label="Read"
-                            />
-                          ) : isDelivered ? (
-                            <CheckCheck
-                              className="w-4 h-4 text-rose-200/80"
-                              aria-label="Delivered"
-                            />
-                          ) : (
-                            <Check
-                              className="w-4 h-4 text-rose-200/80"
-                              aria-label="Sent"
-                            />
-                          ))}
-                        {isOwn &&
-                          message.type === "share" &&
-                          message.item?.kind === "audio" &&
-                          isVoiceListened && (
-                            <Headphones
-                              className="w-3.5 h-3.5 text-rose-100"
-                              aria-label="Voice note listened to"
-                            />
-                          )}
-                      </p>
-                    </div>
-                  )}
-                </motion.div>
-
-                {showAvatar && isOwn ? (
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="w-12 h-12 rounded-full bg-linear-to-br from-pink-400 via-rose-400 to-pink-500 flex items-center justify-center text-white text-base font-bold shrink-0 shadow-xl shadow-pink-300/60 ring-4 ring-white/60"
-                  >
-                    {user?.username?.[0]?.toUpperCase()}
-                  </motion.div>
-                ) : isOwn ? (
-                  <div className="w-12" />
-                ) : null}
-              </motion.div>
-            );
-          })}
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
-
-      {/* Enhanced Romantic Message Input */}
-      <footer className="relative z-10 w-full bg-linear-to-r from-white/98 via-rose-50/98 to-white/98 backdrop-blur-2xl border-t border-rose-200/70 p-3 md:p-4 shadow-2xl shrink-0">
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Rouge+Script&display=swap');
+        .love-message-font {
+          font-family: 'Rouge Script', cursive;
+        }
+        .golden-glow {
+          box-shadow: 0 0 20px rgba(251, 191, 36, 0.8), 0 0 40px rgba(251, 191, 36, 0.4), 0 0 60px rgba(251, 191, 36, 0.2);
+        }
+      `}</style>
+      <div className="h-dvh w-full flex flex-col relative overflow-hidden bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 md:h-[calc(100vh-2rem)] md:rounded-2xl md:mx-auto md:max-w-6xl md:my-4">
+        {/* Enhanced animated background with subtle particles */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {hearts.map((heart) => (
+            <FloatingHeart key={heart.id} delay={heart.delay} x={heart.x} />
+          ))}
+          {/* Additional romantic particles */}
           <motion.div
-            animate={{ x: [0, 15, 0], y: [0, -5, 0], opacity: [0.3, 0.6, 0.3] }}
-            transition={{ duration: 5, repeat: Infinity }}
-            className="absolute bottom-4 left-8"
+            animate={{
+              y: [0, -30, 0],
+              x: [0, 15, -15, 0],
+              opacity: [0.2, 0.4, 0.2],
+            }}
+            transition={{ duration: 6, repeat: Infinity, delay: 0.5 }}
+            className="absolute top-1/4 left-1/4"
           >
-            <Heart className="w-10 h-10 text-rose-200 fill-rose-200" />
+            <Sparkles className="w-4 h-4 text-pink-300" />
           </motion.div>
           <motion.div
             animate={{
-              x: [0, -15, 0],
-              y: [0, -8, 0],
-              opacity: [0.25, 0.5, 0.25],
+              y: [0, -25, 0],
+              x: [0, -10, 10, 0],
+              opacity: [0.15, 0.35, 0.15],
             }}
-            transition={{ duration: 6, repeat: Infinity, delay: 2.5 }}
-            className="absolute bottom-4 right-8"
+            transition={{ duration: 7, repeat: Infinity, delay: 2 }}
+            className="absolute top-1/3 right-1/4"
           >
-            <Heart className="w-8 h-8 text-pink-200 fill-pink-200" />
-          </motion.div>
-          <motion.div
-            animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
-            transition={{ duration: 4, repeat: Infinity, delay: 1 }}
-            className="absolute bottom-6 left-1/2 transform -translate-x-1/2"
-          >
-            <Sparkles className="w-6 h-6 text-pink-300" />
+            <Sparkles className="w-3 h-3 text-rose-300" />
           </motion.div>
         </div>
 
-        {/* Reply-to indicator - shows when replying to a message */}
+        {/* Spectacular romantic floating hearts burst */}
         <AnimatePresence>
-          {replyingTo && (
+          {messageHearts.map((mh) => (
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="max-w-4xl mx-auto mb-3 px-4 py-3 bg-rose-50 border-l-4 border-rose-500 rounded-r-lg flex items-center justify-between"
+              key={mh.id}
+              className="fixed pointer-events-none z-100 -translate-x-1/2 -translate-y-1/2"
+              style={{ left: mh.x, top: mh.y }}
             >
-              <div className="flex items-center gap-3">
-                <svg
-                  className="w-5 h-5 text-rose-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                  />
-                </svg>
-                <div>
-                  <p className="text-xs font-medium text-rose-600">
-                    Replying to{" "}
-                    {replyingTo.from === user?.id
-                      ? "yourself"
-                      : otherParticipant?.username}
-                  </p>
-                  <p className="text-sm text-gray-700 truncate max-w-md">
-                    {replyingTo.item?.kind === "audio" ? (
-                      <div className="flex items-center gap-2">
-                        <div className="flex gap-0.5">
-                          {[...Array(5)].map((_, i) => (
-                            <div
-                              key={i}
-                              className="w-1 h-3 bg-rose-400 rounded-full"
-                              style={{
-                                animation: "pulse 1s ease-in-out infinite",
-                                animationDelay: i * 0.1 + "s",
-                              }}
-                            />
-                          ))}
-                        </div>
-                        <span className="text-xs text-rose-600">
-                          {replyingTo.item.meta?.duration
-                            ? Math.floor(
-                                Number(replyingTo.item.meta.duration),
-                              ) + "s"
-                            : "Voice note"}
-                        </span>
-                      </div>
-                    ) : (
-                      replyingTo.text || "Media message"
-                    )}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setReplyingTo(null)}
-                className="p-1.5 rounded-full hover:bg-rose-100 transition-colors"
-                title="Cancel reply"
+              {/* Main soaring heart */}
+              <motion.div
+                initial={{ y: 0, scale: 0.5, opacity: 0 }}
+                animate={{
+                  y: -500,
+                  scale: [1, 2.5, 3, 2.5],
+                  rotate: [-15, 15, -15, 10, 0],
+                  opacity: [0, 1, 1, 0],
+                }}
+                transition={{ duration: 3.5, ease: "easeOut" }}
+                className="relative flex items-center justify-center"
               >
-                <svg
-                  className="w-5 h-5 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
+                <Heart className="w-20 h-20 text-rose-500 fill-rose-500 drop-shadow-[0_0_25px_rgba(244,63,94,0.9)]" />
+
+                {/* Confetti mini-hearts exploding outward */}
+                {[...Array(8)].map((_, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
+                    animate={{
+                      x: Math.cos((i * 45 * Math.PI) / 180) * 120,
+                      y:
+                        Math.sin((i * 45 * Math.PI) / 180) * 120 -
+                        Math.random() * 100,
+                      scale: Math.random() * 1.5 + 0.5,
+                      rotate: Math.random() * 360,
+                      opacity: 0,
+                    }}
+                    transition={{
+                      duration: 2 + Math.random(),
+                      ease: "easeOut",
+                    }}
+                    className="absolute"
+                  >
+                    <Heart
+                      className={cn(
+                        "w-6 h-6 drop-shadow-lg",
+                        i % 2 === 0
+                          ? "text-pink-400 fill-pink-400"
+                          : "text-rose-400 fill-rose-400",
+                      )}
+                    />
+                  </motion.div>
+                ))}
+
+                {/* Shimmering sparkles */}
+                {[...Array(6)].map((_, i) => (
+                  <motion.div
+                    key={`sparkle-${i}`}
+                    initial={{ x: 0, y: 0, scale: 0, opacity: 0 }}
+                    animate={{
+                      x: Math.cos(((i * 60 + 30) * Math.PI) / 180) * 90,
+                      y: Math.sin(((i * 60 + 30) * Math.PI) / 180) * 90 - 50,
+                      scale: [0, 1.5, 0],
+                      rotate: 180,
+                      opacity: [0, 1, 0],
+                    }}
+                    transition={{
+                      duration: 1.5 + Math.random(),
+                      ease: "easeInOut",
+                      delay: 0.2,
+                    }}
+                    className="absolute"
+                  >
+                    <Sparkles className="w-7 h-7 text-yellow-300 drop-shadow-lg" />
+                  </motion.div>
+                ))}
+              </motion.div>
             </motion.div>
-          )}
+          ))}
         </AnimatePresence>
 
-        <form
-          onSubmit={handleSendMessage}
-          className="max-w-4xl mx-auto flex items-center gap-2 relative"
-        >
-          {isRecording ? (
-            <AudioRecorderUI
-              onSend={handleSendVoiceNote}
-              onCancel={() => setIsRecording(false)}
-            />
-          ) : (
-            <>
-              {/* Hide smiley on mobile, show heart in its place */}
-              <button
-                type="button"
-                onClick={sendLoveHeart}
-                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90 md:hidden"
-              >
+        {/* Enhanced Romantic Header with glassmorphism */}
+        <header className="relative z-20 w-full bg-linear-to-r from-rose-400/95 via-pink-400/95 to-rose-400/95 backdrop-blur-2xl border-b border-rose-200/60 p-2 md:p-3 shadow-2xl shadow-rose-300/60 shrink-0">
+          <div className="absolute inset-0 overflow-hidden">
+            <motion.div
+              animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3] }}
+              transition={{ duration: 4, repeat: Infinity }}
+              className="absolute -top-8 -right-8"
+            >
+              <Heart className="w-32 h-32 text-white/20 fill-white/20" />
+            </motion.div>
+            <motion.div
+              animate={{ scale: [1, 1.15, 1], opacity: [0.2, 0.4, 0.2] }}
+              transition={{ duration: 5, repeat: Infinity, delay: 1 }}
+              className="absolute -bottom-4 -left-4"
+            >
+              <Heart className="w-24 h-24 text-white/20 fill-white/20" />
+            </motion.div>
+          </div>
+
+          <div className="max-w-4xl mx-auto flex items-center gap-1 md:gap-3 relative">
+            <button
+              onClick={() => router.back()}
+              className="p-2 rounded-full hover:bg-white/20 transition-all duration-300 lg:hidden backdrop-blur-sm"
+            >
+              <ArrowLeft className="w-5 h-5 text-white" />
+            </button>
+
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", bounce: 0.5 }}
+              className="relative"
+            >
+              <div className="w-10 h-10 md:w-20 md:h-20 rounded-full bg-linear-to-br from-white to-rose-100 flex items-center justify-center shadow-2xl shadow-rose-300/60 ring-4 ring-white/60">
+                <span className="bg-linear-to-br from-rose-500 to-pink-500 bg-clip-text text-transparent font-bold text-lg md:text-2xl">
+                  {otherParticipant?.username?.[0]?.toUpperCase()}
+                </span>
+              </div>
+              {isUserOnline && (
                 <motion.div
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ duration: 2, repeat: Infinity }}
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 md:w-5 md:h-5 bg-green-400 rounded-full border-4 border-white shadow-xl"
                 >
-                  <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+                  <motion.div
+                    animate={{ scale: [1, 1.5, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="w-full h-full bg-green-400 rounded-full"
+                  />
                 </motion.div>
-              </button>
-
-              {/* Keep smiley only on desktop */}
-              <button
-                type="button"
-                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110 hidden md:flex"
+              )}
+              <motion.div
+                animate={{ rotate: [0, 10, -10, 0], scale: [1, 1.1, 1] }}
+                transition={{ duration: 3, repeat: Infinity }}
+                className="absolute -top-2 -right-2 md:-top-3 md:-right-3"
               >
-                <Smile className="w-5 h-5 text-rose-400" />
-              </button>
+                <Heart className="w-6 h-6 md:w-8 md:h-8 text-rose-300 fill-rose-300 drop-shadow-lg" />
+              </motion.div>
+            </motion.div>
 
-              {/* Keep heart only on desktop */}
-              <button
-                type="button"
-                onClick={sendLoveHeart}
-                className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90 hidden md:flex"
+            <div className="flex-1">
+              <motion.h2
+                initial={{ x: -20, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                className="font-bold text-white text-base md:text-xl drop-shadow-md truncate"
               >
-                <motion.div
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                >
-                  <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
-                </motion.div>
-              </button>
+                {otherParticipant?.username}
+              </motion.h2>
+              <p className="text-sm text-white/90">
+                {isTyping ? (
+                  <motion.span
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-white font-medium flex items-center gap-1"
+                  >
+                    typing
+                    <motion.span
+                      animate={{ opacity: [1, 0, 1] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    >
+                      ...
+                    </motion.span>
+                    <Heart className="w-4 h-4 ml-1 text-white fill-white animate-pulse" />
+                  </motion.span>
+                ) : isUserOnline === true ? (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-green-300 rounded-full animate-pulse" />
+                    Online • {otherParticipant?.username}
+                  </span>
+                ) : (
+                  <span className="text-white/70">
+                    Last seen{" "}
+                    {presence?.lastSeenAt
+                      ? formatTime(presence.lastSeenAt)
+                      : "recently"}
+                  </span>
+                )}
+              </p>
+            </div>
 
-              <input
-                ref={inputRef}
-                type="text"
-                value={newMessage}
-                onChange={handleInputChange}
-                placeholder="Write something sweet..."
-                className="flex-1 px-5 py-3 md:py-3.5 rounded-full bg-linear-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-base md:text-lg"
-              />
-
-              {/* Add mic to mobile view, keep on desktop */}
-              <button
-                type="button"
-                onClick={() => setIsRecording(true)}
-                className="p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
-              >
-                <Mic className="w-6 h-6 text-rose-500" />
-              </button>
-
-              <motion.button
-                type="submit"
-                disabled={
-                  !newMessage.trim() ||
-                  sendMessageMutation.isPending ||
-                  isUploadingVoice
+            <button
+              onClick={() => {
+                if (otherParticipant?.id && user?.id) {
+                  if (isBlockedEitherWay(user.id, otherParticipant.id)) {
+                    addToast(
+                      "Cannot call this user - you have blocked them",
+                      "error",
+                    );
+                    return;
+                  }
+                  initiateCall(otherParticipant, "audio");
                 }
-                whileHover={{ scale: 1.15 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-3 md:p-3.5 rounded-full bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-2xl shadow-rose-400/70 disabled:hover:scale-100"
+              }}
+              className="p-2 md:p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
+            >
+              <Phone className="w-5 h-5 text-white" />
+            </button>
+            <button
+              onClick={() => {
+                if (otherParticipant?.id && user?.id) {
+                  if (isBlockedEitherWay(user.id, otherParticipant.id)) {
+                    addToast(
+                      "Cannot call this user - you have blocked them",
+                      "error",
+                    );
+                    return;
+                  }
+                  initiateCall(otherParticipant, "video");
+                }
+              }}
+              className="p-2 md:p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
+            >
+              <Video className="w-5 h-5 text-white" />
+            </button>
+
+            {/* Chat actions menu */}
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className="p-2 md:p-3 rounded-full hover:bg-white/20 transition-all duration-300 hover:scale-110 backdrop-blur-sm"
               >
-                <Send className="w-5 h-5 md:w-5.5 md:h-5.5 text-white" />
-              </motion.button>
-            </>
-          )}
-        </form>
-      </footer>
-    </div>
+                <svg
+                  className="w-5 h-5 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                  />
+                </svg>
+              </button>
+              <div
+                className={`absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl transition-all duration-200 z-50 border border-rose-100 ${isMenuOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
+              >
+                <button
+                  onClick={() =>
+                    currentChat?.isPinned
+                      ? unpinChatMutation.mutate()
+                      : pinChatMutation.mutate()
+                  }
+                  className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-rose-50 first:rounded-t-xl flex items-center gap-2 transition-colors"
+                >
+                  {currentChat?.isPinned ? "📌 Unpin chat" : "📌 Pin chat"}
+                </button>
+                <button
+                  onClick={() =>
+                    currentChat?.isMuted
+                      ? unmuteChatMutation.mutate()
+                      : muteChatMutation.mutate()
+                  }
+                  className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-rose-50 last:rounded-b-xl flex items-center gap-2 transition-colors"
+                >
+                  {currentChat?.isMuted ? "🔊 Unmute chat" : "🔇 Mute chat"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Enhanced Romantic Messages Container */}
+        <div
+          ref={containerRef}
+          className="flex-1 overflow-y-auto p-2 md:p-3 relative z-10 scrollbar-thin scrollbar-thumb-rose-300 scrollbar-track-transparent"
+        >
+          <div className="w-full mx-auto space-y-6 md:space-y-8">
+            {/* Loading more indicator */}
+            {isLoadingMore && (
+              <div className="flex justify-center">
+                <span className="px-4 py-2 rounded-full bg-white/70 text-rose-500 text-sm">
+                  Loading more messages...
+                </span>
+              </div>
+            )}
+
+            {/* Date separator */}
+            {messages.length > 0 && (
+              <div className="flex justify-center">
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="px-4 py-1.5 rounded-full bg-white/70 backdrop-blur-sm text-rose-500 text-xs font-medium shadow-md border border-rose-200/50 flex items-center gap-1"
+                >
+                  <Heart className="w-3 h-3 fill-current" /> Today&rsquo;s
+                  Messages
+                </motion.span>
+              </div>
+            )}
+
+            {messages.map((message, index) => {
+              const isOwn = message.from === user?.id;
+              const showAvatar =
+                index === 0 || messages[index - 1]?.from !== message.from;
+              const isLoveMessage =
+                message.text?.toLowerCase().includes("love") ||
+                message.text?.toLowerCase().includes("❤") ||
+                message.text?.toLowerCase().includes("heart") ||
+                message.text?.toLowerCase().includes("kiss") ||
+                message.text?.toLowerCase().includes("pyari") ||
+                message.text?.toLowerCase().includes("jana") ||
+                message.text?.toLowerCase().includes("biwi") ||
+                message.text?.toLowerCase().includes("kinni") ||
+                message.text?.toLowerCase().includes("romantic") ||
+                message.text?.toLowerCase().includes("romance") ||
+                message.text?.toLowerCase().includes("darling") ||
+                message.text?.toLowerCase().includes("honey") ||
+                message.text?.toLowerCase().includes("sweetheart") ||
+                message.text?.toLowerCase().includes("babe") ||
+                message.text?.toLowerCase().includes("baby") ||
+                message.text?.toLowerCase().includes("miss you") ||
+                message.text?.toLowerCase().includes("miss u") ||
+                message.text?.toLowerCase().includes("beautiful") ||
+                message.text?.toLowerCase().includes("cute") ||
+                message.text?.toLowerCase().includes("sweetuuu") ||
+                message.text?.toLowerCase().includes("💖") ||
+                message.text?.toLowerCase().includes("💗") ||
+                message.text?.toLowerCase().includes("💓") ||
+                message.text?.toLowerCase().includes("💕") ||
+                message.text?.toLowerCase().includes("💘") ||
+                message.text?.toLowerCase().includes("💝") ||
+                message.text?.toLowerCase().includes("😍") ||
+                message.text?.toLowerCase().includes("💋") ||
+                message.text?.toLowerCase().includes("🥰");
+              const isShowingLove = showLoveReaction === message.id;
+              const isEditing = editingMessageId === message.id;
+              const recipientReceipt = message.receipts?.find(
+                (receipt) => receipt.userId !== user?.id,
+              );
+              const isRead = Boolean(recipientReceipt?.readAt);
+              const isDelivered = Boolean(recipientReceipt?.deliveredAt);
+              const isVoiceListened = Boolean(recipientReceipt?.listenedAt);
+
+              return (
+                <motion.div
+                  key={message.id}
+                  ref={
+                    activeMessageActions === message.id
+                      ? messageActionsRef
+                      : null
+                  }
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, ease: "easeOut" }}
+                  onDoubleClick={(e) => handleMessageDoubleClick(message.id, e)}
+                  onTouchStart={() => handleMessageTouchStart(message.id)}
+                  onTouchEnd={handleMessageTouchEnd}
+                  onTouchCancel={handleMessageTouchEnd}
+                  className={cn(
+                    "flex items-end gap-3 cursor-pointer",
+                    isOwn ? "flex-row-reverse" : "flex-row",
+                  )}
+                >
+                  {showAvatar && !isOwn ? (
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="w-12 h-12 rounded-full bg-linear-to-br from-rose-400 via-pink-400 to-rose-500 flex items-center justify-center text-white text-base font-bold shrink-0 shadow-xl shadow-rose-300/60 ring-4 ring-white/60"
+                    >
+                      {otherParticipant?.username?.[0]?.toUpperCase()}
+                    </motion.div>
+                  ) : !isOwn ? (
+                    <div className="w-12" />
+                  ) : null}
+
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={cn(
+                      "max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl px-5 py-4 rounded-3xl relative group/message",
+                      isOwn
+                        ? "bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 text-white rounded-br-2xl shadow-2xl shadow-rose-300/70"
+                        : "bg-white/95 backdrop-blur-md text-gray-800 rounded-bl-2xl shadow-xl shadow-pink-200/60 border border-rose-100/60",
+                      isLoveMessage && "ring-4 ring-yellow-300/70 golden-glow",
+                      message.deletedAt && "opacity-50",
+                    )}
+                  >
+                    {isLoveMessage && <MessageSparkles />}
+
+                    <AnimatePresence>
+                      {isShowingLove && (
+                        <motion.div
+                          initial={{ scale: 0, rotate: -20 }}
+                          animate={{ scale: 1.5, rotate: 0 }}
+                          exit={{ scale: 0 }}
+                          className="absolute inset-0 flex items-center justify-center bg-rose-500/30 rounded-3xl z-10"
+                        >
+                          <Heart className="w-16 h-16 text-white fill-white drop-shadow-2xl" />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Message actions for all messages */}
+                    {!message.deletedAt && (
+                      <div
+                        ref={
+                          activeMessageActions === message.id
+                            ? messageActionsRef
+                            : null
+                        }
+                        className={cn(
+                          "absolute -top-10 flex gap-1.5 transition-all duration-200 z-10",
+                          activeMessageActions === message.id
+                            ? "opacity-100 flex"
+                            : "opacity-0 pointer-events-none md:group-hover/message:opacity-100 md:pointer-events-auto",
+                          isOwn ? "right-2" : "left-2",
+                        )}
+                      >
+                        {/* Reply button - available for all messages */}
+                        <button
+                          onClick={() => {
+                            setReplyingTo(message);
+                            inputRef.current?.focus();
+                          }}
+                          className="p-2 rounded-full bg-white hover:bg-rose-50 shadow-lg transition-all hover:scale-110 border border-rose-200"
+                          title="Reply to message"
+                        >
+                          <svg
+                            className="w-4 h-4 text-rose-500"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                            />
+                          </svg>
+                        </button>
+                        {/* Edit button - only for own messages */}
+                        {isOwn && message.type === "text" && (
+                          <button
+                            onClick={() => {
+                              setEditingMessageId(message.id);
+                              setEditText(message.text || "");
+                            }}
+                            className="p-2 rounded-full bg-white hover:bg-gray-100 shadow-lg transition-all hover:scale-110 border border-gray-200"
+                            title="Edit message"
+                          >
+                            <svg
+                              className="w-4 h-4 text-gray-600"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                        {/* Delete button - only for own messages */}
+                        {isOwn && (
+                          <button
+                            onClick={() =>
+                              deleteMessageMutation.mutate(message.id)
+                            }
+                            className="p-2 rounded-full bg-white hover:bg-red-50 shadow-lg transition-all hover:scale-110 border border-red-200"
+                            title="Delete message"
+                          >
+                            <svg
+                              className="w-4 h-4 text-red-500"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Display reply-to message if this message is a reply */}
+                    {message.replyTo && !message.deletedAt && (
+                      <div className="mb-2 px-3 py-2 rounded-lg bg-black/10 border-l-2 border-rose-400">
+                        <p className="text-xs font-medium text-rose-300 mb-1">
+                          Replied to{" "}
+                          {message.replyTo.from === user?.id
+                            ? "yourself"
+                            : message.replyTo.fromName ||
+                              otherParticipant?.username}
+                        </p>
+                        {message.replyTo.item?.kind === "audio" ? (
+                          <div className="mt-1 max-w-50">
+                            <VoiceNotePlayer
+                              audioUrl={message.replyTo.item.url || ""}
+                              duration={
+                                message.replyTo.item.meta?.duration
+                                  ? Number(message.replyTo.item.meta.duration)
+                                  : 0
+                              }
+                              messageId={message.replyTo.id}
+                              isOwn={message.from === user?.id}
+                              isListened={
+                                message.receipts?.some(
+                                  (r) => r.userId === user?.id && r.listenedAt,
+                                ) || false
+                              }
+                            />
+                          </div>
+                        ) : message.replyTo.item?.kind === "image" ? (
+                          <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
+                            📷 Image message
+                          </p>
+                        ) : message.replyTo.item?.kind === "video" ? (
+                          <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
+                            🎥 Video message
+                          </p>
+                        ) : message.replyTo.item?.kind === "file" ? (
+                          <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
+                            📎 File:{" "}
+                            {message.replyTo.item.originalName || "Attachment"}
+                          </p>
+                        ) : (
+                          <p className="text-sm leading-relaxed line-clamp-2">
+                            {message.replyTo.text || "Media message"}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {isEditing ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (editText.trim()) {
+                            editMessageMutation.mutate({
+                              messageId: message.id,
+                              text: editText.trim(),
+                            });
+                          }
+                        }}
+                        className="mt-1"
+                      >
+                        <input
+                          type="text"
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg bg-white/20 text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50 text-sm"
+                          autoFocus
+                        />
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            type="submit"
+                            className="text-xs px-3 py-1 bg-white text-rose-500 rounded-full font-medium hover:bg-rose-50 transition-colors"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMessageId(null);
+                              setEditText("");
+                            }}
+                            className="text-xs px-3 py-1 bg-white/20 text-white rounded-full font-medium hover:bg-white/30 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : message.deletedAt ? (
+                      <p className="text-sm leading-relaxed italic">
+                        This message was deleted
+                      </p>
+                    ) : message.type === "share" &&
+                      message.item?.kind === "audio" ? (
+                      <VoiceNotePlayer
+                        audioUrl={message.item.url}
+                        duration={
+                          message.item.meta?.duration as number | undefined
+                        }
+                        messageId={message.id}
+                        isOwn={isOwn}
+                        isListened={message.receipts?.some(
+                          (r) => r.userId === user?.id && r.listenedAt,
+                        )}
+                      />
+                    ) : (
+                      <p
+                        className={cn(
+                          "text-sm leading-relaxed",
+                          isLoveMessage &&
+                            "love-message-font text-2xl md:text-3xl",
+                        )}
+                      >
+                        {message.text}
+                      </p>
+                    )}
+
+                    {!isEditing && !message.deletedAt && (
+                      <div className="flex items-end justify-between mt-2 gap-3">
+                        <div className="flex gap-1 items-center">
+                          {message.likes && message.likes.length > 0 && (
+                            <div className="relative group/likes">
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                className={cn(
+                                  "bg-white/30 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1 border cursor-pointer",
+                                  isOwn
+                                    ? "border-rose-300/50"
+                                    : "border-rose-100/50",
+                                )}
+                              >
+                                <Heart
+                                  className={cn(
+                                    "w-3 h-3 fill-rose-500",
+                                    isOwn ? "text-rose-200" : "text-rose-500",
+                                  )}
+                                />
+                                <span
+                                  className={cn(
+                                    "text-[11px] font-bold",
+                                    isOwn ? "text-white" : "text-rose-600",
+                                  )}
+                                >
+                                  {message.likes.length}
+                                </span>
+                              </motion.div>
+                              {/* Beautiful tooltip showing who liked */}
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none opacity-0 group-hover/likes:opacity-100 transition-opacity duration-200">
+                                <div className="bg-linear-to-br from-rose-500 to-pink-600 text-white px-3 py-2 rounded-xl shadow-xl max-w-xs">
+                                  <div className="flex items-center gap-2">
+                                    <Heart className="w-3 h-3 fill-white" />
+                                    <span className="text-[11px] font-semibold">
+                                      Liked by
+                                    </span>
+                                  </div>
+                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    {message.likes.map((like) => {
+                                      const liker = chat?.members?.find(
+                                        (m) => m.id === like.userId,
+                                      );
+                                      return (
+                                        <div
+                                          key={like.userId}
+                                          className="flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2 py-1 rounded-full"
+                                        >
+                                          {liker?.avatar ? (
+                                            <Image
+                                              src={liker.avatar}
+                                              alt={liker.username}
+                                              className="w-4 h-4 rounded-full object-cover"
+                                            />
+                                          ) : (
+                                            <div className="w-4 h-4 rounded-full bg-white/30 flex items-center justify-center">
+                                              <span className="text-[9px] font-bold">
+                                                {liker?.username?.[0]?.toUpperCase() ||
+                                                  "?"}
+                                              </span>
+                                            </div>
+                                          )}
+                                          <span className="text-[11px] font-medium">
+                                            {liker?.username || "Unknown"}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                                {/* Arrow */}
+                                <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-1.5 h-1.5 bg-linear-to-br from-rose-500 to-pink-600 rotate-45" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <p
+                          className={cn(
+                            "text-xs flex items-center gap-1",
+                            isOwn ? "text-rose-100" : "text-gray-400",
+                          )}
+                        >
+                          {message.editedAt && (
+                            <span className="mr-1">(edited)</span>
+                          )}
+                          {formatTime(message.createdAt)}
+                          {isOwn &&
+                            (isRead ? (
+                              <CheckCheck
+                                className="w-4 h-4 text-rose-100"
+                                aria-label="Read"
+                              />
+                            ) : isDelivered ? (
+                              <CheckCheck
+                                className="w-4 h-4 text-rose-200/80"
+                                aria-label="Delivered"
+                              />
+                            ) : (
+                              <Check
+                                className="w-4 h-4 text-rose-200/80"
+                                aria-label="Sent"
+                              />
+                            ))}
+                          {isOwn &&
+                            message.type === "share" &&
+                            message.item?.kind === "audio" &&
+                            isVoiceListened && (
+                              <Headphones
+                                className="w-3.5 h-3.5 text-rose-100"
+                                aria-label="Voice note listened to"
+                              />
+                            )}
+                        </p>
+                      </div>
+                    )}
+                  </motion.div>
+
+                  {showAvatar && isOwn ? (
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="w-12 h-12 rounded-full bg-linear-to-br from-pink-400 via-rose-400 to-pink-500 flex items-center justify-center text-white text-base font-bold shrink-0 shadow-xl shadow-pink-300/60 ring-4 ring-white/60"
+                    >
+                      {user?.username?.[0]?.toUpperCase()}
+                    </motion.div>
+                  ) : isOwn ? (
+                    <div className="w-12" />
+                  ) : null}
+                </motion.div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {/* Enhanced Romantic Message Input */}
+        <footer className="relative z-10 w-full bg-linear-to-r from-white/98 via-rose-50/98 to-white/98 backdrop-blur-2xl border-t border-rose-200/70 p-3 md:p-4 shadow-2xl shrink-0">
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <motion.div
+              animate={{
+                x: [0, 15, 0],
+                y: [0, -5, 0],
+                opacity: [0.3, 0.6, 0.3],
+              }}
+              transition={{ duration: 5, repeat: Infinity }}
+              className="absolute bottom-4 left-8"
+            >
+              <Heart className="w-10 h-10 text-rose-200 fill-rose-200" />
+            </motion.div>
+            <motion.div
+              animate={{
+                x: [0, -15, 0],
+                y: [0, -8, 0],
+                opacity: [0.25, 0.5, 0.25],
+              }}
+              transition={{ duration: 6, repeat: Infinity, delay: 2.5 }}
+              className="absolute bottom-4 right-8"
+            >
+              <Heart className="w-8 h-8 text-pink-200 fill-pink-200" />
+            </motion.div>
+            <motion.div
+              animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
+              transition={{ duration: 4, repeat: Infinity, delay: 1 }}
+              className="absolute bottom-6 left-1/2 transform -translate-x-1/2"
+            >
+              <Sparkles className="w-6 h-6 text-pink-300" />
+            </motion.div>
+          </div>
+
+          {/* Reply-to indicator - shows when replying to a message */}
+          <AnimatePresence>
+            {replyingTo && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="max-w-4xl mx-auto mb-3 px-4 py-3 bg-rose-50 border-l-4 border-rose-500 rounded-r-lg flex items-center justify-between"
+              >
+                <div className="flex items-center gap-3">
+                  <svg
+                    className="w-5 h-5 text-rose-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                    />
+                  </svg>
+                  <div>
+                    <p className="text-xs font-medium text-rose-600">
+                      Replying to{" "}
+                      {replyingTo.from === user?.id
+                        ? "yourself"
+                        : otherParticipant?.username}
+                    </p>
+                    <p className="text-sm text-gray-700 truncate max-w-md">
+                      {replyingTo.item?.kind === "audio" ? (
+                        <div className="flex items-center gap-2">
+                          <div className="flex gap-0.5">
+                            {[...Array(5)].map((_, i) => (
+                              <div
+                                key={i}
+                                className="w-1 h-3 bg-rose-400 rounded-full"
+                                style={{
+                                  animation: "pulse 1s ease-in-out infinite",
+                                  animationDelay: i * 0.1 + "s",
+                                }}
+                              />
+                            ))}
+                          </div>
+                          <span className="text-xs text-rose-600">
+                            {replyingTo.item.meta?.duration
+                              ? Math.floor(
+                                  Number(replyingTo.item.meta.duration),
+                                ) + "s"
+                              : "Voice note"}
+                          </span>
+                        </div>
+                      ) : (
+                        replyingTo.text || "Media message"
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setReplyingTo(null)}
+                  className="p-1.5 rounded-full hover:bg-rose-100 transition-colors"
+                  title="Cancel reply"
+                >
+                  <svg
+                    className="w-5 h-5 text-gray-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <form
+            onSubmit={handleSendMessage}
+            className="max-w-4xl mx-auto flex items-center gap-2 relative"
+          >
+            {isRecording ? (
+              <AudioRecorderUI
+                onSend={handleSendVoiceNote}
+                onCancel={() => setIsRecording(false)}
+              />
+            ) : (
+              <>
+                {/* Hide smiley on mobile, show heart in its place */}
+                <button
+                  type="button"
+                  onClick={sendLoveHeart}
+                  className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90 md:hidden"
+                >
+                  <motion.div
+                    animate={{ scale: [1, 1.1, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  >
+                    <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+                  </motion.div>
+                </button>
+
+                {/* Keep smiley only on desktop */}
+                <button
+                  type="button"
+                  className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110 hidden md:flex"
+                >
+                  <Smile className="w-5 h-5 text-rose-400" />
+                </button>
+
+                {/* Keep heart only on desktop */}
+                <button
+                  type="button"
+                  onClick={sendLoveHeart}
+                  className="p-2.5 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-125 active:scale-90 hidden md:flex"
+                >
+                  <motion.div
+                    animate={{ scale: [1, 1.1, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  >
+                    <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+                  </motion.div>
+                </button>
+
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={newMessage}
+                  onChange={handleInputChange}
+                  placeholder="Write something sweet..."
+                  className="flex-1 px-5 py-3 md:py-3.5 rounded-full bg-linear-to-r from-rose-100 to-pink-100 border-2 border-rose-200 focus:outline-none focus:ring-4 focus:ring-rose-300/60 focus:border-rose-400 transition-all duration-300 text-gray-700 placeholder:text-rose-300 text-base md:text-lg"
+                />
+
+                {/* Add mic to mobile view, keep on desktop */}
+                <button
+                  type="button"
+                  onClick={() => setIsRecording(true)}
+                  className="p-3 rounded-full hover:bg-rose-100 transition-all duration-300 hover:scale-110"
+                >
+                  <Mic className="w-6 h-6 text-rose-500" />
+                </button>
+
+                <motion.button
+                  type="submit"
+                  disabled={
+                    !newMessage.trim() ||
+                    sendMessageMutation.isPending ||
+                    isUploadingVoice
+                  }
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.9 }}
+                  className="p-3 md:p-3.5 rounded-full bg-linear-to-r from-rose-500 via-pink-500 to-rose-500 hover:from-rose-600 hover:via-pink-600 hover:to-rose-600 transition-all duration-300 disabled:opacity-50 shadow-2xl shadow-rose-400/70 disabled:hover:scale-100"
+                >
+                  <Send className="w-5 h-5 md:w-5.5 md:h-5.5 text-white" />
+                </motion.button>
+              </>
+            )}
+          </form>
+        </footer>
+      </div>
+    </>
   );
 }
