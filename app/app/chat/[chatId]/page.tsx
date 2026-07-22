@@ -197,6 +197,46 @@ const MessageSparkles = () => (
   </>
 );
 
+// Kiss Animation component using the CAT_KISS.lottie file
+const KissAnimation = () => {
+  const playerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Load the dotlottie player component
+    const loadPlayer = async () => {
+      try {
+        await import("@dotlottie/player-component");
+        if (playerRef.current) {
+          const player = playerRef.current.querySelector("dotlottie-player");
+          if (player) {
+            // Wait a bit then play the animation
+            setTimeout(() => {
+              // @ts-expect-error - player has play method
+              if (player.play) player.play();
+            }, 100);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load lottie player for kiss animation", e);
+      }
+    };
+
+    loadPlayer();
+  }, []);
+
+  return (
+    <div ref={playerRef}>
+      <dotlottie-player
+        src="/animation/CAT_KISS.lottie"
+        style={{ width: 150, height: 150 }}
+        loop
+        autoplay
+        className="drop-shadow-2xl"
+      />
+    </div>
+  );
+};
+
 export default function ChatRoomPage() {
   const { chatId } = useParams<{ chatId: string }>();
   const router = useRouter();
@@ -216,6 +256,9 @@ export default function ChatRoomPage() {
     })),
   );
   const [messageHearts, setMessageHearts] = useState<
+    { id: string; x: number; y: number }[]
+  >([]);
+  const [messageKisses, setMessageKisses] = useState<
     { id: string; x: number; y: number }[]
   >([]);
   const [showLoveReaction, setShowLoveReaction] = useState<string | null>(null);
@@ -241,6 +284,7 @@ export default function ChatRoomPage() {
   const menuRef = useRef<HTMLDivElement>(null);
   const messageActionsRef = useRef<HTMLDivElement>(null);
   const lastHeartEmitRef = useRef<number>(0);
+  const lastKissEmitRef = useRef<number>(0);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -1137,6 +1181,18 @@ export default function ChatRoomPage() {
         }
       });
 
+      socket.on("chat:kiss", (data) => {
+        if (data.from !== user?.id && data.chatId === chatId) {
+          const id = crypto.randomUUID();
+          const x = 50 + Math.random() * 100;
+          const y = window.innerHeight - 100 - Math.random() * 50;
+          setMessageKisses((prev) => [...prev, { id, x, y }].slice(-10));
+          setTimeout(() => {
+            setMessageKisses((prev) => prev.filter((k) => k.id !== id));
+          }, 3500); // Longer duration for the CAT_KISS animation to play
+        }
+      });
+
       return () => {
         clearInterval(chatPingInterval);
         socket.off("chat:typing", handleChatTyping);
@@ -1149,6 +1205,7 @@ export default function ChatRoomPage() {
         socket.off("chat:message:edited", handleMessageEdited);
         socket.off("chat:message:deleted", handleMessageDeleted);
         socket.off("chat:heart");
+        socket.off("chat:kiss");
         // `chat:leave` - Client → Server: Notify server we've left the chat (REALTIME_EVENTS.md)
         socket.emit("chat:leave", { chatId: chatId }, (response) => {
           if (response.ok) {
@@ -1576,6 +1633,39 @@ export default function ChatRoomPage() {
     [chatId],
   );
 
+  // Function to send a floating kiss animation
+  const sendLoveKiss = useCallback(
+    (e: React.MouseEvent) => {
+      const id = crypto.randomUUID();
+      const x = e.clientX || 100;
+      const y = e.clientY || window.innerHeight - 100;
+
+      setMessageKisses((prev) =>
+        [
+          ...prev,
+          {
+            id,
+            x,
+            y,
+          },
+        ].slice(-10),
+      );
+
+      // Remove after animation completes
+      setTimeout(() => {
+        setMessageKisses((prev) => prev.filter((k) => k.id !== id));
+      }, 3500);
+
+      const socket = getSocket();
+      const now = Date.now();
+      if (socket && chatId && now - lastKissEmitRef.current > 500) {
+        socket.emit("chat:kiss", { chatId }, () => {});
+        lastKissEmitRef.current = now;
+      }
+    },
+    [chatId],
+  );
+
   // Double tap/click to send love reaction
   const handleMessageDoubleClick = useCallback(
     (messageId: string, e: React.MouseEvent) => {
@@ -1758,6 +1848,56 @@ export default function ChatRoomPage() {
                     className="absolute"
                   >
                     <Sparkles className="w-7 h-7 text-yellow-300 drop-shadow-lg" />
+                  </motion.div>
+                ))}
+              </motion.div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {/* Spectacular romantic floating kisses animation */}
+        <AnimatePresence>
+          {messageKisses.map((mk) => (
+            <motion.div
+              key={mk.id}
+              className="fixed pointer-events-none z-100 -translate-x-1/2 -translate-y-1/2"
+              style={{ left: mk.x, top: mk.y }}
+            >
+              {/* Main soaring kiss animation */}
+              <motion.div
+                initial={{ y: 0, scale: 0.5, opacity: 0 }}
+                animate={{
+                  y: -600,
+                  scale: [1, 1.8, 2.5, 2],
+                  rotate: [-10, 10, -10, 5, 0],
+                  opacity: [0, 1, 1, 0],
+                }}
+                transition={{ duration: 4, ease: "easeOut" }}
+                className="relative flex items-center justify-center"
+              >
+                {/* Load and render the CAT_KISS lottie animation */}
+                <KissAnimation />
+
+                {/* Confetti mini-sparkles exploding outward */}
+                {[...Array(12)].map((_, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
+                    animate={{
+                      x: Math.cos((i * 30 * Math.PI) / 180) * 150,
+                      y: Math.sin((i * 30 * Math.PI) / 180) * 150 - 100,
+                      scale: Math.random() * 1.5 + 0.5,
+                      rotate: Math.random() * 360,
+                      opacity: 0,
+                    }}
+                    transition={{
+                      duration: 3 + Math.random(),
+                      ease: "easeOut",
+                      delay: 0.1,
+                    }}
+                    className="absolute"
+                  >
+                    <Sparkles className="w-5 h-5 text-pink-400 drop-shadow-lg" />
                   </motion.div>
                 ))}
               </motion.div>
@@ -2573,6 +2713,20 @@ export default function ChatRoomPage() {
                   </motion.div>
                 </button>
 
+                {/* Mobile Kiss button - beautiful floating cat icon like Snapchat bitmoji */}
+                <button
+                  type="button"
+                  onClick={sendLoveKiss}
+                  className="p-2 rounded-full hover:bg-pink-100 transition-all duration-300 hover:scale-125 active:scale-90 md:hidden touch-manipulation shrink-0"
+                >
+                  <motion.div
+                    animate={{ rotate: [0, -8, 8, -5, 0], scale: [1, 1.08, 1] }}
+                    transition={{ duration: 1.8, repeat: Infinity }}
+                  >
+                    <span className="text-2xl">😽</span>
+                  </motion.div>
+                </button>
+
                 {/* Keep smiley only on desktop */}
                 <button
                   type="button"
@@ -2592,6 +2746,20 @@ export default function ChatRoomPage() {
                     transition={{ duration: 2, repeat: Infinity }}
                   >
                     <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+                  </motion.div>
+                </button>
+
+                {/* Desktop Kiss button - beautiful floating cat icon like Snapchat bitmoji */}
+                <button
+                  type="button"
+                  onClick={sendLoveKiss}
+                  className="p-2.5 rounded-full hover:bg-pink-100 transition-all duration-300 hover:scale-125 active:scale-90 hidden md:flex"
+                >
+                  <motion.div
+                    animate={{ rotate: [0, -8, 8, -5, 0], scale: [1, 1.08, 1] }}
+                    transition={{ duration: 1.8, repeat: Infinity }}
+                  >
+                    <span className="text-3xl">😽</span>
                   </motion.div>
                 </button>
 

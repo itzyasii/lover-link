@@ -132,6 +132,25 @@ export interface ChatHeartServerEvent {
   from: string;
 }
 
+/**
+ * `chat:kiss` - Client -> Server: Client sends a kiss animation to other chat participant
+ */
+export interface ChatKissClientEvent {
+  chatId: string;
+}
+
+export interface ChatKissServerResponse {
+  ok: boolean;
+}
+
+/**
+ * `chat:kiss` - Server -> Client: Forwarded kiss animation to other chat participant
+ */
+export interface ChatKissServerEvent {
+  chatId: string;
+  from: string;
+}
+
 // ============================================
 // Chat Messaging Events
 // ============================================
@@ -592,6 +611,7 @@ export interface ServerToClientEvents {
   "chat:reaction": (data: ChatReactionServerEvent) => void;
   "chat:like": (data: ChatLikeServerEvent) => void;
   "chat:heart": (data: ChatHeartServerEvent) => void;
+  "chat:kiss": (data: ChatKissServerEvent) => void;
 
   // Voice message events
   "chat:voice:listened": (data: ChatVoiceListenedServerEvent) => void;
@@ -672,6 +692,10 @@ export interface ClientToServerEvents {
   "chat:heart": (
     data: ChatHeartClientEvent,
     callback: (response: ChatHeartServerResponse) => void,
+  ) => void;
+  "chat:kiss": (
+    data: ChatKissClientEvent,
+    callback: (response: ChatKissServerResponse) => void,
   ) => void;
 
   // Voice message events
