@@ -232,8 +232,9 @@ export interface LinkPreview {
  */
 export interface MessageReceipt {
   userId: string;
-  status: "delivered" | "read" | "listened";
-  timestamp: string; // ISO timestamp
+  deliveredAt?: string | Date;
+  readAt?: string | Date;
+  listenedAt?: string | Date;
 }
 
 /**

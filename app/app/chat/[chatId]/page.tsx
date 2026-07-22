@@ -12,6 +12,9 @@ import {
   Mic,
   Heart,
   Sparkles,
+  Check,
+  CheckCheck,
+  Headphones,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuthStore } from "@/stores/auth";
@@ -61,8 +64,9 @@ interface Message {
   likes?: Array<{ userId: string; createdAt: string }>;
   receipts: Array<{
     userId: string;
-    status: "delivered" | "read";
-    timestamp: string;
+    deliveredAt?: string;
+    readAt?: string;
+    listenedAt?: string;
   }>;
   linkPreview?: {
     title?: string;
@@ -81,6 +85,37 @@ interface Message {
   createdAt: string;
   updatedAt: string;
 }
+
+type Receipt = Message["receipts"][number];
+
+const normalizeReceiptDate = (value: unknown): string | undefined => {
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (value && typeof value === "object" && "$date" in value) {
+    const date = (value as { $date?: unknown }).$date;
+    return typeof date === "string" ? date : undefined;
+  }
+  return undefined;
+};
+
+const normalizeReceipts = (receipts: unknown[] = []): Receipt[] =>
+  receipts.map((receipt) => {
+    const value = receipt as {
+      userId: string | { $oid?: string };
+      deliveredAt?: unknown;
+      readAt?: unknown;
+      listenedAt?: unknown;
+    };
+    return {
+      userId:
+        typeof value.userId === "object"
+          ? value.userId.$oid || ""
+          : value.userId,
+      deliveredAt: normalizeReceiptDate(value.deliveredAt),
+      readAt: normalizeReceiptDate(value.readAt),
+      listenedAt: normalizeReceiptDate(value.listenedAt),
+    };
+  });
 
 interface ChatDetails {
   id: string;
@@ -285,6 +320,7 @@ export default function ChatRoomPage() {
                 (msg as unknown as { from?: { $oid: string } }).from?.$oid ||
                 msg.from,
               likes: msg.likes || [],
+              receipts: normalizeReceipts(msg.receipts),
               createdAt: normalizedCreatedAt,
               updatedAt: normalizedUpdatedAt,
             };
@@ -495,7 +531,7 @@ export default function ChatRoomPage() {
                   .filter((msg: Message) => {
                     // Check if we already have a read receipt for this message
                     const hasReadReceipt = msg.receipts?.some(
-                      (r) => r.userId === user.id && r.status === "read",
+                      (r) => r.userId === user.id && r.readAt,
                     );
                     return !hasReadReceipt;
                   })
@@ -728,53 +764,7 @@ export default function ChatRoomPage() {
             };
           });
 
-          // Normalize receipts timestamps
-          const normalizedReceipts = message.receipts.map((receipt) => {
-            const rawTimestamp = (
-              receipt as unknown as {
-                timestamp?: { $date: string } | Date | string;
-              }
-            ).timestamp;
-            // Handle MongoDB {$date: "iso-string"} format
-            if (
-              rawTimestamp &&
-              typeof rawTimestamp === "object" &&
-              "$date" in rawTimestamp
-            ) {
-              return {
-                userId: receipt.userId,
-                status:
-                  receipt.status === "listened"
-                    ? "read"
-                    : (receipt.status as "delivered" | "read"),
-                timestamp: rawTimestamp.$date,
-              };
-            }
-            // Handle Date object
-            if (
-              rawTimestamp !== null &&
-              typeof rawTimestamp === "object" &&
-              "toISOString" in rawTimestamp
-            ) {
-              return {
-                userId: receipt.userId,
-                status:
-                  receipt.status === "listened"
-                    ? "read"
-                    : (receipt.status as "delivered" | "read"),
-                timestamp: (rawTimestamp as Date).toISOString(),
-              };
-            }
-            // Already a string
-            return {
-              userId: receipt.userId,
-              status:
-                receipt.status === "listened"
-                  ? "read"
-                  : (receipt.status as "delivered" | "read"),
-              timestamp: rawTimestamp as string,
-            };
-          });
+          const normalizedReceipts = normalizeReceipts(message.receipts);
 
           // Normalize editedAt and deletedAt if they exist
           const normalizedEditedAt = message.editedAt
@@ -860,15 +850,78 @@ export default function ChatRoomPage() {
           };
 
           // Add new message to local state so it appears immediately
-          setMessages((prev) => [...prev, normalizedMessage]);
+          setMessages((prev) =>
+            prev.some((current) => current.id === normalizedMessage.id)
+              ? prev.map((current) =>
+                  current.id === normalizedMessage.id ? normalizedMessage : current,
+                )
+              : [...prev, normalizedMessage],
+          );
+
+          if (normalizedMessage.from !== user?.id) {
+            socket.emit("chat:delivered", { messageIds: [normalizedMessage.id] }, () => {});
+            socket.emit("chat:read", { messageIds: [normalizedMessage.id] }, () => {});
+          }
         }
         queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
         queryClient.invalidateQueries({ queryKey: ["chats"] });
       };
 
       // Handle message receipts (REALTIME_EVENTS.md)
-      const handleChatReceipt = () => {
-        queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+      const handleChatReceipt = ({
+        chatId: eventChatId,
+        messageIds,
+        userId,
+        type,
+        at,
+      }: import("@/types/realtime-events").ChatReceiptServerEvent) => {
+        if (eventChatId !== chatId || userId === user?.id) return;
+        setMessages((prev) =>
+          prev.map((message) => {
+            if (!messageIds.includes(message.id)) return message;
+            const remaining = message.receipts.filter(
+              (receipt) => receipt.userId !== userId,
+            );
+            const current = message.receipts.find(
+              (receipt) => receipt.userId === userId,
+            );
+            return {
+              ...message,
+              receipts: [
+                ...remaining,
+                {
+                  userId,
+                  deliveredAt: current?.deliveredAt || at,
+                  readAt: type === "read" ? at : current?.readAt,
+                  listenedAt: current?.listenedAt,
+                },
+              ],
+            };
+          }),
+        );
+      };
+
+      const handleVoiceListened = ({
+        chatId: eventChatId,
+        messageId,
+        userId,
+        at,
+      }: import("@/types/realtime-events").ChatVoiceListenedServerEvent) => {
+        if (eventChatId !== chatId || userId === user?.id) return;
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id !== messageId
+              ? message
+              : {
+                  ...message,
+                  receipts: message.receipts.map((receipt) =>
+                    receipt.userId === userId
+                      ? { ...receipt, deliveredAt: receipt.deliveredAt || at, readAt: receipt.readAt || at, listenedAt: at }
+                      : receipt,
+                  ),
+                },
+          ),
+        );
       };
 
       // Handle message reactions (REALTIME_EVENTS.md)
@@ -973,6 +1026,7 @@ export default function ChatRoomPage() {
       socket.on("chat:message", handleChatMessage);
       socket.on("share:item", handleChatMessage);
       socket.on("chat:receipt", handleChatReceipt);
+      socket.on("chat:voice:listened", handleVoiceListened);
       socket.on("chat:reaction", handleChatReaction);
       socket.on("chat:like", handleChatLike);
       socket.on("chat:message:edited", handleMessageEdited);
@@ -996,6 +1050,7 @@ export default function ChatRoomPage() {
         socket.off("chat:message", handleChatMessage);
         socket.off("share:item", handleChatMessage);
         socket.off("chat:receipt", handleChatReceipt);
+        socket.off("chat:voice:listened", handleVoiceListened);
         socket.off("chat:reaction", handleChatReaction);
         socket.off("chat:like", handleChatLike);
         socket.off("chat:message:edited", handleMessageEdited);
@@ -1162,6 +1217,8 @@ export default function ChatRoomPage() {
           replyingTo.from === user?.id
             ? user?.username
             : otherParticipant.username,
+        type: replyingTo.type,
+        item: replyingTo.item,
       };
     }
 
@@ -1587,6 +1644,12 @@ export default function ChatRoomPage() {
               message.text?.toLowerCase().includes("❤");
             const isShowingLove = showLoveReaction === message.id;
             const isEditing = editingMessageId === message.id;
+            const recipientReceipt = message.receipts?.find(
+              (receipt) => receipt.userId !== user?.id,
+            );
+            const isRead = Boolean(recipientReceipt?.readAt);
+            const isDelivered = Boolean(recipientReceipt?.deliveredAt);
+            const isVoiceListened = Boolean(recipientReceipt?.listenedAt);
 
             return (
               <motion.div
@@ -1733,7 +1796,27 @@ export default function ChatRoomPage() {
                             otherParticipant?.username}
                       </p>
                       <p className="text-sm leading-relaxed line-clamp-2">
-                        {message.replyTo.text || "Media message"}
+                        {message.replyTo.item?.kind === "audio" ? (
+                            <div className="flex items-center gap-2">
+                              <div className="flex gap-0.5">
+                                {[...Array(5)].map((_, i) => (
+                                  <div
+                                    key={i}
+                                    className="w-1 h-3 bg-rose-400 rounded-full"
+                                    style={{
+                                      animation: "pulse 1s ease-in-out infinite",
+                                      animationDelay: (i * 0.1) + "s",
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                              <span className="text-xs text-rose-200">
+                                {message.replyTo.item.meta?.duration
+                                  ? Math.floor(message.replyTo.item.meta.duration) + "s"
+                                  : "Voice note"}
+                              </span>
+                            </div>
+                          ) : message.replyTo.text || "Media message"}
                       </p>
                     </div>
                   )}
@@ -1791,7 +1874,7 @@ export default function ChatRoomPage() {
                       messageId={message.id}
                       isOwn={isOwn}
                       isListened={message.receipts?.some(
-                        (r) => r.userId === user?.id && r.status === "read",
+                        (r) => r.userId === user?.id && r.listenedAt,
                       )}
                     />
                   ) : (
@@ -1886,15 +1969,21 @@ export default function ChatRoomPage() {
                         )}
                         {formatTime(message.createdAt)}
                         {isOwn &&
-                          message.receipts?.some(
-                            (r) => r.status === "read",
-                          ) && (
-                            <motion.span
-                              animate={{ scale: [1, 1.3, 1] }}
-                              transition={{ duration: 1.5, repeat: Infinity }}
-                            >
-                              <Heart className="w-3.5 h-3.5 fill-current text-rose-200" />
-                            </motion.span>
+                          (isRead ? (
+                            <CheckCheck className="w-4 h-4 text-rose-100" aria-label="Read" />
+                          ) : isDelivered ? (
+                            <CheckCheck className="w-4 h-4 text-rose-200/80" aria-label="Delivered" />
+                          ) : (
+                            <Check className="w-4 h-4 text-rose-200/80" aria-label="Sent" />
+                          ))}
+                        {isOwn &&
+                          message.type === "share" &&
+                          message.item?.kind === "audio" &&
+                          isVoiceListened && (
+                            <Headphones
+                              className="w-3.5 h-3.5 text-rose-100"
+                              aria-label="Voice note listened to"
+                            />
                           )}
                       </p>
                     </div>
@@ -1980,7 +2069,27 @@ export default function ChatRoomPage() {
                       : otherParticipant?.username}
                   </p>
                   <p className="text-sm text-gray-700 truncate max-w-md">
-                    {replyingTo.text || "Media message"}
+                    {replyingTo.item?.kind === "audio" ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex gap-0.5">
+                        {[...Array(5)].map((_, i) => (
+                          <div
+                            key={i}
+                            className="w-1 h-3 bg-rose-400 rounded-full"
+                            style={{
+                              animation: "pulse 1s ease-in-out infinite",
+                              animationDelay: (i * 0.1) + "s",
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-xs text-rose-600">
+                        {replyingTo.item.meta?.duration
+                          ? Math.floor(replyingTo.item.meta.duration) + "s"
+                          : "Voice note"}
+                      </span>
+                    </div>
+                  ) : replyingTo.text || "Media message"}
                   </p>
                 </div>
               </div>
