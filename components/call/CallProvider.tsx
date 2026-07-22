@@ -112,6 +112,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
   // Track whether remote description has been applied
   const remoteDescSet = useRef(false);
+  // Track ICE connection timeout
+  const iceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // ─────────────────────────────────────────────
   // Helpers
@@ -130,6 +132,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       pcRef.current.onconnectionstatechange = null;
       pcRef.current.close();
       pcRef.current = null;
+    }
+
+    if (iceTimeoutRef.current) {
+      clearTimeout(iceTimeoutRef.current);
+      iceTimeoutRef.current = null;
     }
 
     iceCandidateQueue.current = [];
@@ -204,6 +211,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const state = pc.connectionState;
         console.log("[Call] connectionState:", state);
         if (state === "connected") {
+          // Clear ICE timeout if connection succeeds
+          if (iceTimeoutRef.current) {
+            clearTimeout(iceTimeoutRef.current);
+            iceTimeoutRef.current = null;
+          }
           useCallsStore.getState().updateActiveCallStatus("connected");
         } else if (
           state === "disconnected" ||
@@ -211,6 +223,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           state === "closed"
         ) {
           console.log("[Call] Peer disconnected/failed, ending call");
+          if (iceTimeoutRef.current) {
+            clearTimeout(iceTimeoutRef.current);
+            iceTimeoutRef.current = null;
+          }
           useCallsStore.getState().endActiveCall();
           cleanupWebRTC();
         }
@@ -219,8 +235,25 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       // ── ICE connection state (fallback for older browsers) ──
       pc.oniceconnectionstatechange = () => {
         console.log("[Call] iceConnectionState:", pc.iceConnectionState);
-        if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        if (
+          pc.iceConnectionState === "connected" ||
+          pc.iceConnectionState === "completed"
+        ) {
+          // Clear ICE timeout if connection succeeds
+          if (iceTimeoutRef.current) {
+            clearTimeout(iceTimeoutRef.current);
+            iceTimeoutRef.current = null;
+          }
           useCallsStore.getState().updateActiveCallStatus("connected");
+        } else if (pc.iceConnectionState === "failed") {
+          console.error("[Call] ICE connection failed");
+          addToast("Connection failed - check network", "error");
+          if (iceTimeoutRef.current) {
+            clearTimeout(iceTimeoutRef.current);
+            iceTimeoutRef.current = null;
+          }
+          useCallsStore.getState().endActiveCall();
+          cleanupWebRTC();
         }
       };
 
@@ -240,7 +273,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         },
         video:
           media === "video"
-            ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
+            ? {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                facingMode: "user",
+              }
             : false,
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -311,9 +348,21 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
         remoteDescSet.current = true;
         await drainIceQueue();
+        // Update caller status to "connecting" when answer is received
+        useCallsStore.getState().updateActiveCallStatus("connecting");
+        // Set ICE connection timeout (15 seconds)
+        iceTimeoutRef.current = setTimeout(() => {
+          console.error("[Call] ICE connection timeout");
+          addToast("Connection timeout - check network", "error");
+          useCallsStore.getState().endActiveCall();
+          cleanupWebRTC();
+        }, 15000);
         // Status will move to "connected" via onconnectionstatechange
       } catch (e) {
-        console.error("[Call] Failed to set remote description from answer:", e);
+        console.error(
+          "[Call] Failed to set remote description from answer:",
+          e,
+        );
       }
     };
 
@@ -350,6 +399,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (reason === "declined") addToast("Call declined 📵", "info");
       else if (reason === "cancelled" || reason === "timeout")
         addToast("Call ended", "info");
+      else if (reason === "answered_elsewhere")
+        addToast("Call answered on another device", "info");
 
       cleanupWebRTC();
       // Use clearActiveCall which clears BOTH activeCall and incomingCall
@@ -404,10 +455,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       try {
         // 1. Create call on server → get callId
-        const res = await apiFetch<{ ok: boolean; callId: string; error?: string }>(
-          "/api/calls/start",
-          { method: "POST", body: JSON.stringify({ calleeId, media }) },
-        );
+        const res = await apiFetch<{
+          ok: boolean;
+          callId: string;
+          error?: string;
+        }>("/api/calls/start", {
+          method: "POST",
+          body: JSON.stringify({ calleeId, media }),
+        });
         if (!res.ok) throw new Error(res.error || "Failed to start call");
 
         const { callId } = res;
@@ -447,7 +502,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             callId,
             media,
             offer,
-            fromUser: { id: user.id, username: user.username, email: user.email },
+            fromUser: {
+              id: user.id,
+              username: user.username,
+              email: user.email,
+            },
           },
           () => {},
         );
@@ -502,6 +561,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+
+      // Set ICE connection timeout (15 seconds)
+      iceTimeoutRef.current = setTimeout(() => {
+        console.error("[Call] ICE connection timeout");
+        addToast("Connection timeout - check network", "error");
+        useCallsStore.getState().endActiveCall();
+        cleanupWebRTC();
+      }, 15000);
 
       // 5. Send answer
       getSocket().emit(

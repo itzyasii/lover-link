@@ -97,7 +97,8 @@ export const useCallsStore = create<CallsState & CallsActions>()(
             activeCall: {
               ...state.activeCall,
               status,
-              ...(status === "connected"
+              // Only set answeredAt if it's not already set and we're connecting/connected
+              ...(status === "connected" && !state.activeCall.answeredAt
                 ? { answeredAt: new Date().toISOString() }
                 : {}),
             },
