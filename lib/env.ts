@@ -1,8 +1,7 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
 
-export const SOCKET_URL =
-  process.env.NEXT_PUBLIC_SOCKET_URL ?? process.env.NEXT_PUBLIC_SOCKET_URL;
+export const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL ?? API_BASE_URL;
 
 export const FIREBASE_API_KEY = process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? "";
 export const FIREBASE_AUTH_DOMAIN =
