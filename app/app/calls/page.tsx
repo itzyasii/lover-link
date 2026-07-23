@@ -38,61 +38,67 @@ export default function CallsPage() {
     isLoading,
     fetchNextPage,
     hasNextPage,
-    isFetchingNextPage
-  } = useInfiniteQuery<{ calls: CallHistoryItem[], nextCursor: string | null }>({
-    queryKey: ["call-history"],
-    initialPageParam: null as string | null,
-    queryFn: async ({ pageParam }) => {
-      interface RawCallItem extends CallHistoryItem {
-        caller: { id: string; username: string; email?: string };
-        callee: { id: string; username: string; email?: string };
-      }
+    isFetchingNextPage,
+  } = useInfiniteQuery<{ calls: CallHistoryItem[]; nextCursor: string | null }>(
+    {
+      queryKey: ["call-history"],
+      initialPageParam: null as string | null,
+      queryFn: async ({ pageParam }) => {
+        interface RawCallItem extends CallHistoryItem {
+          caller: { id: string; username: string; email?: string };
+          callee: { id: string; username: string; email?: string };
+        }
 
-      const url = pageParam ? `/api/calls?cursor=${pageParam}` : `/api/calls`;
-      const response = await apiFetch<{ ok: boolean, calls: RawCallItem[], nextCursor: string | null }>(url);
+        const url = pageParam ? `/api/calls?cursor=${pageParam}` : `/api/calls`;
+        const response = await apiFetch<{
+          ok: boolean;
+          calls: RawCallItem[];
+          nextCursor: string | null;
+        }>(url);
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch call history");
-      }
+        if (!response.ok) {
+          throw new Error("Failed to fetch call history");
+        }
 
-      const mappedCalls: CallHistoryItem[] = response.calls.map(
-        (call: RawCallItem) => {
-          const isCurrentUserCaller = call.callerId === currentUser?.id;
-          const participant = isCurrentUserCaller ? call.callee : call.caller;
+        const mappedCalls: CallHistoryItem[] = response.calls.map(
+          (call: RawCallItem) => {
+            const isCurrentUserCaller = call.callerId === currentUser?.id;
+            const participant = isCurrentUserCaller ? call.callee : call.caller;
 
-          return {
-            ...call,
-            media: call.media || "video",
-            duration:
-              call.answeredAt && call.endedAt
-                ? Math.floor(
-                    (new Date(call.endedAt).getTime() -
-                      new Date(call.answeredAt).getTime()) /
-                      1000,
-                  )
-                : undefined,
-            participant: participant
-              ? {
-                  id: participant.id,
-                  username: participant.username,
-                  email: participant.email,
-                }
-              : call.participant || { id: "", username: "Unknown User" },
-          };
-        },
-      );
+            return {
+              ...call,
+              media: call.media || "video",
+              duration:
+                call.answeredAt && call.endedAt
+                  ? Math.floor(
+                      (new Date(call.endedAt).getTime() -
+                        new Date(call.answeredAt).getTime()) /
+                        1000,
+                    )
+                  : undefined,
+              participant: participant
+                ? {
+                    id: participant.id,
+                    username: participant.username,
+                    email: participant.email,
+                  }
+                : call.participant || { id: "", username: "Unknown User" },
+            };
+          },
+        );
 
-      if (!pageParam) {
-        setCallHistory(mappedCalls);
-      }
+        if (!pageParam) {
+          setCallHistory(mappedCalls);
+        }
 
-      return { calls: mappedCalls, nextCursor: response.nextCursor };
+        return { calls: mappedCalls, nextCursor: response.nextCursor };
+      },
+      getNextPageParam: (lastPage) => {
+        if (!lastPage) return null;
+        return lastPage.nextCursor ? lastPage.nextCursor : null;
+      },
     },
-    getNextPageParam: (lastPage) => {
-      if (!lastPage) return null;
-      return lastPage.nextCursor ? lastPage.nextCursor : null;
-    },
-  });
+  );
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -101,7 +107,7 @@ export default function CallsPage() {
           fetchNextPage();
         }
       },
-      { threshold: 1.0 }
+      { threshold: 1.0 },
     );
 
     if (observerTarget.current) {
@@ -111,7 +117,9 @@ export default function CallsPage() {
     return () => observer.disconnect();
   }, [hasNextPage, fetchNextPage, isFetchingNextPage]);
 
-  const calls = callsData ? callsData.pages.flatMap(page => page.calls) : callHistory;
+  const calls = callsData
+    ? callsData.pages.flatMap((page) => page.calls)
+    : callHistory;
 
   if (isLoading) {
     return <HeartbeatLoading message="Loading call history..." />;
@@ -167,7 +175,7 @@ export default function CallsPage() {
       </div>
 
       {/* Quick Actions - Note: These would typically show a contact picker, for demo we'll call the first contact */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      {/* <div className="grid grid-cols-2 gap-4 mb-6">
         <button
           onClick={() => {
             if (
@@ -212,7 +220,7 @@ export default function CallsPage() {
           <Video className="w-5 h-5" />
           <span className="font-semibold">Video Call</span>
         </button>
-      </div>
+      </div> */}
 
       {/* Call History */}
       <div className="bg-white rounded-2xl border border-rose-100 p-4 shadow-sm">
@@ -299,9 +307,12 @@ export default function CallsPage() {
             })}
           </div>
         )}
-        
+
         {/* Pagination Observer Target */}
-        <div ref={observerTarget} className="h-10 w-full flex items-center justify-center py-4">
+        <div
+          ref={observerTarget}
+          className="h-10 w-full flex items-center justify-center py-4"
+        >
           {isFetchingNextPage && (
             <div className="w-6 h-6 border-2 border-rose-300 border-t-rose-500 rounded-full animate-spin" />
           )}
