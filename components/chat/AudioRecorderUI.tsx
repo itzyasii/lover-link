@@ -10,22 +10,17 @@ interface AudioRecorderUIProps {
 }
 
 export function AudioRecorderUI({ onSend, onCancel }: AudioRecorderUIProps) {
-  const {
-    state,
-    duration,
-    audioBlob,
-    start,
-    pause,
-    resume,
-    stop,
-    cancel,
-  } = useAudioRecorder();
+  const { state, duration, audioBlob, start, pause, resume, stop, cancel } =
+    useAudioRecorder();
 
-  const hasSent = useRef(false);
+  const hasStarted = useRef(false);
 
-  // Start recording on mount
+  // Start recording only once when component mounts
   useEffect(() => {
-    start();
+    if (!hasStarted.current) {
+      start();
+      hasStarted.current = true;
+    }
     return () => {
       cancel();
     };
@@ -90,14 +85,14 @@ export function AudioRecorderUI({ onSend, onCancel }: AudioRecorderUIProps) {
 
             <div className="flex items-center gap-2 bg-white/60 px-3 py-1.5 rounded-full border border-rose-100">
               <motion.div
-                animate={{ 
+                animate={{
                   scale: state === "recording" ? [1, 1.2, 1] : 1,
-                  opacity: state === "recording" ? [1, 0.5, 1] : 0.5 
+                  opacity: state === "recording" ? [1, 0.5, 1] : 0.5,
                 }}
                 transition={{ duration: 1.5, repeat: Infinity }}
                 className={cn(
                   "w-2.5 h-2.5 rounded-full flex shrink-0",
-                  state === "recording" ? "bg-red-500" : "bg-gray-400"
+                  state === "recording" ? "bg-red-500" : "bg-gray-400",
                 )}
               />
               <span className="text-sm font-medium text-gray-700 font-mono w-12 text-center">

@@ -243,26 +243,53 @@ function RomanticBurst({
       animate={
         reduceMotion
           ? { opacity: [0, 1, 0], scale: [0.7, 1.1, 1] }
-          : { y: isHeart ? -290 : -250, opacity: [0, 1, 1, 0], scale: [0.45, 1.2, 1.35, 0.85], rotate: [-8, 8, -5, 0] }
+          : {
+              y: isHeart ? -290 : -250,
+              opacity: [0, 1, 1, 0],
+              scale: [0.45, 1.2, 1.35, 0.85],
+              rotate: [-8, 8, -5, 0],
+            }
       }
       transition={{ duration: reduceMotion ? 0.55 : 1.75, ease: "easeOut" }}
     >
-      <div className={cn(
-        "relative grid h-20 w-20 place-items-center rounded-full border border-white/50 shadow-2xl backdrop-blur-sm",
-        isHeart ? "bg-linear-to-br from-rose-400 via-pink-500 to-fuchsia-500" : "bg-linear-to-br from-pink-300 via-rose-400 to-red-500",
-      )}>
-        <span className={cn("drop-shadow-md", isHeart ? "text-5xl text-white" : "text-4xl")}>{glyph}</span>
-        {!reduceMotion && burstParticles.map((particle, index) => (
-          <motion.span
-            key={index}
-            className="absolute text-lg drop-shadow-sm"
-            initial={{ opacity: 0, scale: 0.2, x: 0, y: 0 }}
-            animate={{ opacity: [0, 1, 0], scale: [0.3, 1, 0.55], x: particle.x, y: particle.y, rotate: particle.rotate }}
-            transition={{ duration: 0.9, delay: particle.delay, ease: "easeOut" }}
-          >
-            {index === 4 ? "✦" : index % 2 === 0 ? "♥" : "✨"}
-          </motion.span>
-        ))}
+      <div
+        className={cn(
+          "relative grid h-20 w-20 place-items-center rounded-full border border-white/50 shadow-2xl backdrop-blur-sm",
+          isHeart
+            ? "bg-linear-to-br from-rose-400 via-pink-500 to-fuchsia-500"
+            : "bg-linear-to-br from-pink-300 via-rose-400 to-red-500",
+        )}
+      >
+        <span
+          className={cn(
+            "drop-shadow-md",
+            isHeart ? "text-5xl text-white" : "text-4xl",
+          )}
+        >
+          {glyph}
+        </span>
+        {!reduceMotion &&
+          burstParticles.map((particle, index) => (
+            <motion.span
+              key={index}
+              className="absolute text-lg drop-shadow-sm"
+              initial={{ opacity: 0, scale: 0.2, x: 0, y: 0 }}
+              animate={{
+                opacity: [0, 1, 0],
+                scale: [0.3, 1, 0.55],
+                x: particle.x,
+                y: particle.y,
+                rotate: particle.rotate,
+              }}
+              transition={{
+                duration: 0.9,
+                delay: particle.delay,
+                ease: "easeOut",
+              }}
+            >
+              {index === 4 ? "✦" : index % 2 === 0 ? "♥" : "✨"}
+            </motion.span>
+          ))}
       </div>
     </motion.div>
   );
@@ -947,7 +974,9 @@ export default function ChatRoomPage() {
             ...message,
             item: normalizeShareItem(message.item),
             replyTo: (() => {
-              const replyTo = (message as unknown as { replyTo?: ReplyToMessage }).replyTo;
+              const replyTo = (
+                message as unknown as { replyTo?: ReplyToMessage }
+              ).replyTo;
               return replyTo
                 ? { ...replyTo, item: normalizeShareItem(replyTo.item) }
                 : replyTo;
@@ -1006,12 +1035,14 @@ export default function ChatRoomPage() {
               (current) =>
                 current.id === normalizedMessage.id ||
                 (Boolean(normalizedMessage.clientMessageId) &&
-                  current.clientMessageId === normalizedMessage.clientMessageId),
+                  current.clientMessageId ===
+                    normalizedMessage.clientMessageId),
             )
               ? prev.map((current) =>
                   current.id === normalizedMessage.id ||
                   (Boolean(normalizedMessage.clientMessageId) &&
-                    current.clientMessageId === normalizedMessage.clientMessageId)
+                    current.clientMessageId ===
+                      normalizedMessage.clientMessageId)
                     ? normalizedMessage
                     : current,
                 )
@@ -1228,6 +1259,7 @@ export default function ChatRoomPage() {
 
       socket.on("chat:heart", (data) => {
         if (data.from !== user?.id && data.chatId === chatId) {
+          // Only show animation if we're not recording voice, don't interrupt recording
           const id = crypto.randomUUID();
           const x = 50 + Math.random() * 100;
           const y = window.innerHeight - 100 - Math.random() * 50;
@@ -1240,6 +1272,7 @@ export default function ChatRoomPage() {
 
       socket.on("chat:kiss", (data) => {
         if (data.from !== user?.id && data.chatId === chatId) {
+          // Only show animation if we're not recording voice, don't interrupt recording
           const id = crypto.randomUUID();
           const x = 50 + Math.random() * 100;
           const y = window.innerHeight - 100 - Math.random() * 50;
@@ -1389,15 +1422,31 @@ export default function ChatRoomPage() {
       size: file.size,
     };
     const temporaryId = `upload-${clientMessageId}`;
-    setMessages((previous) => [...previous, {
-      id: temporaryId, chatId, from: user?.id || "", type: "share", clientMessageId,
-      item, reactions: [], receipts: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), uploadProgress: 0,
-    }]);
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: temporaryId,
+        chatId,
+        from: user?.id || "",
+        type: "share",
+        clientMessageId,
+        item,
+        reactions: [],
+        receipts: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        uploadProgress: 0,
+      },
+    ]);
     return temporaryId;
   };
 
   const updateOptimisticUpload = (id: string, changes: Partial<Message>) =>
-    setMessages((previous) => previous.map((message) => message.id === id ? { ...message, ...changes } : message));
+    setMessages((previous) =>
+      previous.map((message) =>
+        message.id === id ? { ...message, ...changes } : message,
+      ),
+    );
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -1449,7 +1498,9 @@ export default function ChatRoomPage() {
       const response = await apiFormDataWithProgress<{
         ok: boolean;
         item: ShareItem;
-      }>("/api/uploads", formData, (uploadProgress) => updateOptimisticUpload(temporaryId, { uploadProgress }));
+      }>("/api/uploads", formData, (uploadProgress) =>
+        updateOptimisticUpload(temporaryId, { uploadProgress }),
+      );
 
       if (!response.ok || !response.item) throw new Error("Upload failed");
 
@@ -1460,7 +1511,10 @@ export default function ChatRoomPage() {
         response.item.url = `${env.API_BASE_URL}${response.item.url}`;
       }
 
-      updateOptimisticUpload(temporaryId, { item: response.item, uploadProgress: undefined });
+      updateOptimisticUpload(temporaryId, {
+        item: response.item,
+        uploadProgress: undefined,
+      });
       const socket = getSocket();
       if (socket && otherParticipant) {
         socket.emit(
@@ -1480,7 +1534,10 @@ export default function ChatRoomPage() {
       );
     } catch (error) {
       console.error("Failed to upload media file:", error);
-      updateOptimisticUpload(temporaryId, { uploadFailed: true, uploadProgress: undefined });
+      updateOptimisticUpload(temporaryId, {
+        uploadFailed: true,
+        uploadProgress: undefined,
+      });
       addToast("Failed to upload file. Please try again.", "error");
     } finally {
       // Reset file input
@@ -1557,7 +1614,10 @@ export default function ChatRoomPage() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video.videoWidth || !video.videoHeight) {
-      addToast("Camera is still starting. Please try the shutter again.", "info");
+      addToast(
+        "Camera is still starting. Please try the shutter again.",
+        "info",
+      );
       return;
     }
     canvas.width = video.videoWidth;
@@ -1581,7 +1641,9 @@ export default function ChatRoomPage() {
 
         let temporaryId: string | undefined;
         try {
-          const photoFile = new File([blob], "camera_photo.jpg", { type: "image/jpeg" });
+          const photoFile = new File([blob], "camera_photo.jpg", {
+            type: "image/jpeg",
+          });
           const clientMessageId = crypto.randomUUID();
           temporaryId = addOptimisticMedia(photoFile, clientMessageId);
           const formData = new FormData();
@@ -1601,7 +1663,10 @@ export default function ChatRoomPage() {
             response.item.url = `${env.API_BASE_URL}${response.item.url}`;
           }
 
-          updateOptimisticUpload(temporaryId, { item: response.item, uploadProgress: undefined });
+          updateOptimisticUpload(temporaryId, {
+            item: response.item,
+            uploadProgress: undefined,
+          });
           const socket = getSocket();
           if (socket && otherParticipant) {
             socket.emit(
@@ -1616,7 +1681,11 @@ export default function ChatRoomPage() {
           }
         } catch (error) {
           console.error("Photo upload error:", error);
-          if (temporaryId) updateOptimisticUpload(temporaryId, { uploadFailed: true, uploadProgress: undefined });
+          if (temporaryId)
+            updateOptimisticUpload(temporaryId, {
+              uploadFailed: true,
+              uploadProgress: undefined,
+            });
           addToast("Failed to send photo", "error");
         }
       },
@@ -1898,7 +1967,12 @@ export default function ChatRoomPage() {
         {/* Short celebratory bursts keep the interaction playful without taxing scrolling. */}
         <AnimatePresence>
           {messageHearts.map((heart) => (
-            <RomanticBurst key={heart.id} kind="heart" x={heart.x} y={heart.y} />
+            <RomanticBurst
+              key={heart.id}
+              kind="heart"
+              x={heart.x}
+              y={heart.y}
+            />
           ))}
           {messageKisses.map((kiss) => (
             <RomanticBurst key={kiss.id} kind="kiss" x={kiss.x} y={kiss.y} />
@@ -2445,9 +2519,14 @@ export default function ChatRoomPage() {
                         </button>
                         {typeof message.uploadProgress === "number" && (
                           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/55 text-white backdrop-blur-[1px]">
-                            <span className="text-sm font-medium">Sending photo… {message.uploadProgress}%</span>
+                            <span className="text-sm font-medium">
+                              Sending photo… {message.uploadProgress}%
+                            </span>
                             <div className="mt-2 h-1.5 w-32 overflow-hidden rounded-full bg-white/30">
-                              <div className="h-full bg-white transition-all" style={{ width: `${message.uploadProgress}%` }} />
+                              <div
+                                className="h-full bg-white transition-all"
+                                style={{ width: `${message.uploadProgress}%` }}
+                              />
                             </div>
                           </div>
                         )}
@@ -3002,18 +3081,26 @@ export default function ChatRoomPage() {
         <AnimatePresence>
           {selectedImage && (
             <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               className="fixed inset-0 z-100 flex items-center justify-center bg-black/90 p-4"
               onClick={() => setSelectedImage(null)}
-              role="dialog" aria-modal="true" aria-label="Full-size image preview"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Full-size image preview"
             >
               <button
-                type="button" onClick={() => setSelectedImage(null)}
+                type="button"
+                onClick={() => setSelectedImage(null)}
                 className="absolute right-5 top-5 z-10 rounded-full bg-black/50 p-3 text-2xl leading-none text-white hover:bg-black/70"
                 aria-label="Close image preview"
-              >×</button>
+              >
+                ×
+              </button>
               <Image
-                src={selectedImage} alt="Full-size shared image"
+                src={selectedImage}
+                alt="Full-size shared image"
                 className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
                 style={{ imageOrientation: "from-image" }}
                 onClick={(event) => event.stopPropagation()}
