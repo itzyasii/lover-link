@@ -162,6 +162,7 @@ export interface ChatMessageClientEvent {
   to: string; // Recipient user ID (MongoDB ObjectId)
   clientMessageId?: string; // Optional client-side UUID for deduplication
   text: string; // Message content (1-4000 characters)
+  replyTo?: ReplyToMessage; // Optional reply-to message data
 }
 
 export interface ChatMessageServerResponse {
@@ -301,12 +302,32 @@ export interface ChatMessageServerEvent {
 }
 
 /**
+ * Reply-to message structure for when a message is sent in response to another
+ */
+export interface ReplyToMessage {
+  id: string;
+  text?: string | null;
+  from: string;
+  fromName?: string;
+  type?: "text" | "share" | "event";
+  item?: {
+    kind?: "file" | "image" | "video" | "audio";
+    url?: string;
+    originalName?: string;
+    mime?: string;
+    size?: number;
+    meta?: Record<string, unknown>;
+  };
+}
+
+/**
  * `share:item` - Client -> Server: Client sends a media/file share to another user
  */
 export interface ShareItemClientEvent {
   to: string; // Recipient user ID
   clientMessageId?: string; // Optional deduplication ID
   item: ShareItem;
+  replyTo?: ReplyToMessage; // Optional reply-to message data, same as in send:message events
 }
 
 export interface ShareItemServerResponse {

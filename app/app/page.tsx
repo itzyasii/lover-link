@@ -406,28 +406,28 @@ export default function ChatsPage() {
                                 case "text":
                                   return chat.lastMessage.text;
                                 case "image":
-                                  return "📷 Shared a photo";
+                                  return "Sent a photo";
                                 case "file":
-                                  return "📎 Shared a file";
+                                  return "Sent a file";
                                 case "voice":
-                                  return "🎤 Voice message";
+                                  return "Voice message";
                                 case "share":
                                   if (chat.lastMessage.itemKind === "audio") {
-                                    return "🎵 Shared an audio track";
+                                    return "Sent an voice message";
                                   } else if (
                                     chat.lastMessage.itemKind === "video"
                                   ) {
-                                    return "🎥 Shared a video";
+                                    return "Sent a video";
                                   } else if (
                                     chat.lastMessage.itemKind === "image"
                                   ) {
-                                    return "🖼️ Shared an image";
+                                    return "Sent an image";
                                   } else if (
                                     chat.lastMessage.itemKind === "link"
                                   ) {
-                                    return "🔗 Shared a link";
+                                    return "Sent a link";
                                   }
-                                  return "📤 Shared something";
+                                  return "Sent something";
                                 default:
                                   return chat.lastMessage.text || "New message";
                               }

@@ -1516,10 +1516,27 @@ export default function ChatRoomPage() {
         uploadProgress: undefined,
       });
       const socket = getSocket();
+      // Prepare replyTo data if we're replying to a message
+      let replyToData: ReplyToMessage | undefined;
+      if (replyingTo && otherParticipant) {
+        replyToData = {
+          id: replyingTo.id,
+          text: replyingTo.text ?? undefined,
+          from: replyingTo.from,
+          fromName:
+            replyingTo.from === user?.id
+              ? user?.username
+              : otherParticipant.username,
+          type: replyingTo.type,
+          item: replyingTo.item,
+        };
+      }
+
       if (socket && otherParticipant) {
         socket.emit(
           "share:item",
           {
+            replyTo: replyToData,
             to: otherParticipant.id,
             clientMessageId,
             item: response.item,
@@ -1697,7 +1714,6 @@ export default function ChatRoomPage() {
   const handleSendVoiceNote = async (blob: Blob, duration: number) => {
     if (!chatId || !user?.id) return;
 
-    setIsRecording(false);
     setIsUploadingVoice(true);
     try {
       const formData = new FormData();
@@ -1737,6 +1753,8 @@ export default function ChatRoomPage() {
       addToast("Failed to send voice note", "error");
     } finally {
       setIsUploadingVoice(false);
+      setIsRecording(false);
+      setReplyingTo(null); // Clear reply-to after sending voice note
     }
   };
 
@@ -2237,6 +2255,7 @@ export default function ChatRoomPage() {
               return (
                 <motion.div
                   key={message.id}
+                  id={`message-${message.id}`}
                   ref={
                     activeMessageActions === message.id
                       ? messageActionsRef
@@ -2513,6 +2532,8 @@ export default function ChatRoomPage() {
                           <Image
                             src={message.item.url}
                             alt="Shared image"
+                            width={800}
+                            height={600}
                             className="block max-h-[60vh] w-auto max-w-full object-contain"
                             style={{ imageOrientation: "from-image" }}
                           />
@@ -2848,7 +2869,18 @@ export default function ChatRoomPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => setReplyingTo(null)}
+                  onClick={() => {
+                    // Scroll to the original message when clicking on the reply preview
+                    const originalMessage = document.getElementById(
+                      `message-${replyingTo.id}`,
+                    );
+                    if (originalMessage) {
+                      originalMessage.scrollIntoView({
+                        behavior: "smooth",
+                        block: "center",
+                      });
+                    }
+                  }}
                   className="p-1.5 rounded-full hover:bg-rose-100 transition-colors"
                   title="Cancel reply"
                 >
@@ -3101,6 +3133,8 @@ export default function ChatRoomPage() {
               <Image
                 src={selectedImage}
                 alt="Full-size shared image"
+                width={1200}
+                height={900}
                 className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
                 style={{ imageOrientation: "from-image" }}
                 onClick={(event) => event.stopPropagation()}
