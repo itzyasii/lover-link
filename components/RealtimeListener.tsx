@@ -129,18 +129,6 @@ export function RealtimeListener() {
       const socket = getSocket();
       socketListenersAdded.current = true;
 
-      // Add socket connection debugging
-      console.log("[Socket] Initializing listeners, socket state:", {
-        id: socket.id,
-        connected: socket.connected,
-        disconnected: socket.disconnected,
-      });
-
-      // Log all socket events for debugging
-      socket.onAny((eventName, ...args) => {
-        console.log(`[Socket:any] Received event "${eventName}":`, args);
-      });
-
       // Log connection status changes
       socket.on("connect", () => {
         console.log("[Socket] Connected successfully, socket ID:", socket.id);
@@ -155,11 +143,6 @@ export function RealtimeListener() {
       // ============================================
       // Presence & Online Status Events (REALTIME_EVENTS.md)
       // ============================================
-
-      // `presence:me` - Confirm identity and successful authentication
-      socket.on("presence:me", ({ userId }) => {
-        console.log("[Socket] Authenticated successfully as user:", userId);
-      });
 
       // `presence:online` - Complete list of online users at connection time
       socket.on("presence:online", ({ users }: PresenceOnlineServerEvent) => {
@@ -213,7 +196,6 @@ export function RealtimeListener() {
       ) => {
         const eventKey = getEventKey("message", chatId, serverMessage.id);
         if (processedEvents.has(eventKey)) {
-          console.log("[Socket] Duplicate message skipped:", serverMessage.id);
           return;
         }
         processedEvents.add(eventKey);
@@ -225,10 +207,6 @@ export function RealtimeListener() {
         }
 
         const normalizedMessage = normalizeMessage(serverMessage);
-        console.log(
-          "[Socket:message] Processed new message:",
-          normalizedMessage.id,
-        );
 
         // Update React Query cache directly instead of invalidating
         queryClient.setQueryData(["messages", chatId], (oldData: unknown) => {
@@ -240,10 +218,6 @@ export function RealtimeListener() {
           // Check if message already exists to prevent duplicates
           const messageExists = oldData.some((m) => m.id === serverMessage.id);
           if (messageExists) {
-            console.log(
-              "[Socket] Message already in cache, skipping:",
-              serverMessage.id,
-            );
             return oldData;
           }
 
