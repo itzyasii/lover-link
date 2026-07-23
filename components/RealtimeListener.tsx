@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { getSocket, updateSocketToken } from "@/lib/socket";
 import { useAuthStore } from "@/stores/auth";
@@ -34,11 +34,32 @@ export function RealtimeListener() {
   const { setInitialOnlineUsers, updatePresence } = usePresenceStore();
   const { accessToken, user } = useAuthStore();
   const queryClient = useQueryClient();
+  const messageAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastMessageSoundAtRef = useRef(0);
 
-  // Helper function to play message receive sound
+  useEffect(() => {
+    const audio = new Audio("/sounds/chat_message_receive.mp3");
+    audio.preload = "auto";
+    audio.volume = 0.55;
+    messageAudioRef.current = audio;
+
+    return () => {
+      audio.pause();
+      audio.src = "";
+      messageAudioRef.current = null;
+    };
+  }, []);
+
+  // One reusable sound avoids overlapping Audio elements during a busy conversation.
   const playMessageSound = () => {
+    const now = Date.now();
+    if (now - lastMessageSoundAtRef.current < 250) return;
+    lastMessageSoundAtRef.current = now;
+
     try {
-      const audio = new Audio("/sounds/chat_message_receive.mp3");
+      const audio = messageAudioRef.current;
+      if (!audio) return;
+      audio.currentTime = 0;
       audio.play().catch((error) => {
         console.warn("[Sound] Failed to play message receive sound:", error);
       });
@@ -46,6 +67,9 @@ export function RealtimeListener() {
       console.warn("[Sound] Could not create audio element:", error);
     }
   };
+
+  const isViewingChat = (chatId: string) =>
+    pathname?.replace(/\/$/, "") === `/app/chat/${chatId}`;
 
   useEffect(() => {
     // Only initialize socket listeners if we have valid authentication
@@ -195,8 +219,7 @@ export function RealtimeListener() {
             incrementUnread(chatId);
 
             // Play message receive sound only if user is NOT in this specific chat
-            const isInCurrentChat = pathname === `/app/chat/${chatId}`;
-            if (!isInCurrentChat) {
+            if (!isViewingChat(chatId)) {
               playMessageSound();
             }
           }
@@ -264,8 +287,7 @@ export function RealtimeListener() {
           incrementUnread(chatId);
 
           // Play message receive sound only if user is NOT in this specific chat
-          const isInCurrentChat = pathname === `/app/chat/${chatId}`;
-          if (!isInCurrentChat) {
+          if (!isViewingChat(chatId)) {
             playMessageSound();
           }
         }
