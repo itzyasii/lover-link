@@ -320,7 +320,85 @@ export default function ChatRoomPage() {
     { id: string; x: number; y: number }[]
   >([]);
   const [showLoveReaction, setShowLoveReaction] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Use React Query cache for messages to work with realtime updates (matches RealtimeListener architecture)
+  const { data: messages = [] } = useQuery<Message[]>({
+    queryKey: ["messages", chatId],
+    queryFn: async () => {
+      const limit = 50;
+      const url = `/api/chats/${chatId}/messages?limit=${limit}`;
+
+      const response = await apiFetch<{
+        ok: boolean;
+        messages: Message[];
+        nextCursor: string | null;
+      }>(url);
+
+      if (response.ok) {
+        // Normalize MongoDB ObjectIds and dates
+        const normalizedMessages = response.messages.map((msg) => {
+          // Normalize createdAt properly
+          let normalizedCreatedAt: string;
+          if (typeof msg.createdAt === "string") {
+            normalizedCreatedAt = msg.createdAt;
+          } else if (
+            typeof msg.createdAt === "object" &&
+            msg.createdAt !== null
+          ) {
+            // Handle MongoDB { $date: "..." } format
+            const dateObj = msg.createdAt as { $date?: string };
+            normalizedCreatedAt = dateObj.$date || new Date().toISOString();
+          } else {
+            normalizedCreatedAt = new Date().toISOString();
+          }
+
+          // Normalize updatedAt similarly
+          let normalizedUpdatedAt: string;
+          if (typeof msg.updatedAt === "string") {
+            normalizedUpdatedAt = msg.updatedAt;
+          } else if (
+            typeof msg.updatedAt === "object" &&
+            msg.updatedAt !== null
+          ) {
+            const dateObj = msg.updatedAt as { $date?: string };
+            normalizedUpdatedAt = dateObj.$date || new Date().toISOString();
+          } else {
+            normalizedUpdatedAt = new Date().toISOString();
+          }
+
+          return {
+            ...msg,
+            item: normalizeShareItem(msg.item),
+            replyTo: msg.replyTo
+              ? { ...msg.replyTo, item: normalizeShareItem(msg.replyTo.item) }
+              : msg.replyTo,
+            id:
+              (msg as unknown as { _id?: { $oid: string } })._id?.$oid ||
+              msg.id,
+            chatId:
+              (msg as unknown as { chatId?: { $oid: string } }).chatId?.$oid ||
+              msg.chatId,
+            from:
+              (msg as unknown as { from?: { $oid: string } }).from?.$oid ||
+              msg.from,
+            likes: msg.likes || [],
+            receipts: normalizeReceipts(msg.receipts),
+            createdAt: normalizedCreatedAt,
+            updatedAt: normalizedUpdatedAt,
+          };
+        });
+
+        setNextCursor(response.nextCursor);
+        return normalizedMessages;
+      }
+      return [];
+    },
+    enabled: !!chatId,
+    // Keep cached data fresh
+    staleTime: 0,
+    // Never garbage collect while user is in this chat
+    gcTime: Infinity,
+  });
+
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -403,131 +481,95 @@ export default function ChatRoomPage() {
     }
   }, [chatId, markAsRead]);
 
-  // Fetch messages with pagination (CHATS_API.md: GET /chats/:chatId/messages)
-  const fetchMessages = useCallback(
-    async (cursor?: string) => {
-      if (!chatId) return;
-
-      const limit = 50;
-      let url = `/api/chats/${chatId}/messages?limit=${limit}`;
-      if (cursor) url += `&cursor=${cursor}`;
-
-      try {
-        // Debug log for API message fetch
-        console.log("[Chat:fetchMessages] Fetching messages from API:", url);
-
-        const response = await apiFetch<{
-          ok: boolean;
-          messages: Message[];
-          nextCursor: string | null;
-        }>(url);
-
-        console.log("[Chat:fetchMessages] API response received:", {
-          ok: response.ok,
-          messageCount: response.messages?.length,
-          firstMessage: response.messages?.[0]
-            ? {
-                id: response.messages[0].id,
-                createdAt: response.messages[0].createdAt,
-                createdAtType: typeof response.messages[0].createdAt,
-              }
-            : null,
-        });
-
-        if (response.ok) {
-          // Normalize MongoDB ObjectIds and dates
-          const normalizedMessages = response.messages.map((msg) => {
-            // Debug individual message
-            console.log("[Chat:fetchMessages] Processing message:", {
-              id: msg.id,
-              rawCreatedAt: msg.createdAt,
-              rawCreatedAtType: typeof msg.createdAt,
-            });
-
-            // Normalize createdAt properly
-            let normalizedCreatedAt: string;
-            if (typeof msg.createdAt === "string") {
-              normalizedCreatedAt = msg.createdAt;
-            } else if (
-              typeof msg.createdAt === "object" &&
-              msg.createdAt !== null
-            ) {
-              // Handle MongoDB { $date: "..." } format
-              const dateObj = msg.createdAt as { $date?: string };
-              normalizedCreatedAt = dateObj.$date || new Date().toISOString();
-            } else {
-              normalizedCreatedAt = new Date().toISOString();
-              console.warn(
-                "[Chat:fetchMessages] Invalid createdAt format, using current time:",
-                msg.createdAt,
-              );
-            }
-
-            // Normalize updatedAt similarly
-            let normalizedUpdatedAt: string;
-            if (typeof msg.updatedAt === "string") {
-              normalizedUpdatedAt = msg.updatedAt;
-            } else if (
-              typeof msg.updatedAt === "object" &&
-              msg.updatedAt !== null
-            ) {
-              const dateObj = msg.updatedAt as { $date?: string };
-              normalizedUpdatedAt = dateObj.$date || new Date().toISOString();
-            } else {
-              normalizedUpdatedAt = new Date().toISOString();
-            }
-
-            return {
-              ...msg,
-              item: normalizeShareItem(msg.item),
-              replyTo: msg.replyTo
-                ? { ...msg.replyTo, item: normalizeShareItem(msg.replyTo.item) }
-                : msg.replyTo,
-              id:
-                (msg as unknown as { _id?: { $oid: string } })._id?.$oid ||
-                msg.id,
-              chatId:
-                (msg as unknown as { chatId?: { $oid: string } }).chatId
-                  ?.$oid || msg.chatId,
-              from:
-                (msg as unknown as { from?: { $oid: string } }).from?.$oid ||
-                msg.from,
-              likes: msg.likes || [],
-              receipts: normalizeReceipts(msg.receipts),
-              createdAt: normalizedCreatedAt,
-              updatedAt: normalizedUpdatedAt,
-            };
-          });
-
-          if (cursor) {
-            // Merge new messages with existing ones, avoiding duplicates
-            setMessages((prev) => {
-              const existingIds = new Set(prev.map((m) => m.id));
-              const uniqueNewMessages = normalizedMessages.filter(
-                (msg) => !existingIds.has(msg.id),
-              );
-              return [...uniqueNewMessages, ...prev];
-            });
-          } else {
-            setMessages(normalizedMessages);
-          }
-          setNextCursor(response.nextCursor);
-          return normalizedMessages;
-        }
-      } catch (error) {
-        console.error("[Chat] Failed to fetch messages:", error);
-      }
-    },
-    [chatId],
-  );
-
-  // Load more messages when scrolling up
+  // Load more messages when scrolling up (pagination)
   const loadMoreMessages = useCallback(async () => {
     if (isLoadingMore || !nextCursor) return;
     setIsLoadingMore(true);
-    await fetchMessages(nextCursor);
+
+    const limit = 50;
+    const url = `/api/chats/${chatId}/messages?limit=${limit}&cursor=${nextCursor}`;
+
+    try {
+      const response = await apiFetch<{
+        ok: boolean;
+        messages: Message[];
+        nextCursor: string | null;
+      }>(url);
+
+      if (response.ok) {
+        // Normalize MongoDB ObjectIds and dates for new page
+        const normalizedMessages = response.messages.map((msg) => {
+          // Normalize createdAt properly
+          let normalizedCreatedAt: string;
+          if (typeof msg.createdAt === "string") {
+            normalizedCreatedAt = msg.createdAt;
+          } else if (
+            typeof msg.createdAt === "object" &&
+            msg.createdAt !== null
+          ) {
+            // Handle MongoDB { $date: "..." } format
+            const dateObj = msg.createdAt as { $date?: string };
+            normalizedCreatedAt = dateObj.$date || new Date().toISOString();
+          } else {
+            normalizedCreatedAt = new Date().toISOString();
+          }
+
+          // Normalize updatedAt similarly
+          let normalizedUpdatedAt: string;
+          if (typeof msg.updatedAt === "string") {
+            normalizedUpdatedAt = msg.updatedAt;
+          } else if (
+            typeof msg.updatedAt === "object" &&
+            msg.updatedAt !== null
+          ) {
+            const dateObj = msg.updatedAt as { $date?: string };
+            normalizedUpdatedAt = dateObj.$date || new Date().toISOString();
+          } else {
+            normalizedUpdatedAt = new Date().toISOString();
+          }
+
+          return {
+            ...msg,
+            item: normalizeShareItem(msg.item),
+            replyTo: msg.replyTo
+              ? { ...msg.replyTo, item: normalizeShareItem(msg.replyTo.item) }
+              : msg.replyTo,
+            id:
+              (msg as unknown as { _id?: { $oid: string } })._id?.$oid ||
+              msg.id,
+            chatId:
+              (msg as unknown as { chatId?: { $oid: string } }).chatId?.$oid ||
+              msg.chatId,
+            from:
+              (msg as unknown as { from?: { $oid: string } }).from?.$oid ||
+              msg.from,
+            likes: msg.likes || [],
+            receipts: normalizeReceipts(msg.receipts),
+            createdAt: normalizedCreatedAt,
+            updatedAt: normalizedUpdatedAt,
+          };
+        });
+
+        // Update React Query cache with older messages (prepend them)
+        queryClient.setQueryData(["messages", chatId], (oldData: unknown) => {
+          if (!oldData || !Array.isArray(oldData)) return normalizedMessages;
+
+          const existingIds = new Set(oldData.map((m) => m.id));
+          const uniqueNewMessages = normalizedMessages.filter(
+            (msg) => !existingIds.has(msg.id),
+          );
+
+          return [...uniqueNewMessages, ...oldData];
+        });
+
+        setNextCursor(response.nextCursor);
+      }
+    } catch (error) {
+      console.error("[Chat] Failed to load more messages:", error);
+    }
+
     setIsLoadingMore(false);
-  }, [nextCursor, isLoadingMore, fetchMessages]);
+  }, [nextCursor, isLoadingMore, chatId, queryClient]);
 
   // Edit message (CHATS_API.md: PATCH /chats/:chatId/messages/:messageId)
   const editMessageMutation = useMutation({
@@ -546,11 +588,19 @@ export default function ChatRoomPage() {
         },
       );
       if (!response.ok) throw new Error("Failed to edit message");
-      return response;
+      return { messageId, text };
     },
-    onSuccess: () => {
+    onSuccess: ({ messageId, text }) => {
+      // Update React Query cache directly instead of invalidating
+      queryClient.setQueryData(["messages", chatId], (oldData: unknown) => {
+        if (!oldData || !Array.isArray(oldData)) return oldData;
+        return oldData.map((msg) =>
+          msg.id === messageId
+            ? { ...msg, text, editedAt: new Date().toISOString() }
+            : msg,
+        );
+      });
       queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
-      fetchMessages();
       setEditingMessageId(null);
       setEditText("");
       addToast("Message updated", "success");
@@ -572,10 +622,18 @@ export default function ChatRoomPage() {
       if (!response.ok) throw new Error("Failed to delete message");
       return response;
     },
-    onSuccess: () => {
+    onSuccess: (_, messageId) => {
+      // Update React Query cache directly instead of invalidating
+      queryClient.setQueryData(["messages", chatId], (oldData: unknown) => {
+        if (!oldData || !Array.isArray(oldData)) return oldData;
+        return oldData.map((msg) =>
+          msg.id === messageId
+            ? { ...msg, deletedAt: new Date().toISOString() }
+            : msg,
+        );
+      });
       queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
       queryClient.invalidateQueries({ queryKey: ["chats"] });
-      fetchMessages();
       addToast("Message deleted", "success");
     },
     onError: () => {
@@ -1036,25 +1094,32 @@ export default function ChatRoomPage() {
             })(),
           };
 
-          // Add new message to local state so it appears immediately
-          setMessages((prev) =>
-            prev.some(
+          // Add new message to React Query cache so it appears immediately (matches RealtimeListener architecture)
+          queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+            if (!prev || !Array.isArray(prev)) return [normalizedMessage];
+            const messageExists = prev.some(
               (current) =>
                 current.id === normalizedMessage.id ||
                 (Boolean(normalizedMessage.clientMessageId) &&
                   current.clientMessageId ===
                     normalizedMessage.clientMessageId),
-            )
-              ? prev.map((current) =>
-                  current.id === normalizedMessage.id ||
-                  (Boolean(normalizedMessage.clientMessageId) &&
-                    current.clientMessageId ===
-                      normalizedMessage.clientMessageId)
-                    ? normalizedMessage
-                    : current,
-                )
-              : [...prev, normalizedMessage],
-          );
+            );
+            if (messageExists) {
+              return prev.map((current) =>
+                current.id === normalizedMessage.id ||
+                (Boolean(normalizedMessage.clientMessageId) &&
+                  current.clientMessageId === normalizedMessage.clientMessageId)
+                  ? normalizedMessage
+                  : current,
+              );
+            }
+            // Keep messages sorted by creation time
+            return [...prev, normalizedMessage].sort(
+              (a, b) =>
+                new Date(a.createdAt).getTime() -
+                new Date(b.createdAt).getTime(),
+            );
+          });
 
           if (normalizedMessage.from !== user?.id) {
             socket.emit(
@@ -1082,14 +1147,25 @@ export default function ChatRoomPage() {
         at,
       }: import("@/types/realtime-events").ChatReceiptServerEvent) => {
         if (eventChatId !== chatId || userId === user?.id) return;
-        setMessages((prev) =>
-          prev.map((message) => {
+        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+          if (!prev || !Array.isArray(prev)) return prev;
+          return prev.map((message) => {
             if (!messageIds.includes(message.id)) return message;
             const remaining = message.receipts.filter(
-              (receipt) => receipt.userId !== userId,
+              (receipt: {
+                userId: string;
+                deliveredAt?: string;
+                readAt?: string;
+                listenedAt?: string;
+              }) => receipt.userId !== userId,
             );
             const current = message.receipts.find(
-              (receipt) => receipt.userId === userId,
+              (receipt: {
+                userId: string;
+                deliveredAt?: string;
+                readAt?: string;
+                listenedAt?: string;
+              }) => receipt.userId === userId,
             );
             return {
               ...message,
@@ -1103,8 +1179,8 @@ export default function ChatRoomPage() {
                 },
               ],
             };
-          }),
-        );
+          });
+        });
       };
 
       const handleVoiceListened = ({
@@ -1114,25 +1190,32 @@ export default function ChatRoomPage() {
         at,
       }: import("@/types/realtime-events").ChatVoiceListenedServerEvent) => {
         if (eventChatId !== chatId || userId === user?.id) return;
-        setMessages((prev) =>
-          prev.map((message) =>
+        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+          if (!prev || !Array.isArray(prev)) return prev;
+          return prev.map((message) =>
             message.id !== messageId
               ? message
               : {
                   ...message,
-                  receipts: message.receipts.map((receipt) =>
-                    receipt.userId === userId
-                      ? {
-                          ...receipt,
-                          deliveredAt: receipt.deliveredAt || at,
-                          readAt: receipt.readAt || at,
-                          listenedAt: at,
-                        }
-                      : receipt,
+                  receipts: message.receipts.map(
+                    (receipt: {
+                      userId: string;
+                      deliveredAt?: string;
+                      readAt?: string;
+                      listenedAt?: string;
+                    }) =>
+                      receipt.userId === userId
+                        ? {
+                            ...receipt,
+                            deliveredAt: receipt.deliveredAt || at,
+                            readAt: receipt.readAt || at,
+                            listenedAt: at,
+                          }
+                        : receipt,
                   ),
                 },
-          ),
-        );
+          );
+        });
       };
 
       // Handle message reactions (REALTIME_EVENTS.md)
@@ -1180,29 +1263,36 @@ export default function ChatRoomPage() {
             }, 2000);
           }
 
-          // Update local messages state
-          setMessages((prev) =>
-            prev.map((msg) => {
+          // Update React Query cache (matches RealtimeListener architecture)
+          queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+            if (!prev || !Array.isArray(prev)) return prev;
+            return prev.map((msg) => {
               if (msg.id === messageId) {
                 const currentLikes = msg.likes || [];
                 if (action === "added") {
                   return {
                     ...msg,
                     likes: [
-                      ...currentLikes.filter((l) => l.userId !== userId),
+                      ...currentLikes.filter(
+                        (l: { userId: string; createdAt?: string }) =>
+                          l.userId !== userId,
+                      ),
                       { userId, createdAt: at },
                     ],
                   };
                 } else {
                   return {
                     ...msg,
-                    likes: currentLikes.filter((l) => l.userId !== userId),
+                    likes: currentLikes.filter(
+                      (l: { userId: string; createdAt?: string }) =>
+                        l.userId !== userId,
+                    ),
                   };
                 }
               }
               return msg;
-            }),
-          );
+            });
+          });
           queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
         }
       };
@@ -1220,12 +1310,13 @@ export default function ChatRoomPage() {
         editedAt: string;
       }) => {
         if (eventChatId === chatId) {
-          // Update local messages state
-          setMessages((prev) =>
-            prev.map((msg) =>
+          // Update React Query cache (matches RealtimeListener architecture)
+          queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+            if (!prev || !Array.isArray(prev)) return prev;
+            return prev.map((msg) =>
               msg.id === messageId ? { ...msg, text, editedAt: editedAt } : msg,
-            ),
-          );
+            );
+          });
           queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
         }
       };
@@ -1241,14 +1332,15 @@ export default function ChatRoomPage() {
         deletedAt: string;
       }) => {
         if (eventChatId === chatId) {
-          // Update local messages state (soft delete - mark as deleted)
-          setMessages((prev) =>
-            prev.map((msg) =>
+          // Update React Query cache (matches RealtimeListener architecture)
+          queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+            if (!prev || !Array.isArray(prev)) return prev;
+            return prev.map((msg) =>
               msg.id === messageId
                 ? { ...msg, deletedAt: deletedAt, text: null }
                 : msg,
-            ),
-          );
+            );
+          });
           queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
         }
       };
@@ -1315,13 +1407,7 @@ export default function ChatRoomPage() {
     }
   }, [chatId, user?.id, queryClient, startTyping, stopTyping]);
 
-  // Initial fetch of messages
-  useEffect(() => {
-    // Use async IIFE to avoid calling setState synchronously in effect body
-    (async () => {
-      await fetchMessages();
-    })();
-  }, [fetchMessages]);
+  // Initial fetch is handled by useQuery - no need for manual fetch
 
   // Set up scroll listener for infinite loading
   useEffect(() => {
@@ -1429,31 +1515,40 @@ export default function ChatRoomPage() {
       size: file.size,
     };
     const temporaryId = `upload-${clientMessageId}`;
-    setMessages((previous) => [
-      ...previous,
-      {
-        id: temporaryId,
-        chatId,
-        from: user?.id || "",
-        type: "share",
-        clientMessageId,
-        item,
-        reactions: [],
-        receipts: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        uploadProgress: 0,
-      },
-    ]);
+    const optimisticMessage = {
+      id: temporaryId,
+      chatId,
+      from: user?.id || "",
+      type: "share",
+      clientMessageId,
+      item,
+      reactions: [],
+      receipts: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      uploadProgress: 0,
+    };
+    // Add to React Query cache (matches RealtimeListener architecture)
+    queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+      if (!prev || !Array.isArray(prev)) return [optimisticMessage];
+      // Keep messages sorted by creation time
+      return [...prev, optimisticMessage].sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+    });
     return temporaryId;
   };
 
-  const updateOptimisticUpload = (id: string, changes: Partial<Message>) =>
-    setMessages((previous) =>
-      previous.map((message) =>
+  const updateOptimisticUpload = (id: string, changes: Partial<Message>) => {
+    // Update in React Query cache (matches RealtimeListener architecture)
+    queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+      if (!prev || !Array.isArray(prev)) return prev;
+      return prev.map((message) =>
         message.id === id ? { ...message, ...changes } : message,
-      ),
-    );
+      );
+    });
+  };
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -1909,17 +2004,24 @@ export default function ChatRoomPage() {
         }, 1500);
       }
 
-      // Optimistic update
+      // Optimistic update - update React Query cache (matches RealtimeListener architecture)
       if (user?.id) {
-        setMessages((prev) =>
-          prev.map((m) => {
+        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+          if (!prev || !Array.isArray(prev)) return prev;
+          return prev.map((m) => {
             if (m.id === messageId) {
               const currentLikes = m.likes || [];
-              const hasLiked = currentLikes.some((l) => l.userId === user.id);
+              const hasLiked = currentLikes.some(
+                (l: { userId: string; createdAt?: string }) =>
+                  l.userId === user.id,
+              );
               return {
                 ...m,
                 likes: hasLiked
-                  ? currentLikes.filter((l) => l.userId !== user.id)
+                  ? currentLikes.filter(
+                      (l: { userId: string; createdAt?: string }) =>
+                        l.userId !== user.id,
+                    )
                   : [
                       ...currentLikes,
                       { userId: user.id, createdAt: new Date().toISOString() },
@@ -1927,8 +2029,8 @@ export default function ChatRoomPage() {
               };
             }
             return m;
-          }),
-        );
+          });
+        });
       }
 
       const socket = getSocket();
@@ -1940,7 +2042,7 @@ export default function ChatRoomPage() {
         });
       }
     },
-    [user?.id, messages],
+    [user?.id, messages, chatId, queryClient],
   );
 
   if (isLoading || !chat) {

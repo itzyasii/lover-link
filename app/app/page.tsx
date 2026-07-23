@@ -12,7 +12,7 @@ import { HeartbeatLoading } from "@/components/HeartbeatLoading";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { getSocket } from "@/lib/socket";
 import type { ServerToClientEvents } from "@/types/realtime-events";
 
@@ -85,12 +85,33 @@ export default function ChatsPage() {
     refetchOnReconnect: true,
   });
 
-  // Setup socket listeners for real-time message updates
+  // Track if socket listeners have been added to prevent duplicates (matches RealtimeListener architecture)
+  const socketListenersAdded = useRef(false);
+  // Track processed events to prevent duplicate processing (matches RealtimeListener architecture)
+  const processedEvents = useRef(new Set<string>());
+  const getEventKey = (eventName: string, ...ids: string[]) =>
+    `${eventName}:${ids.join(":")}`;
+
+  // Normalize any date format to ISO string (shared with RealtimeListener)
+  const normalizeDate = (date: unknown): string => {
+    if (typeof date === "string") return date;
+    if (date instanceof Date) return date.toISOString();
+    if (date && typeof date === "object" && "$date" in date) {
+      const dateObj = date as { $date?: string };
+      return dateObj.$date || new Date().toISOString();
+    }
+    return new Date().toISOString();
+  };
+
+  // Setup socket listeners for real-time message updates (aligned with RealtimeListener architecture)
   useEffect(() => {
     let socket: ReturnType<typeof getSocket> | null = null;
 
     try {
       socket = getSocket();
+
+      // Only add listeners once to prevent duplicates (matches RealtimeListener guard)
+      if (socketListenersAdded.current) return;
 
       // Remove any existing listeners first to prevent duplicates
       socket.off("chat:message");
@@ -101,12 +122,19 @@ export default function ChatsPage() {
         chatId,
         message,
       }) => {
-        // Convert the socket message to match LastMessage interface
+        // Deduplicate events (matches RealtimeListener architecture)
+        const eventKey = getEventKey("chat:message", chatId, message.id);
+        if (processedEvents.current.has(eventKey)) return;
+        processedEvents.current.add(eventKey);
+        // Clean up old events to prevent memory leaks
+        setTimeout(() => processedEvents.current.delete(eventKey), 5000);
+
+        // Use shared normalizeDate function instead of manual conversion (matches RealtimeListener)
         const lastMessage: LastMessage = {
           id: message.id,
           text: message.text,
           from: message.from,
-          createdAt: new Date(message.createdAt).toISOString(),
+          createdAt: normalizeDate(message.createdAt),
           type: message.type as LastMessage["type"],
           itemKind: message.item?.kind,
         };
@@ -125,12 +153,19 @@ export default function ChatsPage() {
         chatId,
         message,
       }) => {
-        // Convert the socket message to match LastMessage interface
+        // Deduplicate events (matches RealtimeListener architecture)
+        const eventKey = getEventKey("share:item", chatId, message.id);
+        if (processedEvents.current.has(eventKey)) return;
+        processedEvents.current.add(eventKey);
+        // Clean up old events to prevent memory leaks
+        setTimeout(() => processedEvents.current.delete(eventKey), 5000);
+
+        // Use shared normalizeDate function instead of manual conversion (matches RealtimeListener)
         const lastMessage: LastMessage = {
           id: message.id,
           text: message.text,
           from: message.from,
-          createdAt: new Date(message.createdAt).toISOString(),
+          createdAt: normalizeDate(message.createdAt),
           type: "share",
           itemKind: message.item?.kind,
         };
@@ -146,12 +181,18 @@ export default function ChatsPage() {
 
       socket.on("chat:message", handleNewMessage);
       socket.on("share:item", handleShareItem);
+      socketListenersAdded.current = true;
+
+      // Capture ref values for cleanup to avoid ESLint warnings
+      const currentProcessedEvents = processedEvents.current;
 
       // Cleanup listeners on unmount
       return () => {
         if (socket) {
           socket.off("chat:message", handleNewMessage);
           socket.off("share:item", handleShareItem);
+          socketListenersAdded.current = false;
+          currentProcessedEvents.clear();
         }
       };
     } catch (err) {
