@@ -537,15 +537,31 @@ export function RealtimeListener() {
       );
 
       // Send periodic presence pings to keep lastSeenAt updated (REALTIME_EVENTS.md)
-      const pingInterval = setInterval(() => {
+      let pingInterval: NodeJS.Timeout | null = setInterval(() => {
         socket.emit("presence:ping");
       }, 30000); // Send ping every 30 seconds as specified in docs
+
+      // Reset ping interval on socket reconnection
+      const handleReconnect = () => {
+        console.log(
+          "[Realtime] Socket reconnected, resetting presence ping interval",
+        );
+        if (pingInterval) clearInterval(pingInterval);
+        pingInterval = setInterval(() => {
+          socket.emit("presence:ping");
+        }, 30000);
+        // Send immediate ping to re-register presence
+        socket.emit("presence:ping");
+      };
+
+      socket.on("connect", handleReconnect);
 
       return () => {
         // Clean up all presence events (REALTIME_EVENTS.md)
         socket.off("presence:me");
         socket.off("presence:online");
         socket.off("presence:update");
+        socket.off("connect", handleReconnect);
 
         // Clean up chat activity events (REALTIME_EVENTS.md)
         socket.off("chat:typing");
@@ -564,7 +580,7 @@ export function RealtimeListener() {
         // Clean up voice message events (REALTIME_EVENTS.md)
         socket.off("chat:voice:listened");
 
-        clearInterval(pingInterval);
+        if (pingInterval) clearInterval(pingInterval);
         socketListenersAdded.current = false;
       };
     } catch (error) {

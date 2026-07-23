@@ -12,7 +12,7 @@ import { useCallsStore, ActiveCall } from "@/stores/calls";
 import { useAuthStore } from "@/stores/auth";
 import { useFriendsStore } from "@/stores/friends";
 import { useToastStore } from "@/stores/toast";
-import { getSocket } from "@/lib/socket";
+import { getSocket, socketEmit } from "@/lib/socket";
 import { apiFetch } from "@/lib/api";
 
 // ─────────────────────────────────────────────
@@ -172,7 +172,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       pcRef.current = pc;
 
       // ── ICE candidate → send to peer ──
-      pc.onicecandidate = (event) => {
+      pc.onicecandidate = async (event) => {
         if (!event.candidate) return;
         const { activeCall } = useCallsStore.getState();
         const { user } = useAuthStore.getState();
@@ -184,15 +184,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             : activeCall.callerId;
 
         try {
-          getSocket().emit(
-            "call:ice-candidate",
-            {
-              to,
-              callId,
-              candidate: event.candidate.toJSON(),
-            },
-            () => {},
-          );
+          await socketEmit("call:ice-candidate", {
+            to,
+            callId,
+            candidate: event.candidate.toJSON(),
+          });
         } catch (e) {
           console.error("[Call] Failed to send ICE candidate:", e);
         }
@@ -476,14 +472,34 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     socket.on("call:end", onCallEnd);
     socket.on("call:missed", onCallMissed);
 
+    // Re-register listeners on socket reconnection to ensure they're always active
+    const handleReconnect = () => {
+      console.log(
+        "[Call] Socket reconnected, re-registering call event listeners",
+      );
+      socket.off("call:offer", onCallOffer);
+      socket.off("call:answer", onCallAnswer);
+      socket.off("call:ice-candidate", onIceCandidate);
+      socket.off("call:end", onCallEnd);
+      socket.off("call:missed", onCallMissed);
+      socket.on("call:offer", onCallOffer);
+      socket.on("call:answer", onCallAnswer);
+      socket.on("call:ice-candidate", onIceCandidate);
+      socket.on("call:end", onCallEnd);
+      socket.on("call:missed", onCallMissed);
+    };
+
+    socket.on("connect", handleReconnect);
+
     return () => {
       socket.off("call:offer", onCallOffer);
       socket.off("call:answer", onCallAnswer);
       socket.off("call:ice-candidate", onIceCandidate);
       socket.off("call:end", onCallEnd);
       socket.off("call:missed", onCallMissed);
+      socket.off("connect", handleReconnect);
     };
-    // Runs whenever auth changes so listeners are re-registered after login
+    // Runs whenever auth changes or socket reconnects to ensure listeners are always active
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
 
@@ -552,21 +568,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        getSocket().emit(
-          "call:offer",
-          {
-            to: calleeId,
-            callId,
-            media,
-            offer,
-            fromUser: {
-              id: user.id,
-              username: user.username,
-              email: user.email,
-            },
+        // Use socketEmit to properly handle server acknowledgements
+        await socketEmit("call:offer", {
+          to: calleeId,
+          callId,
+          media,
+          offer,
+          fromUser: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
           },
-          () => {},
-        );
+        });
 
         addToast("Calling…", "info");
       } catch (err) {
@@ -628,15 +641,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }, 15000);
 
       // 5. Send answer
-      getSocket().emit(
-        "call:answer",
-        {
-          to: incomingCall.callerId,
-          callId: incomingCall.callId,
-          answer,
-        },
-        () => {},
-      );
+      // Use socketEmit to properly handle server acknowledgements
+      await socketEmit("call:answer", {
+        to: incomingCall.callerId,
+        callId: incomingCall.callId,
+        answer,
+      });
     } catch (err) {
       console.error("[Call] answerCall failed:", err);
       addToast("Failed to answer call", "error");
