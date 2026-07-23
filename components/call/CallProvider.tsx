@@ -259,7 +259,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       return pc;
     },
-    [cleanupWebRTC],
+    [cleanupWebRTC, addToast],
   );
 
   /** Get mic+camera (or mic-only) stream */
@@ -303,66 +303,97 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     // ── call:offer ──────────────────────────────
-    const onCallOffer = (data: {
-      from: string;
-      to: string;
-      callId: string;
-      media: "audio" | "video";
-      offer: RTCSessionDescriptionInit;
-      fromUser?: { id: string; username: string; email?: string };
-      callerName?: string;
-    }) => {
+    const onCallOffer = (
+      data:
+        | {
+            from: string;
+            to: string;
+            callId: string;
+            media: "audio" | "video";
+            offer: RTCSessionDescriptionInit;
+            fromUser?: { id: string; username: string; email?: string };
+            callerName?: string;
+          }
+        | Array<{
+            from: string;
+            to: string;
+            callId: string;
+            media: "audio" | "video";
+            offer: RTCSessionDescriptionInit;
+            fromUser?: { id: string; username: string; email?: string };
+            callerName?: string;
+          }>,
+    ) => {
       console.log("[Call] Incoming call:offer", data);
-      const callerName =
-        data.fromUser?.username || data.callerName || "Someone";
 
-      const incoming: ActiveCall = {
-        callId: data.callId,
-        callerId: data.from,
-        calleeId: data.to,
-        media: data.media,
-        status: "ringing",
-        participant: { id: data.from, username: callerName },
-        isInitiator: false,
-        offeredAt: new Date().toISOString(),
-        peerConnection: null,
-        localStream: null,
-        remoteStream: null,
-        pendingOffer: data.offer,
-      };
+      // Handle both single object and array formats (server sends array)
+      const offers = Array.isArray(data) ? data : [data];
 
-      useCallsStore.getState().setIncomingCall(incoming);
+      for (const item of offers) {
+        const callerName =
+          item.fromUser?.username || item.callerName || "Someone";
+
+        const incoming: ActiveCall = {
+          callId: item.callId,
+          callerId: item.from,
+          calleeId: item.to,
+          media: item.media,
+          status: "ringing",
+          participant: { id: item.from, username: callerName },
+          isInitiator: false,
+          offeredAt: new Date().toISOString(),
+          peerConnection: null,
+          localStream: null,
+          remoteStream: null,
+          pendingOffer: item.offer,
+        };
+
+        useCallsStore.getState().setIncomingCall(incoming);
+      }
     };
 
     // ── call:answer ──────────────────────────────
-    const onCallAnswer = async (data: {
-      from: string;
-      callId: string;
-      answer: RTCSessionDescriptionInit;
-    }) => {
+    const onCallAnswer = async (
+      data:
+        | {
+            from: string;
+            callId: string;
+            answer: RTCSessionDescriptionInit;
+          }
+        | Array<{
+            from: string;
+            callId: string;
+            answer: RTCSessionDescriptionInit;
+          }>,
+    ) => {
       console.log("[Call] Received call:answer", data);
       const pc = pcRef.current;
       if (!pc) return;
 
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-        remoteDescSet.current = true;
-        await drainIceQueue();
-        // Update caller status to "connecting" when answer is received
-        useCallsStore.getState().updateActiveCallStatus("connecting");
-        // Set ICE connection timeout (15 seconds)
-        iceTimeoutRef.current = setTimeout(() => {
-          console.error("[Call] ICE connection timeout");
-          addToast("Connection timeout - check network", "error");
-          useCallsStore.getState().endActiveCall();
-          cleanupWebRTC();
-        }, 15000);
-        // Status will move to "connected" via onconnectionstatechange
-      } catch (e) {
-        console.error(
-          "[Call] Failed to set remote description from answer:",
-          e,
-        );
+      // Handle both single object and array formats (server sends array)
+      const answers = Array.isArray(data) ? data : [data];
+
+      for (const item of answers) {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(item.answer));
+          remoteDescSet.current = true;
+          await drainIceQueue();
+          // Update caller status to "connecting" when answer is received
+          useCallsStore.getState().updateActiveCallStatus("connecting");
+          // Set ICE connection timeout (15 seconds)
+          iceTimeoutRef.current = setTimeout(() => {
+            console.error("[Call] ICE connection timeout");
+            addToast("Connection timeout - check network", "error");
+            useCallsStore.getState().endActiveCall();
+            cleanupWebRTC();
+          }, 15000);
+          // Status will move to "connected" via onconnectionstatechange
+        } catch (e) {
+          console.error(
+            "[Call] Failed to set remote description from answer:",
+            e,
+          );
+        }
       }
     };
 
@@ -401,24 +432,36 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     };
 
     // ── call:end ─────────────────────────────────
-    const onCallEnd = (data: { callId: string; reason?: string }) => {
+    const onCallEnd = (
+      data:
+        | { callId: string; reason?: string }
+        | Array<{ callId: string; reason?: string }>,
+    ) => {
       console.log("[Call] call:end received", data);
       const { activeCall, incomingCall } = useCallsStore.getState();
-      const isOurs =
-        activeCall?.callId === data.callId ||
-        incomingCall?.callId === data.callId;
-      if (!isOurs) return;
 
-      const reason = data.reason || "ended";
-      if (reason === "declined") addToast("Call declined 📵", "info");
-      else if (reason === "cancelled" || reason === "timeout")
-        addToast("Call ended", "info");
-      else if (reason === "answered_elsewhere")
-        addToast("Call answered on another device", "info");
+      // Handle both single object and array formats (server sends array)
+      const events = Array.isArray(data) ? data : [data];
 
-      cleanupWebRTC();
-      // Use clearActiveCall which clears BOTH activeCall and incomingCall
-      useCallsStore.getState().clearActiveCall();
+      for (const item of events) {
+        const isOurs =
+          activeCall?.callId === item.callId ||
+          incomingCall?.callId === item.callId;
+        if (!isOurs) continue;
+
+        const reason = item.reason || "ended";
+        if (reason === "declined") addToast("Call declined 📵", "info");
+        else if (reason === "cancelled" || reason === "timeout")
+          addToast("Call ended", "info");
+        else if (reason === "answered_elsewhere")
+          addToast("Call answered on another device", "info");
+        else if (reason === "user_offline")
+          addToast("Cannot call - user is offline", "warning");
+
+        cleanupWebRTC();
+        // Use clearActiveCall which clears BOTH activeCall and incomingCall
+        useCallsStore.getState().clearActiveCall();
+      }
     };
 
     // ── call:missed ──────────────────────────────

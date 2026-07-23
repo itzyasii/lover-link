@@ -620,13 +620,17 @@ export interface ServerToClientEvents {
   "chat:voice:listened": (data: ChatVoiceListenedServerEvent) => void;
 
   // WebRTC call events
-  "call:offer": (data: CallOfferServerEvent) => void;
-  "call:answer": (data: CallAnswerServerEvent) => void;
+  "call:offer": (data: CallOfferServerEvent | CallOfferServerEvent[]) => void;
+  "call:answer": (
+    data: CallAnswerServerEvent | CallAnswerServerEvent[],
+  ) => void;
   "call:ice-candidate": (
     data: CallIceCandidateServerEvent | CallIceCandidateServerEventArray,
   ) => void;
-  "call:end": (data: CallEndServerEvent) => void;
-  "call:missed": (data: CallMissedServerEvent) => void;
+  "call:end": (data: CallEndServerEvent | CallEndServerEvent[]) => void;
+  "call:missed": (
+    data: CallMissedServerEvent | CallMissedServerEvent[],
+  ) => void;
 }
 
 /**
