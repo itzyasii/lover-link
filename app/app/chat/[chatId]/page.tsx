@@ -30,7 +30,6 @@ import { apiFetch, apiFormData, apiFormDataWithProgress } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { env } from "@/lib/env";
 import { AudioRecorderUI } from "@/components/chat/AudioRecorderUI";
-import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { VoiceNotePlayer } from "@/components/chat/VoiceNotePlayer";
 import { formatTime } from "@/lib/utils";
 import { HeartbeatLoading } from "@/components/HeartbeatLoading";
@@ -405,6 +404,12 @@ export default function ChatRoomPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
+  // Memoized handlers for audio recorder to prevent component remounts
+  const handleCancelRecording = useCallback(() => {
+    setIsRecording(false);
+    wasRecordingBeforeCall.current = false;
+  }, []);
   const [editText, setEditText] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeMessageActions, setActiveMessageActions] = useState<
@@ -419,7 +424,6 @@ export default function ChatRoomPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRecorderPauseRef = useRef<(() => void) | null>(null);
-  const audioRecorderResumeRef = useRef<(() => void) | null>(null);
   const wasRecordingBeforeCall = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1642,28 +1646,6 @@ export default function ChatRoomPage() {
     }
   };
 
-  // Wrapper component to expose audio recorder controls
-  function AudioRecorderUIWithControls({
-    onSend,
-    onCancel,
-    setPauseFn,
-    setResumeFn,
-  }: {
-    onSend: (blob: Blob, duration: number) => void;
-    onCancel: () => void;
-    setPauseFn: (fn: () => void) => void;
-    setResumeFn: (fn: () => void) => void;
-  }) {
-    const { pause, resume } = useAudioRecorder();
-
-    useEffect(() => {
-      setPauseFn(pause);
-      setResumeFn(resume);
-    }, [pause, resume, setPauseFn, setResumeFn]);
-
-    return <AudioRecorderUI onSend={onSend} onCancel={onCancel} />;
-  }
-
   // Monitor call state to auto-pause voice recording when a call is received
   useEffect(() => {
     const { activeCall, incomingCall } = useCallsStore.getState();
@@ -1791,52 +1773,55 @@ export default function ChatRoomPage() {
     );
   };
 
-  const handleSendVoiceNote = async (blob: Blob, duration: number) => {
-    if (!chatId || !user?.id) return;
+  const handleSendVoiceNote = useCallback(
+    async (blob: Blob, duration: number) => {
+      if (!chatId || !user?.id) return;
 
-    setIsUploadingVoice(true);
-    try {
-      const formData = new FormData();
-      const extension = blob.type.includes("webm") ? "webm" : "ogg";
-      formData.append("file", blob, `voice_note.${extension}`);
+      setIsUploadingVoice(true);
+      try {
+        const formData = new FormData();
+        const extension = blob.type.includes("webm") ? "webm" : "ogg";
+        formData.append("file", blob, `voice_note.${extension}`);
 
-      const response = await apiFormData<{
-        ok: boolean;
-        item: ShareItem;
-      }>("/api/uploads", formData);
+        const response = await apiFormData<{
+          ok: boolean;
+          item: ShareItem;
+        }>("/api/uploads", formData);
 
-      if (!response.ok || !response.item) throw new Error("Upload failed");
+        if (!response.ok || !response.item) throw new Error("Upload failed");
 
-      response.item.meta = { ...response.item.meta, duration };
-      response.item.kind = "audio";
-      // Prepend API base URL to ensure audio loads from correct domain
-      if (response.item.url && !response.item.url.startsWith("http")) {
-        response.item.url = `${env.API_BASE_URL}${response.item.url}`;
+        response.item.meta = { ...response.item.meta, duration };
+        response.item.kind = "audio";
+        // Prepend API base URL to ensure audio loads from correct domain
+        if (response.item.url && !response.item.url.startsWith("http")) {
+          response.item.url = `${env.API_BASE_URL}${response.item.url}`;
+        }
+
+        const clientMessageId = crypto.randomUUID();
+
+        const socket = getSocket();
+        if (socket && otherParticipant) {
+          socket.emit(
+            "share:item",
+            {
+              to: otherParticipant.id,
+              clientMessageId,
+              item: response.item,
+            },
+            () => {},
+          );
+        }
+      } catch (error) {
+        console.error("Voice note upload error:", error);
+        addToast("Failed to send voice note", "error");
+      } finally {
+        setIsUploadingVoice(false);
+        setIsRecording(false);
+        setReplyingTo(null); // Clear reply-to after sending voice note
       }
-
-      const clientMessageId = crypto.randomUUID();
-
-      const socket = getSocket();
-      if (socket && otherParticipant) {
-        socket.emit(
-          "share:item",
-          {
-            to: otherParticipant.id,
-            clientMessageId,
-            item: response.item,
-          },
-          () => {},
-        );
-      }
-    } catch (error) {
-      console.error("Voice note upload error:", error);
-      addToast("Failed to send voice note", "error");
-    } finally {
-      setIsUploadingVoice(false);
-      setIsRecording(false);
-      setReplyingTo(null); // Clear reply-to after sending voice note
-    }
-  };
+    },
+    [chatId, user?.id, otherParticipant, addToast],
+  );
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2975,18 +2960,9 @@ export default function ChatRoomPage() {
             className="max-w-4xl mx-auto flex items-center gap-1.5 md:gap-2 relative px-2"
           >
             {isRecording ? (
-              <AudioRecorderUIWithControls
+              <AudioRecorderUI
                 onSend={handleSendVoiceNote}
-                onCancel={() => {
-                  setIsRecording(false);
-                  wasRecordingBeforeCall.current = false;
-                }}
-                setPauseFn={(fn) => {
-                  audioRecorderPauseRef.current = fn;
-                }}
-                setResumeFn={(fn) => {
-                  audioRecorderResumeRef.current = fn;
-                }}
+                onCancel={handleCancelRecording}
               />
             ) : (
               <>
