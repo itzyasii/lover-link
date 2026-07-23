@@ -500,7 +500,14 @@ export default function ChatRoomPage() {
           });
 
           if (cursor) {
-            setMessages((prev) => [...normalizedMessages, ...prev]);
+            // Merge new messages with existing ones, avoiding duplicates
+            setMessages((prev) => {
+              const existingIds = new Set(prev.map((m) => m.id));
+              const uniqueNewMessages = normalizedMessages.filter(
+                (msg) => !existingIds.has(msg.id),
+              );
+              return [...uniqueNewMessages, ...prev];
+            });
           } else {
             setMessages(normalizedMessages);
           }
