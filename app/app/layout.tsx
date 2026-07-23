@@ -74,10 +74,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen min-h-dvh bg-linear-to-br from-rose-50 via-pink-50 to-red-50">
-      <div className="flex flex-col lg:flex-row min-h-screen min-h-dvh">
+    <div className="h-dvh min-h-screen bg-linear-to-br from-rose-50 via-pink-50 to-red-50 overflow-hidden">
+      <div className="flex flex-col lg:flex-row h-full min-h-0">
         {/* Sidebar Navigation */}
-        <aside className="w-full lg:w-20 xl:w-64 h-auto lg:h-full bg-white/80 backdrop-blur-lg border-b lg:border-b-0 lg:border-r border-rose-100 p-4 shrink-0">
+        <aside className="w-full lg:w-64 h-auto lg:h-dvh bg-white/80 backdrop-blur-lg border-b lg:border-b-0 lg:border-r border-rose-100 p-4 shrink-0">
           <div className="flex lg:flex-col items-center justify-between h-full">
             <div className="flex lg:flex-col items-center gap-6">
               <div className="hidden lg:block mb-4">
@@ -99,11 +99,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       )}
                     >
                       <Icon className="w-5 h-5 shrink-0" />
-                      <span className="hidden xl:inline font-medium">
+                      <span className="hidden lg:inline font-medium">
                         {item.label}
                       </span>
                       {item.href === "/app" && getTotalUnread() > 0 && (
-                        <span className="xl:ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                        <span className="lg:ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
                           {getTotalUnread()}
                         </span>
                       )}
@@ -115,7 +115,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
             <div className="flex lg:flex-col items-center gap-2">
               {/* User Profile */}
-              <div className="hidden xl:flex items-center gap-3 px-4 py-2 bg-rose-50 rounded-xl mb-2">
+              <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-rose-50 rounded-xl mb-2">
                 <div className="w-10 h-10 rounded-full bg-linear-to-br from-rose-400 to-pink-400 flex items-center justify-center text-white font-bold">
                   {user?.username?.[0]?.toUpperCase()}
                 </div>
@@ -134,7 +134,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 className="flex items-center gap-3 px-4 py-3 rounded-xl text-gray-600 hover:bg-red-50 hover:text-red-500 transition-all"
               >
                 <LogOut className="w-5 h-5" />
-                <span className="hidden xl:inline font-medium">Logout</span>
+                <span className="hidden lg:inline font-medium">Logout</span>
               </button>
             </div>
           </div>
@@ -145,7 +145,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex-1 p-2 lg:p-4 overflow-auto"
+            className="flex-1 min-h-0 p-2 lg:p-4 overflow-hidden"
           >
             {children}
           </motion.div>

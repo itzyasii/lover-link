@@ -26,7 +26,7 @@ import { useFriendsStore } from "@/stores/friends";
 import { useCall } from "@/components/call/CallProvider";
 import { useToastStore } from "@/stores/toast";
 import { useCallsStore } from "@/stores/calls";
-import { apiFetch, apiFormData } from "@/lib/api";
+import { apiFetch, apiFormData, apiFormDataWithProgress } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { env } from "@/lib/env";
 import { AudioRecorderUI } from "@/components/chat/AudioRecorderUI";
@@ -103,7 +103,23 @@ interface Message {
   replyTo?: ReplyToMessage;
   createdAt: string;
   updatedAt: string;
+  uploadProgress?: number;
+  uploadFailed?: boolean;
 }
+
+type ShareItemLike = ShareItem | NonNullable<ReplyToMessage["item"]>;
+
+const normalizeShareItem = (item?: ShareItemLike): ShareItem | undefined => {
+  if (!item) return item;
+  const inferredKind = item.mime?.startsWith("audio/")
+    ? "audio"
+    : item.mime?.startsWith("image/")
+      ? "image"
+      : item.mime?.startsWith("video/")
+        ? "video"
+        : item.kind || "file";
+  return { ...item, kind: inferredKind, url: item.url || "" };
+};
 
 type Receipt = Message["receipts"][number];
 
@@ -274,6 +290,8 @@ export default function ChatRoomPage() {
     string | null
   >(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -417,6 +435,10 @@ export default function ChatRoomPage() {
 
             return {
               ...msg,
+              item: normalizeShareItem(msg.item),
+              replyTo: msg.replyTo
+                ? { ...msg.replyTo, item: normalizeShareItem(msg.replyTo.item) }
+                : msg.replyTo,
               id:
                 (msg as unknown as { _id?: { $oid: string } })._id?.$oid ||
                 msg.id,
@@ -906,6 +928,13 @@ export default function ChatRoomPage() {
 
           const normalizedMessage: Message = {
             ...message,
+            item: normalizeShareItem(message.item),
+            replyTo: (() => {
+              const replyTo = (message as unknown as { replyTo?: ReplyToMessage }).replyTo;
+              return replyTo
+                ? { ...replyTo, item: normalizeShareItem(replyTo.item) }
+                : replyTo;
+            })(),
             id:
               (message as unknown as { _id?: { $oid: string } })._id?.$oid ||
               message.id,
@@ -956,9 +985,16 @@ export default function ChatRoomPage() {
 
           // Add new message to local state so it appears immediately
           setMessages((prev) =>
-            prev.some((current) => current.id === normalizedMessage.id)
+            prev.some(
+              (current) =>
+                current.id === normalizedMessage.id ||
+                (Boolean(normalizedMessage.clientMessageId) &&
+                  current.clientMessageId === normalizedMessage.clientMessageId),
+            )
               ? prev.map((current) =>
-                  current.id === normalizedMessage.id
+                  current.id === normalizedMessage.id ||
+                  (Boolean(normalizedMessage.clientMessageId) &&
+                    current.clientMessageId === normalizedMessage.clientMessageId)
                     ? normalizedMessage
                     : current,
                 )
@@ -1289,26 +1325,65 @@ export default function ChatRoomPage() {
 
   const startCamera = async () => {
     try {
+      // Mount the video element before assigning its stream.
+      setIsCameraOpen(true);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
+        video: { facingMode: { ideal: "user" } },
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      setIsCameraOpen(true);
+      setCameraStream(stream);
     } catch (error) {
+      setIsCameraOpen(false);
       console.error("Failed to access camera:", error);
       addToast("Could not access camera. Please check permissions.", "error");
     }
   };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!isCameraOpen || !video || !cameraStream) return;
+    video.srcObject = cameraStream;
+    const startPlayback = async () => {
+      try {
+        await video.play();
+      } catch (error) {
+        console.error("Camera preview could not start:", error);
+        addToast("Camera preview could not start. Please try again.", "error");
+      }
+    };
+    video.onloadedmetadata = startPlayback;
+    void startPlayback();
+    return () => {
+      video.onloadedmetadata = null;
+    };
+  }, [isCameraOpen, cameraStream, addToast]);
+
+  const addOptimisticMedia = (file: File, clientMessageId: string) => {
+    const item: ShareItem = {
+      kind: file.type.startsWith("video/") ? "video" : "image",
+      url: URL.createObjectURL(file),
+      originalName: file.name,
+      mime: file.type,
+      size: file.size,
+    };
+    const temporaryId = `upload-${clientMessageId}`;
+    setMessages((previous) => [...previous, {
+      id: temporaryId, chatId, from: user?.id || "", type: "share", clientMessageId,
+      item, reactions: [], receipts: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), uploadProgress: 0,
+    }]);
+    return temporaryId;
+  };
+
+  const updateOptimisticUpload = (id: string, changes: Partial<Message>) =>
+    setMessages((previous) => previous.map((message) => message.id === id ? { ...message, ...changes } : message));
 
   const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    setCameraStream(null);
     setIsCameraOpen(false);
   };
 
@@ -1343,14 +1418,16 @@ export default function ChatRoomPage() {
       return;
     }
 
+    const clientMessageId = crypto.randomUUID();
+    const temporaryId = addOptimisticMedia(file, clientMessageId);
     try {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await apiFormData<{
+      const response = await apiFormDataWithProgress<{
         ok: boolean;
         item: ShareItem;
-      }>("/api/uploads", formData);
+      }>("/api/uploads", formData, (uploadProgress) => updateOptimisticUpload(temporaryId, { uploadProgress }));
 
       if (!response.ok || !response.item) throw new Error("Upload failed");
 
@@ -1361,7 +1438,7 @@ export default function ChatRoomPage() {
         response.item.url = `${env.API_BASE_URL}${response.item.url}`;
       }
 
-      const clientMessageId = crypto.randomUUID();
+      updateOptimisticUpload(temporaryId, { item: response.item, uploadProgress: undefined });
       const socket = getSocket();
       if (socket && otherParticipant) {
         socket.emit(
@@ -1381,6 +1458,7 @@ export default function ChatRoomPage() {
       );
     } catch (error) {
       console.error("Failed to upload media file:", error);
+      updateOptimisticUpload(temporaryId, { uploadFailed: true, uploadProgress: undefined });
       addToast("Failed to upload file. Please try again.", "error");
     } finally {
       // Reset file input
@@ -1456,11 +1534,18 @@ export default function ChatRoomPage() {
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
+    if (!video.videoWidth || !video.videoHeight) {
+      addToast("Camera is still starting. Please try the shutter again.", "info");
+      return;
+    }
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // Match the mirrored selfie preview in the photo that is sent.
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0);
 
     // Convert canvas to blob
@@ -1470,14 +1555,20 @@ export default function ChatRoomPage() {
 
         stopCamera();
 
+        let temporaryId: string | undefined;
         try {
+          const photoFile = new File([blob], "camera_photo.jpg", { type: "image/jpeg" });
+          const clientMessageId = crypto.randomUUID();
+          temporaryId = addOptimisticMedia(photoFile, clientMessageId);
           const formData = new FormData();
-          formData.append("file", blob, `camera_photo.jpg`);
+          formData.append("file", photoFile);
 
-          const response = await apiFormData<{
+          const response = await apiFormDataWithProgress<{
             ok: boolean;
             item: ShareItem;
-          }>("/api/uploads", formData);
+          }>("/api/uploads", formData, (uploadProgress) =>
+            updateOptimisticUpload(temporaryId!, { uploadProgress }),
+          );
 
           if (!response.ok || !response.item) throw new Error("Upload failed");
 
@@ -1486,7 +1577,7 @@ export default function ChatRoomPage() {
             response.item.url = `${env.API_BASE_URL}${response.item.url}`;
           }
 
-          const clientMessageId = crypto.randomUUID();
+          updateOptimisticUpload(temporaryId, { item: response.item, uploadProgress: undefined });
           const socket = getSocket();
           if (socket && otherParticipant) {
             socket.emit(
@@ -1501,6 +1592,7 @@ export default function ChatRoomPage() {
           }
         } catch (error) {
           console.error("Photo upload error:", error);
+          if (temporaryId) updateOptimisticUpload(temporaryId, { uploadFailed: true, uploadProgress: undefined });
           addToast("Failed to send photo", "error");
         }
       },
@@ -1748,7 +1840,7 @@ export default function ChatRoomPage() {
           box-shadow: 0 0 20px rgba(251, 191, 36, 0.8), 0 0 40px rgba(251, 191, 36, 0.4), 0 0 60px rgba(251, 191, 36, 0.2);
         }
       `}</style>
-      <div className="h-full w-full flex flex-col relative bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 md:h-full md:rounded-2xl md:mx-auto md:max-w-6xl">
+      <div className="h-full min-h-0 w-full flex flex-col relative bg-linear-to-br from-rose-100 via-pink-50 to-rose-100 md:rounded-2xl md:mx-auto md:max-w-6xl overflow-hidden">
         {/* Enhanced animated background with subtle particles */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           {hearts.map((heart) => (
@@ -2433,16 +2525,33 @@ export default function ChatRoomPage() {
                     ) : message.type === "share" &&
                       message.item?.kind === "image" &&
                       message.item.url ? (
-                      <div className="mt-2 rounded-2xl overflow-hidden shadow-xl max-w-xs md:max-w-sm lg:max-w-md ring-1 ring-white/20">
-                        <div className="relative w-full min-h-50">
+                      <div className="mt-2 relative rounded-2xl overflow-hidden shadow-xl max-w-xs md:max-w-sm lg:max-w-md ring-1 ring-white/20 bg-black/10">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedImage(message.item!.url)}
+                          className="block max-w-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-white"
+                          aria-label="Open shared image"
+                        >
                           <Image
                             src={message.item.url}
                             alt="Shared image"
-                            fill
-                            className="object-cover rounded-2xl hover:scale-[1.02] transition-transform duration-300 cursor-pointer"
-                            sizes="(max-width: 768px) 320px, (max-width: 1024px) 448px, 560px"
+                            className="block max-h-[60vh] w-auto max-w-full object-contain"
+                            style={{ imageOrientation: "from-image" }}
                           />
-                        </div>
+                        </button>
+                        {typeof message.uploadProgress === "number" && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/55 text-white backdrop-blur-[1px]">
+                            <span className="text-sm font-medium">Sending photo… {message.uploadProgress}%</span>
+                            <div className="mt-2 h-1.5 w-32 overflow-hidden rounded-full bg-white/30">
+                              <div className="h-full bg-white transition-all" style={{ width: `${message.uploadProgress}%` }} />
+                            </div>
+                          </div>
+                        )}
+                        {message.uploadFailed && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/60 px-4 text-center text-sm font-medium text-white">
+                            Photo failed to send
+                          </div>
+                        )}
                       </div>
                     ) : message.type === "share" &&
                       message.item?.kind === "video" &&
@@ -2979,6 +3088,29 @@ export default function ChatRoomPage() {
                   <div className="w-14 h-14 md:w-16 md:h-16 rounded-full border-4 border-gray-800 bg-white" />
                 </button>
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {selectedImage && (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-100 flex items-center justify-center bg-black/90 p-4"
+              onClick={() => setSelectedImage(null)}
+              role="dialog" aria-modal="true" aria-label="Full-size image preview"
+            >
+              <button
+                type="button" onClick={() => setSelectedImage(null)}
+                className="absolute right-5 top-5 z-10 rounded-full bg-black/50 p-3 text-2xl leading-none text-white hover:bg-black/70"
+                aria-label="Close image preview"
+              >×</button>
+              <Image
+                src={selectedImage} alt="Full-size shared image"
+                className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+                style={{ imageOrientation: "from-image" }}
+                onClick={(event) => event.stopPropagation()}
+              />
             </motion.div>
           )}
         </AnimatePresence>

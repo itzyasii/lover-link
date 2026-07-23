@@ -141,3 +141,35 @@ export async function apiFormData<T>(
 
   return response.json();
 }
+
+/** Upload a form payload while reporting browser upload progress. */
+export function apiFormDataWithProgress<T>(
+  endpoint: string,
+  formData: FormData,
+  onProgress: (progress: number) => void,
+): Promise<T> {
+  const { accessToken } = useAuthStore.getState();
+
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", getApiUrl(endpoint));
+    request.withCredentials = true;
+    if (accessToken) request.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+    request.onerror = () => reject(new Error("Network error while uploading file"));
+    request.onload = () => {
+      let data: { error?: string };
+      try {
+        data = JSON.parse(request.responseText) as { error?: string };
+      } catch {
+        reject(new Error("Invalid upload response"));
+        return;
+      }
+      if (request.status >= 200 && request.status < 300) resolve(data as T);
+      else reject(new Error(data.error || `API Error: ${request.status}`));
+    };
+    request.send(formData);
+  });
+}
