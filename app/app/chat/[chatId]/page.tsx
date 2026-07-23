@@ -2084,7 +2084,7 @@ export default function ChatRoomPage() {
                 ) : isUserOnline === true ? (
                   <span className="flex items-center gap-1">
                     <span className="w-2 h-2 bg-green-300 rounded-full animate-pulse" />
-                    Online • {otherParticipant?.username}
+                    Online
                   </span>
                 ) : (
                   <span className="text-white/70">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { getSocket, updateSocketToken } from "@/lib/socket";
 import { useAuthStore } from "@/stores/auth";
@@ -68,8 +68,10 @@ export function RealtimeListener() {
     }
   };
 
-  const isViewingChat = (chatId: string) =>
-    pathname?.replace(/\/$/, "") === `/app/chat/${chatId}`;
+  const isViewingChat = useCallback((chatId: string) =>
+    pathname?.replace(/\/$/, "") === `/app/chat/${chatId}`,
+    [pathname]
+  );
 
   useEffect(() => {
     // Only initialize socket listeners if we have valid authentication
@@ -412,6 +414,7 @@ export function RealtimeListener() {
     accessToken,
     user?.id,
     pathname,
+    isViewingChat,
   ]);
 
   // Update socket auth when accessToken or user changes
