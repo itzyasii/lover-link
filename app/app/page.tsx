@@ -79,6 +79,10 @@ export default function ChatsPage() {
       }
       throw new Error("Failed to fetch chats");
     },
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000, // Cache for 10 minutes (React Query v5 uses gcTime instead of cacheTime)
+    refetchOnReconnect: true,
   });
 
   // Setup socket listeners for real-time message updates

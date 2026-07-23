@@ -598,7 +598,6 @@ export default function ChatRoomPage() {
       const response = await apiFetch<{ ok: boolean; chat: ChatDetails }>(
         `/api/chats/${chatId}`,
       );
-      console.log(`[response]`, response);
       if (response.ok) {
         // Normalize MongoDB ObjectIds (convert { $oid: "..." } to string)
         const normalizedChat = { ...response.chat };
@@ -699,7 +698,12 @@ export default function ChatRoomPage() {
       }
       throw new Error("Failed to load chat");
     },
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000, // Garbage collect for 10 minutes
+    refetchOnReconnect: true,
     enabled: !!chatId,
+    refetchOnMount: false, // Don't refetch if already in cache
   });
 
   // Define proper types for sending messages as per CHATS_API.md
@@ -2338,14 +2342,38 @@ export default function ChatRoomPage() {
                               }
                             />
                           </div>
-                        ) : message.replyTo.item?.kind === "image" ? (
-                          <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
-                            📷 Image message
-                          </p>
-                        ) : message.replyTo.item?.kind === "video" ? (
-                          <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
-                            🎥 Video message
-                          </p>
+                        ) : message.replyTo.item?.kind === "image" &&
+                          message.replyTo.item.url ? (
+                          <div className="mt-1 relative w-20 h-20">
+                            <Image
+                              src={message.replyTo.item.url}
+                              alt="Replied image"
+                              fill
+                              className="object-cover rounded-lg border border-white/30"
+                              sizes="80px"
+                            />
+                          </div>
+                        ) : message.replyTo.item?.kind === "video" &&
+                          message.replyTo.item.url ? (
+                          <div className="mt-1 relative">
+                            <video
+                              src={message.replyTo.item.url}
+                              className="w-20 h-20 object-cover rounded-lg border border-white/30"
+                              muted
+                              preload="metadata"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-8 h-8 bg-black/50 rounded-full flex items-center justify-center">
+                                <svg
+                                  className="w-4 h-4 text-white"
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                >
+                                  <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                                </svg>
+                              </div>
+                            </div>
+                          </div>
                         ) : message.replyTo.item?.kind === "file" ? (
                           <p className="text-sm leading-relaxed line-clamp-2 italic opacity-80">
                             📎 File:{" "}
@@ -2402,6 +2430,32 @@ export default function ChatRoomPage() {
                       <p className="text-sm leading-relaxed italic">
                         This message was deleted
                       </p>
+                    ) : message.type === "share" &&
+                      message.item?.kind === "image" &&
+                      message.item.url ? (
+                      <div className="mt-2 rounded-2xl overflow-hidden shadow-xl max-w-xs md:max-w-sm lg:max-w-md ring-1 ring-white/20">
+                        <div className="relative w-full min-h-50">
+                          <Image
+                            src={message.item.url}
+                            alt="Shared image"
+                            fill
+                            className="object-cover rounded-2xl hover:scale-[1.02] transition-transform duration-300 cursor-pointer"
+                            sizes="(max-width: 768px) 320px, (max-width: 1024px) 448px, 560px"
+                          />
+                        </div>
+                      </div>
+                    ) : message.type === "share" &&
+                      message.item?.kind === "video" &&
+                      message.item.url ? (
+                      <div className="mt-2 rounded-2xl overflow-hidden shadow-xl max-w-xs md:max-w-sm lg:max-w-md ring-1 ring-white/20">
+                        <video
+                          src={message.item.url}
+                          controls
+                          playsInline
+                          className="w-full h-auto rounded-2xl"
+                          preload="metadata"
+                        ></video>
+                      </div>
                     ) : message.type === "share" &&
                       message.item?.kind === "audio" ? (
                       <VoiceNotePlayer
@@ -2627,7 +2681,7 @@ export default function ChatRoomPage() {
                         ? "yourself"
                         : otherParticipant?.username}
                     </p>
-                    <p className="text-sm text-gray-700 truncate max-w-md">
+                    <div className="text-sm text-gray-700 max-w-md">
                       {replyingTo.item?.kind === "audio" ? (
                         <div className="flex items-center gap-2">
                           <div className="flex gap-0.5">
@@ -2650,10 +2704,55 @@ export default function ChatRoomPage() {
                               : "Voice note"}
                           </span>
                         </div>
+                      ) : replyingTo.item?.kind === "image" &&
+                        replyingTo.item.url ? (
+                        <div className="relative w-16 h-16 rounded-lg overflow-hidden mt-1 border border-gray-200">
+                          <Image
+                            src={replyingTo.item.url}
+                            alt="Image to reply"
+                            fill
+                            className="object-cover"
+                            sizes="64px"
+                          />
+                          <span className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1">
+                            Image
+                          </span>
+                        </div>
+                      ) : replyingTo.item?.kind === "video" &&
+                        replyingTo.item.url ? (
+                        <div className="relative w-16 h-16 rounded-lg overflow-hidden mt-1 border border-gray-200">
+                          <video
+                            src={replyingTo.item.url}
+                            className="w-full h-full object-cover"
+                            muted
+                            preload="metadata"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                            <div className="w-6 h-6 bg-black/60 rounded-full flex items-center justify-center">
+                              <svg
+                                className="w-3 h-3 text-white"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                              >
+                                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                              </svg>
+                            </div>
+                          </div>
+                          <span className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 px-1 text-center">
+                            Video
+                          </span>
+                        </div>
+                      ) : replyingTo.item?.kind === "file" ? (
+                        <div className="flex items-center gap-2">
+                          <span>📎</span>
+                          <span className="truncate">
+                            {replyingTo.item.originalName || "File attachment"}
+                          </span>
+                        </div>
                       ) : (
                         replyingTo.text || "Media message"
                       )}
-                    </p>
+                    </div>
                   </div>
                 </div>
                 <button
