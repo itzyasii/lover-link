@@ -367,22 +367,36 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     };
 
     // ── call:ice-candidate ───────────────────────
-    const onIceCandidate = async (data: {
-      callId: string;
-      candidate: RTCIceCandidateInit;
-    }) => {
+    const onIceCandidate = async (
+      data:
+        | {
+            callId: string;
+            candidate: RTCIceCandidateInit;
+          }
+        | Array<{
+            callId: string;
+            candidate: RTCIceCandidateInit;
+          }>,
+    ) => {
       const pc = pcRef.current;
-      if (!pc || !data.candidate) return;
+      if (!pc) return;
 
-      if (remoteDescSet.current) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (e) {
-          console.warn("[Call] Failed to add ICE candidate:", e);
+      // Handle both single object and array formats (server sends array)
+      const candidates = Array.isArray(data) ? data : [data];
+
+      for (const item of candidates) {
+        if (!item.candidate) continue;
+
+        if (remoteDescSet.current) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(item.candidate));
+          } catch (e) {
+            console.warn("[Call] Failed to add ICE candidate:", e);
+          }
+        } else {
+          // Queue until remote description is applied
+          iceCandidateQueue.current.push(item.candidate);
         }
-      } else {
-        // Queue until remote description is applied
-        iceCandidateQueue.current.push(data.candidate);
       }
     };
 

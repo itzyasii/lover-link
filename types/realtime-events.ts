@@ -550,6 +550,9 @@ export interface CallIceCandidateServerEvent {
   candidate: RTCIceCandidateInit;
 }
 
+// Server sends array of ICE candidates
+export type CallIceCandidateServerEventArray = CallIceCandidateServerEvent[];
+
 /**
  * `call:end` - Client -> Server: Either party ends the call
  */
@@ -619,7 +622,9 @@ export interface ServerToClientEvents {
   // WebRTC call events
   "call:offer": (data: CallOfferServerEvent) => void;
   "call:answer": (data: CallAnswerServerEvent) => void;
-  "call:ice-candidate": (data: CallIceCandidateServerEvent) => void;
+  "call:ice-candidate": (
+    data: CallIceCandidateServerEvent | CallIceCandidateServerEventArray,
+  ) => void;
   "call:end": (data: CallEndServerEvent) => void;
   "call:missed": (data: CallMissedServerEvent) => void;
 }
