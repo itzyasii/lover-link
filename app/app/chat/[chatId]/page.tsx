@@ -18,7 +18,7 @@ import {
   Camera,
   Image as ImageIcon,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useAuthStore } from "@/stores/auth";
 import { useChatsStore } from "@/stores/chats";
 import { useTypingStore } from "@/stores/typing";
@@ -213,45 +213,60 @@ const MessageSparkles = () => (
   </>
 );
 
-// Kiss Animation component using the CAT_KISS.lottie file
-const KissAnimation = () => {
-  const playerRef = useRef<HTMLDivElement>(null);
+const burstParticles = [
+  { x: -72, y: -92, rotate: -28, delay: 0 },
+  { x: 66, y: -118, rotate: 22, delay: 0.04 },
+  { x: -112, y: -36, rotate: -48, delay: 0.08 },
+  { x: 108, y: -42, rotate: 44, delay: 0.12 },
+  { x: 0, y: -142, rotate: 0, delay: 0.06 },
+] as const;
 
-  useEffect(() => {
-    // Load the dotlottie player component
-    const loadPlayer = async () => {
-      try {
-        await import("@dotlottie/player-component");
-        if (playerRef.current) {
-          const player = playerRef.current.querySelector("dotlottie-player");
-          if (player) {
-            // Wait a bit then play the animation
-            setTimeout(() => {
-              // @ts-expect-error - player has play method
-              if (player.play) player.play();
-            }, 100);
-          }
-        }
-      } catch (e) {
-        console.error("Failed to load lottie player for kiss animation", e);
-      }
-    };
-
-    loadPlayer();
-  }, []);
+/** A short, GPU-friendly celebration: five fixed particles, no per-tap asset loading. */
+function RomanticBurst({
+  kind,
+  x,
+  y,
+}: {
+  kind: "heart" | "kiss";
+  x: number;
+  y: number;
+}) {
+  const reduceMotion = useReducedMotion();
+  const isHeart = kind === "heart";
+  const glyph = isHeart ? "♥" : "💋";
 
   return (
-    <div ref={playerRef}>
-      <dotlottie-player
-        src="/animation/CAT_KISS.lottie"
-        style={{ width: 150, height: 150 }}
-        loop
-        autoplay
-        className="drop-shadow-2xl"
-      />
-    </div>
+    <motion.div
+      className="fixed pointer-events-none z-100 -translate-x-1/2 -translate-y-1/2 will-change-transform"
+      style={{ left: x, top: y }}
+      initial={{ opacity: 0, scale: 0.45 }}
+      animate={
+        reduceMotion
+          ? { opacity: [0, 1, 0], scale: [0.7, 1.1, 1] }
+          : { y: isHeart ? -290 : -250, opacity: [0, 1, 1, 0], scale: [0.45, 1.2, 1.35, 0.85], rotate: [-8, 8, -5, 0] }
+      }
+      transition={{ duration: reduceMotion ? 0.55 : 1.75, ease: "easeOut" }}
+    >
+      <div className={cn(
+        "relative grid h-20 w-20 place-items-center rounded-full border border-white/50 shadow-2xl backdrop-blur-sm",
+        isHeart ? "bg-linear-to-br from-rose-400 via-pink-500 to-fuchsia-500" : "bg-linear-to-br from-pink-300 via-rose-400 to-red-500",
+      )}>
+        <span className={cn("drop-shadow-md", isHeart ? "text-5xl text-white" : "text-4xl")}>{glyph}</span>
+        {!reduceMotion && burstParticles.map((particle, index) => (
+          <motion.span
+            key={index}
+            className="absolute text-lg drop-shadow-sm"
+            initial={{ opacity: 0, scale: 0.2, x: 0, y: 0 }}
+            animate={{ opacity: [0, 1, 0], scale: [0.3, 1, 0.55], x: particle.x, y: particle.y, rotate: particle.rotate }}
+            transition={{ duration: 0.9, delay: particle.delay, ease: "easeOut" }}
+          >
+            {index === 4 ? "✦" : index % 2 === 0 ? "♥" : "✨"}
+          </motion.span>
+        ))}
+      </div>
+    </motion.div>
   );
-};
+}
 
 export default function ChatRoomPage() {
   const { chatId } = useParams<{ chatId: string }>();
@@ -291,6 +306,8 @@ export default function ChatRoomPage() {
   >(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  // Keep the live preview and its captured pixels in the exact same orientation.
+  const [isMirroredCamera, setIsMirroredCamera] = useState(true);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1332,9 +1349,13 @@ export default function ChatRoomPage() {
         audio: false,
       });
       streamRef.current = stream;
+      const facingMode = stream.getVideoTracks()[0]?.getSettings().facingMode;
+      // A selfie camera should feel like a mirror; never mirror a confirmed rear camera.
+      setIsMirroredCamera(facingMode !== "environment");
       setCameraStream(stream);
     } catch (error) {
       setIsCameraOpen(false);
+      setIsMirroredCamera(true);
       console.error("Failed to access camera:", error);
       addToast("Could not access camera. Please check permissions.", "error");
     }
@@ -1384,6 +1405,7 @@ export default function ChatRoomPage() {
       streamRef.current = null;
     }
     setCameraStream(null);
+    setIsMirroredCamera(true);
     setIsCameraOpen(false);
   };
 
@@ -1543,9 +1565,11 @@ export default function ChatRoomPage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Match the mirrored selfie preview in the photo that is sent.
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
+    // The saved image must exactly match the natural mirror view the user saw.
+    if (isMirroredCamera) {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.drawImage(video, 0, 0);
 
     // Convert canvas to blob
@@ -1711,17 +1735,17 @@ export default function ChatRoomPage() {
             x,
             y,
           },
-        ].slice(-10),
+        ].slice(-4),
       );
 
       // Remove after animation completes
       setTimeout(() => {
         setMessageHearts((prev) => prev.filter((h) => h.id !== id));
-      }, 2000);
+      }, 1850);
 
       const socket = getSocket();
       const now = Date.now();
-      if (socket && chatId && now - lastHeartEmitRef.current > 100) {
+      if (socket && chatId && now - lastHeartEmitRef.current > 350) {
         socket.emit("chat:heart", { chatId }, () => {});
         lastHeartEmitRef.current = now;
       }
@@ -1744,17 +1768,17 @@ export default function ChatRoomPage() {
             x,
             y,
           },
-        ].slice(-10),
+        ].slice(-4),
       );
 
       // Remove after animation completes
       setTimeout(() => {
         setMessageKisses((prev) => prev.filter((k) => k.id !== id));
-      }, 3500);
+      }, 1850);
 
       const socket = getSocket();
       const now = Date.now();
-      if (socket && chatId && now - lastKissEmitRef.current > 500) {
+      if (socket && chatId && now - lastKissEmitRef.current > 700) {
         socket.emit("chat:kiss", { chatId }, () => {});
         lastKissEmitRef.current = now;
       }
@@ -1871,133 +1895,13 @@ export default function ChatRoomPage() {
           </motion.div>
         </div>
 
-        {/* Spectacular romantic floating hearts burst */}
+        {/* Short celebratory bursts keep the interaction playful without taxing scrolling. */}
         <AnimatePresence>
-          {messageHearts.map((mh) => (
-            <motion.div
-              key={mh.id}
-              className="fixed pointer-events-none z-100 -translate-x-1/2 -translate-y-1/2"
-              style={{ left: mh.x, top: mh.y }}
-            >
-              {/* Main soaring heart */}
-              <motion.div
-                initial={{ y: 0, scale: 0.5, opacity: 0 }}
-                animate={{
-                  y: -500,
-                  scale: [1, 2.5, 3, 2.5],
-                  rotate: [-15, 15, -15, 10, 0],
-                  opacity: [0, 1, 1, 0],
-                }}
-                transition={{ duration: 3.5, ease: "easeOut" }}
-                className="relative flex items-center justify-center"
-              >
-                <Heart className="w-20 h-20 text-rose-500 fill-rose-500 drop-shadow-[0_0_25px_rgba(244,63,94,0.9)]" />
-
-                {/* Confetti mini-hearts exploding outward */}
-                {[...Array(8)].map((_, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
-                    animate={{
-                      x: Math.cos((i * 45 * Math.PI) / 180) * 120,
-                      y:
-                        Math.sin((i * 45 * Math.PI) / 180) * 120 -
-                        Math.random() * 100,
-                      scale: Math.random() * 1.5 + 0.5,
-                      rotate: Math.random() * 360,
-                      opacity: 0,
-                    }}
-                    transition={{
-                      duration: 2 + Math.random(),
-                      ease: "easeOut",
-                    }}
-                    className="absolute"
-                  >
-                    <Heart
-                      className={cn(
-                        "w-6 h-6 drop-shadow-lg",
-                        i % 2 === 0
-                          ? "text-pink-400 fill-pink-400"
-                          : "text-rose-400 fill-rose-400",
-                      )}
-                    />
-                  </motion.div>
-                ))}
-
-                {/* Shimmering sparkles */}
-                {[...Array(6)].map((_, i) => (
-                  <motion.div
-                    key={`sparkle-${i}`}
-                    initial={{ x: 0, y: 0, scale: 0, opacity: 0 }}
-                    animate={{
-                      x: Math.cos(((i * 60 + 30) * Math.PI) / 180) * 90,
-                      y: Math.sin(((i * 60 + 30) * Math.PI) / 180) * 90 - 50,
-                      scale: [0, 1.5, 0],
-                      rotate: 180,
-                      opacity: [0, 1, 0],
-                    }}
-                    transition={{
-                      duration: 1.5 + Math.random(),
-                      ease: "easeInOut",
-                      delay: 0.2,
-                    }}
-                    className="absolute"
-                  >
-                    <Sparkles className="w-7 h-7 text-yellow-300 drop-shadow-lg" />
-                  </motion.div>
-                ))}
-              </motion.div>
-            </motion.div>
+          {messageHearts.map((heart) => (
+            <RomanticBurst key={heart.id} kind="heart" x={heart.x} y={heart.y} />
           ))}
-        </AnimatePresence>
-
-        {/* Spectacular romantic floating kisses animation */}
-        <AnimatePresence>
-          {messageKisses.map((mk) => (
-            <motion.div
-              key={mk.id}
-              className="fixed pointer-events-none z-100 -translate-x-1/2 -translate-y-1/2"
-              style={{ left: mk.x, top: mk.y }}
-            >
-              {/* Main soaring kiss animation */}
-              <motion.div
-                initial={{ y: 0, scale: 0.5, opacity: 0 }}
-                animate={{
-                  y: -600,
-                  scale: [1, 1.8, 2.5, 2],
-                  rotate: [-10, 10, -10, 5, 0],
-                  opacity: [0, 1, 1, 0],
-                }}
-                transition={{ duration: 4, ease: "easeOut" }}
-                className="relative flex items-center justify-center"
-              >
-                {/* Load and render the CAT_KISS lottie animation */}
-                <KissAnimation />
-
-                {/* Confetti mini-sparkles exploding outward */}
-                {[...Array(12)].map((_, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
-                    animate={{
-                      x: Math.cos((i * 30 * Math.PI) / 180) * 150,
-                      y: Math.sin((i * 30 * Math.PI) / 180) * 150 - 100,
-                      scale: Math.random() * 1.5 + 0.5,
-                      rotate: Math.random() * 360,
-                      opacity: 0,
-                    }}
-                    transition={{
-                      duration: 3 + Math.random(),
-                      ease: "easeOut",
-                      delay: 0.1,
-                    }}
-                    className="absolute"
-                  >
-                    <Sparkles className="w-5 h-5 text-pink-400 drop-shadow-lg" />
-                  </motion.div>
-                ))}
-              </motion.div>
-            </motion.div>
+          {messageKisses.map((kiss) => (
+            <RomanticBurst key={kiss.id} kind="kiss" x={kiss.x} y={kiss.y} />
           ))}
         </AnimatePresence>
 
@@ -3075,7 +2979,10 @@ export default function ChatRoomPage() {
                 autoPlay
                 playsInline
                 muted
-                className="flex-1 w-full h-full object-cover"
+                className={cn(
+                  "flex-1 w-full h-full object-cover transition-transform duration-200",
+                  isMirroredCamera && "-scale-x-100",
+                )}
               />
               <canvas ref={canvasRef} className="hidden" />
 
