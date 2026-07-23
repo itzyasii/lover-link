@@ -28,14 +28,13 @@ export function getSocket(): Socket<
         userId: user.id,
       },
       autoConnect: true,
-      // The API endpoint supports WebSocket upgrades. Avoid XHR polling, which
-      // can fail in the browser even when the backend is reachable.
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
+      withCredentials: true,
     }) as Socket<ServerToClientEvents, ClientToServerEvents>;
 
     socket.on("connect", () => {

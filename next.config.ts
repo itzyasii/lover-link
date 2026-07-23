@@ -13,6 +13,10 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: `${apiBaseUrl}/api/:path*`,
       },
+      {
+        source: "/socket.io/:path*",
+        destination: `${apiBaseUrl}/socket.io/:path*`,
+      },
     ];
   },
   images: {
