@@ -307,7 +307,7 @@ export interface ChatMessageServerEvent {
 export interface ReplyToMessage {
   id: string;
   text?: string | null;
-  from: string;
+  from?: string;
   fromName?: string;
   type?: "text" | "share" | "event";
   item?: {

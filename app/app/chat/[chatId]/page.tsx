@@ -57,8 +57,9 @@ interface EventItem {
 
 interface ReplyToMessage {
   id: string;
+  // Server only requires id for REST API calls - other fields are populated server-side
   text?: string | null;
-  from: string;
+  from?: string;
   fromName?: string;
   type?: "text" | "share" | "event";
   item?: {
@@ -778,26 +779,16 @@ export default function ChatRoomPage() {
                   // First mark messages as delivered
                   socket.emit(
                     "chat:delivered",
-                    { messageIds: unreadMessageIds },
-                    (response) => {
-                      if (response.ok) {
-                        console.log(
-                          `[Chat] Marked ${unreadMessageIds.length} messages as delivered`,
-                        );
-                      }
+                    {
+                      messageIds: unreadMessageIds,
                     },
+                    () => {},
                   );
                   // Then mark them as read since we're actively viewing the chat
                   socket.emit(
                     "chat:read",
                     { messageIds: unreadMessageIds },
-                    (response) => {
-                      if (response.ok) {
-                        console.log(
-                          `[Chat] Marked ${unreadMessageIds.length} messages as read`,
-                        );
-                      }
-                    },
+                    () => {},
                   );
                 }
               }
@@ -923,7 +914,6 @@ export default function ChatRoomPage() {
       // `chat:enter` - Client → Server: Notify server we've entered the chat (REALTIME_EVENTS.md)
       socket.emit("chat:enter", { chatId: chatId }, (response) => {
         if (response.ok) {
-          console.log(`[Chat] Entered chat ${chatId} successfully`);
         }
       });
 
@@ -1398,7 +1388,6 @@ export default function ChatRoomPage() {
         // `chat:leave` - Client → Server: Notify server we've left the chat (REALTIME_EVENTS.md)
         socket.emit("chat:leave", { chatId: chatId }, (response) => {
           if (response.ok) {
-            console.log(`[Chat] Left chat ${chatId} successfully`);
           }
         });
       };
@@ -1452,11 +1441,7 @@ export default function ChatRoomPage() {
           socket.emit(
             "chat:typing",
             { chatId: chatId, isTyping: false },
-            (response) => {
-              if (response.ok) {
-                // Stop typing status sent successfully
-              }
-            },
+            () => {},
           );
         }, 2000);
         setTypingTimeout(timeout);
@@ -1618,19 +1603,12 @@ export default function ChatRoomPage() {
         uploadProgress: undefined,
       });
       const socket = getSocket();
-      // Prepare replyTo data if we're replying to a message
+      // Prepare replyTo data if we're replying to a message - sanitized to avoid server validation errors
       let replyToData: ReplyToMessage | undefined;
       if (replyingTo && otherParticipant) {
+        // Server only requires the ID of the message we're replying to - it fetches all other data itself
         replyToData = {
           id: replyingTo.id,
-          text: replyingTo.text ?? undefined,
-          from: replyingTo.from,
-          fromName:
-            replyingTo.from === user?.id
-              ? user?.username
-              : otherParticipant.username,
-          type: replyingTo.type,
-          item: replyingTo.item,
         };
       }
 
@@ -1874,11 +1852,7 @@ export default function ChatRoomPage() {
           socket.emit(
             "chat:typing",
             { chatId: chatId, isTyping: false },
-            (response) => {
-              if (response.ok) {
-                // Stop typing status sent successfully
-              }
-            },
+            () => {},
           );
         }
       } catch (error) {
@@ -1890,16 +1864,9 @@ export default function ChatRoomPage() {
     // Prepare replyTo data if we're replying to a message
     let replyToData: ReplyToMessage | undefined;
     if (replyingTo && otherParticipant) {
+      // Server only requires the ID of the message we're replying to - it fetches all other data itself
       replyToData = {
         id: replyingTo.id,
-        text: replyingTo.text ?? undefined,
-        from: replyingTo.from,
-        fromName:
-          replyingTo.from === user?.id
-            ? user?.username
-            : otherParticipant.username,
-        type: replyingTo.type,
-        item: replyingTo.item,
       };
     }
 
@@ -2979,16 +2946,8 @@ export default function ChatRoomPage() {
                 </div>
                 <button
                   onClick={() => {
-                    // Scroll to the original message when clicking on the reply preview
-                    const originalMessage = document.getElementById(
-                      `message-${replyingTo.id}`,
-                    );
-                    if (originalMessage) {
-                      originalMessage.scrollIntoView({
-                        behavior: "smooth",
-                        block: "center",
-                      });
-                    }
+                    // Cancel reply and clear the replyingTo state
+                    setReplyingTo(null);
                   }}
                   className="p-1.5 rounded-full hover:bg-rose-100 transition-colors"
                   title="Cancel reply"
