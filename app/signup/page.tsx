@@ -40,7 +40,7 @@ export default function SignupPage() {
   const router = useRouter();
   const { signup } = useAuthStore();
   const { addToast } = useToastStore();
-  const { fcmToken } = useFcm();
+  const { fcmToken, ensureFcmToken } = useFcm();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -56,6 +56,9 @@ export default function SignupPage() {
   const onSubmit = async (data: SignupFormData) => {
     setIsLoading(true);
     try {
+      // Ensure we have the latest FCM token before sending signup request
+      const currentFcmToken = await ensureFcmToken();
+
       const response = await apiFetch<{
         ok: boolean;
         accessToken: string;
@@ -67,7 +70,7 @@ export default function SignupPage() {
           email: data.email,
           username: data.username,
           password: data.password,
-          fcmToken: fcmToken,
+          fcmToken: currentFcmToken,
         }),
       });
 

@@ -28,7 +28,7 @@ export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuthStore();
   const { addToast } = useToastStore();
-  const { fcmToken } = useFcm();
+  const { fcmToken, ensureFcmToken } = useFcm();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -43,11 +43,14 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true);
     try {
+      // Ensure we have the latest FCM token before sending login request
+      const currentFcmToken = await ensureFcmToken();
+
       // Send emailOrUsername to match backend schema
       const requestBody = {
         emailOrUsername: data.emailOrUsername,
         password: data.password,
-        fcmToken: fcmToken,
+        fcmToken: currentFcmToken,
       };
 
       const response = await apiFetch<{

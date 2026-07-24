@@ -40,6 +40,42 @@ export function useFcm() {
   const { fcmToken, isAuthenticated } = useAuthStore();
   const { addToast } = useToastStore();
 
+  // Expose a method to ensure FCM token is ready before auth operations
+  const ensureFcmToken = useCallback(async (): Promise<string | null> => {
+    // If we already have a token, return it immediately
+    if (fcmToken) return fcmToken;
+
+    // If Firebase isn't initialized yet, wait for initialization first
+    if (!isInitialized) {
+      // Wait a short time for initialization to complete
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    // Try to get the token if permission was already granted
+    if ("Notification" in window && Notification.permission === "granted") {
+      const token = await requestNotificationPermission();
+      return token;
+    }
+
+    // If permission is pending, try to get it silently (won't show prompt)
+    if (!permissionStatus || permissionStatus === "pending") {
+      try {
+        const token = await requestNotificationPermission();
+        if (token) {
+          setPermissionStatus("granted");
+          setStoredPermissionStatus("granted");
+          useAuthStore.getState().setFcmToken(token);
+          return token;
+        }
+      } catch (e) {
+        // If getting token fails, return null
+        return null;
+      }
+    }
+
+    return null;
+  }, [fcmToken, isInitialized, permissionStatus]);
+
   useEffect(() => {
     const init = async () => {
       const initialized = initializeFirebase();
@@ -52,6 +88,14 @@ export function useFcm() {
           if (nativeStatus === "granted" || nativeStatus === "denied") {
             setPermissionStatus(nativeStatus);
             setStoredPermissionStatus(nativeStatus);
+
+            // If permission is already granted, get the token immediately
+            if (nativeStatus === "granted") {
+              const token = await requestNotificationPermission();
+              if (token) {
+                useAuthStore.getState().setFcmToken(token);
+              }
+            }
           }
         }
 
@@ -73,10 +117,12 @@ export function useFcm() {
         "[FCM] Token obtained, will be sent to server during auth operations",
       );
       useAuthStore.getState().setFcmToken(token);
+      return token;
     } else {
       // If permission was denied, mark it as denied so we don't ask again
       setPermissionStatus("denied");
       setStoredPermissionStatus("denied");
+      return null;
     }
   }, []);
 
@@ -113,6 +159,7 @@ export function useFcm() {
     shouldShowPrompt,
     fcmToken,
     registerFcmToken,
+    ensureFcmToken,
     dismissNotificationPrompt,
   };
 }

@@ -33,9 +33,16 @@ export function initializeFirebase() {
 }
 
 export async function requestNotificationPermission(): Promise<string | null> {
+  // If messaging isn't initialized, try to initialize it first
   if (!messaging) {
-    console.warn("[Firebase] Messaging not initialized");
-    return null;
+    console.warn(
+      "[Firebase] Messaging not initialized, attempting to initialize",
+    );
+    const initialized = initializeFirebase();
+    if (!initialized || !messaging) {
+      console.error("[Firebase] Failed to initialize messaging");
+      return null;
+    }
   }
 
   try {
