@@ -12,6 +12,7 @@ export function getSocket(): Socket<
   ServerToClientEvents,
   ClientToServerEvents
 > {
+  // If socket already exists, return it immediately to prevent duplicates
   if (socket) {
     // If socket exists but is disconnected, try to reconnect
     if (!socket.connected) {
@@ -30,7 +31,7 @@ export function getSocket(): Socket<
     );
   }
 
-  // Fallback to hardcoded URL if env fails
+  // Use environment socket URL, ensure it's properly formatted
   const socketUrl =
     env.SOCKET_URL || "https://api.loverlinkliveserver.dpdns.org";
 
@@ -42,13 +43,13 @@ export function getSocket(): Socket<
     autoConnect: true,
     transports: ["websocket", "polling"],
     reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 2000,
-    reconnectionDelayMax: 10000,
-    timeout: 30000,
-    withCredentials: true,
-    forceNew: true,
-    path: "/socket.io/", // Explicitly set Socket.IO path
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 20000,
+    withCredentials: false,
+    // Removed forceNew: true to prevent creating multiple instances
+    // Removed redundant path: "/socket.io/" which is default
   }) as Socket<ServerToClientEvents, ClientToServerEvents>;
 
   socket.on("connect", () => {
