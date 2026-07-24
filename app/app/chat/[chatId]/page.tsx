@@ -110,7 +110,7 @@ interface Message {
 type ShareItemLike = ShareItem | NonNullable<ReplyToMessage["item"]>;
 
 const normalizeShareItem = (item?: ShareItemLike): ShareItem | undefined => {
-  if (!item) return item;
+  if (!item) return undefined;
   const inferredKind = item.mime?.startsWith("audio/")
     ? "audio"
     : item.mime?.startsWith("image/")
@@ -118,7 +118,15 @@ const normalizeShareItem = (item?: ShareItemLike): ShareItem | undefined => {
       : item.mime?.startsWith("video/")
         ? "video"
         : item.kind || "file";
-  return { ...item, kind: inferredKind, url: item.url || "" };
+  return {
+    ...item,
+    kind: inferredKind as ShareItem["kind"],
+    url: item.url || "",
+    originalName: item.originalName,
+    mime: item.mime,
+    size: item.size,
+    meta: item.meta,
+  };
 };
 
 // Track processed socket events to prevent duplicate messages (same as RealtimeListener)

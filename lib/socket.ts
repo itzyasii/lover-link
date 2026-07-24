@@ -12,48 +12,67 @@ export function getSocket(): Socket<
   ServerToClientEvents,
   ClientToServerEvents
 > {
-  if (!socket) {
-    const { accessToken, user } = useAuthStore.getState();
-
-    // Only create socket if we have valid authentication credentials
-    if (!accessToken || !user?.id) {
-      throw new Error(
-        "Cannot initialize socket: Missing valid accessToken or userId. User must be authenticated.",
-      );
+  if (socket) {
+    // If socket exists but is disconnected, try to reconnect
+    if (!socket.connected) {
+      console.log("[Socket] Reconnecting existing socket...");
+      socket.connect();
     }
-
-    socket = io(env.SOCKET_URL, {
-      auth: {
-        accessToken: accessToken,
-        userId: user.id,
-      },
-      autoConnect: true,
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-      withCredentials: true,
-    }) as Socket<ServerToClientEvents, ClientToServerEvents>;
-
-    socket.on("connect", () => {
-      console.log("[Socket] Connected successfully");
-    });
-
-    socket.on("disconnect", (reason) => {
-      console.log("[Socket] Disconnected:", reason);
-    });
-
-    socket.on("connect_error", (error) => {
-      console.warn("[Socket] Connection attempt failed:", error.message);
-      if (error.message.includes("invalid access token")) {
-        console.log("[Socket] Invalid token, attempting re-authentication");
-      }
-    });
-
     return socket;
   }
+
+  const { accessToken, user } = useAuthStore.getState();
+
+  // Only create socket if we have valid authentication credentials
+  if (!accessToken || !user?.id) {
+    throw new Error(
+      "Cannot initialize socket: Missing valid accessToken or userId. User must be authenticated.",
+    );
+  }
+
+  // Fallback to hardcoded URL if env fails
+  const socketUrl =
+    env.SOCKET_URL || "https://api.loverlinkliveserver.dpdns.org";
+
+  socket = io(socketUrl, {
+    auth: {
+      accessToken: accessToken,
+      userId: user.id,
+    },
+    autoConnect: true,
+    transports: ["websocket", "polling"],
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 2000,
+    reconnectionDelayMax: 10000,
+    timeout: 30000,
+    withCredentials: true,
+    forceNew: true,
+    path: "/socket.io/", // Explicitly set Socket.IO path
+  }) as Socket<ServerToClientEvents, ClientToServerEvents>;
+
+  socket.on("connect", () => {
+    console.log("[Socket] Connected successfully");
+  });
+
+  socket.on("disconnect", (reason) => {
+    console.log("[Socket] Disconnected:", reason);
+  });
+
+  socket.on("connect_error", (error) => {
+    console.warn("[Socket] Connection attempt failed:", error.message);
+    console.log("[Socket] Connection details:", {
+      socketUrl: socketUrl,
+      envSocketUrl: env.SOCKET_URL,
+      hasToken: !!accessToken,
+      userId: user.id,
+      error: error,
+    });
+    if (error.message.includes("invalid access token")) {
+      console.log("[Socket] Invalid token, attempting re-authentication");
+    }
+  });
+
   return socket;
 }
 
@@ -74,6 +93,22 @@ export function disconnectSocket() {
   if (socket) {
     socket.disconnect();
     socket = null;
+  }
+}
+
+export function debugSocketConnection() {
+  console.log("[Socket Debug] Current socket state:", {
+    socketExists: !!socket,
+    connected: socket?.connected,
+    disconnected: socket?.disconnected,
+    socketUrl: env.SOCKET_URL,
+    id: socket?.id,
+  });
+
+  if (socket) {
+    console.log("[Socket Debug] Socket io instance:", socket);
+    // Force reconnection
+    socket.connect();
   }
 }
 
