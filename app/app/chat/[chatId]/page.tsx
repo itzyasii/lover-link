@@ -848,13 +848,12 @@ export default function ChatRoomPage() {
     mutationFn: async ({
       content,
       replyTo,
+      clientMessageId,
     }: {
       content: string;
       replyTo?: ReplyToMessage;
+      clientMessageId: string;
     }) => {
-      // Generate client-side message ID for deduplication
-      const clientMessageId = crypto.randomUUID();
-
       const messageData: SendTextMessage = {
         type: "text",
         text: content,
@@ -879,15 +878,62 @@ export default function ChatRoomPage() {
       }
       return response;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
-      queryClient.invalidateQueries({ queryKey: ["chats"] });
+    onMutate: async ({ content, replyTo, clientMessageId }) => {
+      // Create optimistic message for immediate rendering
+      const optimisticMessage: Message = {
+        id: clientMessageId,
+        chatId: chatId,
+        from: user?.id || "",
+        type: "text",
+        clientMessageId,
+        text: content,
+        reactions: [],
+        receipts: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        replyTo: replyTo || undefined,
+      };
+
+      // Add to cache immediately
+      queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+        if (!prev || !Array.isArray(prev)) return [optimisticMessage];
+        return [...prev, optimisticMessage];
+      });
+
+      // Clear input immediately for responsive feel
       setNewMessage("");
-      setReplyingTo(null); // Clear reply-to after sending
+      setReplyingTo(null);
     },
-    onError: (error) => {
+    onSuccess: (response) => {
+      // Replace optimistic message with real one from server
+      if (response.message) {
+        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+          if (!prev || !Array.isArray(prev)) return prev;
+          return prev.map((msg) =>
+            msg.clientMessageId === response.message.clientMessageId
+              ? response.message
+              : msg,
+          );
+        });
+      }
+      // Update chats list to show latest message time
+      queryClient.setQueryData(["chats"], (prev: unknown) => {
+        if (!prev || !Array.isArray(prev)) return prev;
+        return prev.map((c) =>
+          c.id === chatId ? { ...c, updatedAt: new Date().toISOString() } : c,
+        );
+      });
+    },
+    onError: (error, variables) => {
       console.error("[Chat] Failed to send message:", error);
       addToast("Failed to send message. Please try again.", "error");
+      // Revert optimistic message if needed
+      queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+        if (!prev || !Array.isArray(prev)) return prev;
+        return prev.filter(
+          (msg) => msg.clientMessageId !== variables.clientMessageId,
+        );
+      });
     },
   });
 
@@ -1107,12 +1153,8 @@ export default function ChatRoomPage() {
                   : current,
               );
             }
-            // Keep messages sorted by creation time
-            return [...prev, normalizedMessage].sort(
-              (a, b) =>
-                new Date(a.createdAt).getTime() -
-                new Date(b.createdAt).getTime(),
-            );
+            // Messages are always added in order, no need to sort - append to end only
+            return [...prev, normalizedMessage];
           });
 
           if (normalizedMessage.from !== user?.id) {
@@ -1128,8 +1170,13 @@ export default function ChatRoomPage() {
             );
           }
         }
-        queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
-        queryClient.invalidateQueries({ queryKey: ["chats"] });
+        // Only invalidate if absolutely necessary - avoid full re-renders
+        queryClient.setQueryData(["chats"], (prev: unknown) => {
+          if (!prev || !Array.isArray(prev)) return prev;
+          return prev.map((c) =>
+            c.id === chatId ? { ...c, updatedAt: new Date().toISOString() } : c,
+          );
+        });
       };
 
       // Handle message receipts (REALTIME_EVENTS.md)
@@ -1243,14 +1290,9 @@ export default function ChatRoomPage() {
             // Position the heart in the middle of the screen for the receiver
             const x = window.innerWidth / 2 + Math.random() * 100 - 50;
             const y = window.innerHeight / 2 + Math.random() * 100 - 50;
-            setMessageHearts((prev) => [
-              ...prev,
-              {
-                id: heartId,
-                x,
-                y,
-              },
-            ]);
+            setMessageHearts((prev) =>
+              [...prev, { id: heartId, x, y }].slice(-10),
+            ); // Keep only last 10
 
             setTimeout(() => {
               setMessageHearts((prev) => prev.filter((h) => h.id !== heartId));
@@ -1287,7 +1329,7 @@ export default function ChatRoomPage() {
               return msg;
             });
           });
-          queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+          // No need to invalidate - we already updated the cache directly
         }
       };
 
@@ -1311,7 +1353,7 @@ export default function ChatRoomPage() {
               msg.id === messageId ? { ...msg, text, editedAt: editedAt } : msg,
             );
           });
-          queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+          // No need to invalidate - we already updated the cache directly
         }
       };
 
@@ -1335,7 +1377,7 @@ export default function ChatRoomPage() {
                 : msg,
             );
           });
-          queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+          // No need to invalidate - we already updated the cache directly
         }
       };
 
@@ -1356,7 +1398,7 @@ export default function ChatRoomPage() {
           const id = crypto.randomUUID();
           const x = 50 + Math.random() * 100;
           const y = window.innerHeight - 100 - Math.random() * 50;
-          setMessageHearts((prev) => [...prev, { id, x, y }].slice(-10));
+          setMessageHearts((prev) => [...prev, { id, x, y }].slice(-8)); // Keep only last 8
           setTimeout(() => {
             setMessageHearts((prev) => prev.filter((h) => h.id !== id));
           }, 2000);
@@ -1369,7 +1411,7 @@ export default function ChatRoomPage() {
           const id = crypto.randomUUID();
           const x = 50 + Math.random() * 100;
           const y = window.innerHeight - 100 - Math.random() * 50;
-          setMessageKisses((prev) => [...prev, { id, x, y }].slice(-10));
+          setMessageKisses((prev) => [...prev, { id, x, y }].slice(-5)); // Keep only last 5
           setTimeout(() => {
             setMessageKisses((prev) => prev.filter((k) => k.id !== id));
           }, 3500); // Longer duration for the CAT_KISS animation to play
@@ -1610,9 +1652,22 @@ export default function ChatRoomPage() {
       // Prepare replyTo data if we're replying to a message - sanitized to avoid server validation errors
       let replyToData: ReplyToMessage | undefined;
       if (replyingTo && otherParticipant) {
-        // Server only requires the ID of the message we're replying to - it fetches all other data itself
+        // Populate all required ReplyToMessage fields to match server schema
         replyToData = {
           id: replyingTo.id,
+          text: replyingTo.text || null,
+          from: replyingTo.from,
+          type: replyingTo.type,
+          item: replyingTo.item
+            ? {
+                kind: replyingTo.item.kind,
+                url: replyingTo.item.url,
+                originalName: replyingTo.item.originalName,
+                mime: replyingTo.item.mime,
+                size: replyingTo.item.size,
+                meta: replyingTo.item.meta,
+              }
+            : undefined,
         };
       }
 
@@ -1849,15 +1904,31 @@ export default function ChatRoomPage() {
     // Prepare replyTo data if we're replying to a message
     let replyToData: ReplyToMessage | undefined;
     if (replyingTo && otherParticipant) {
-      // Server only requires the ID of the message we're replying to - it fetches all other data itself
+      // Populate all required ReplyToMessage fields to match server schema
       replyToData = {
         id: replyingTo.id,
+        text: replyingTo.text || null,
+        from: replyingTo.from,
+        type: replyingTo.type,
+        item: replyingTo.item
+          ? {
+              kind: replyingTo.item.kind,
+              url: replyingTo.item.url,
+              originalName: replyingTo.item.originalName,
+              mime: replyingTo.item.mime,
+              size: replyingTo.item.size,
+              meta: replyingTo.item.meta,
+            }
+          : undefined,
       };
     }
 
+    // Generate client-side message ID for deduplication
+    const clientMessageId = crypto.randomUUID();
     sendMessageMutation.mutate({
       content: newMessage.trim(),
       replyTo: replyToData,
+      clientMessageId,
     });
   };
 
