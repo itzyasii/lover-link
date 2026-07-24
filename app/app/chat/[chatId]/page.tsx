@@ -121,6 +121,8 @@ const normalizeShareItem = (item?: ShareItemLike): ShareItem | undefined => {
   return { ...item, kind: inferredKind, url: item.url || "" };
 };
 
+// Track processed socket events to prevent duplicate messages (same as RealtimeListener)
+
 type Receipt = Message["receipts"][number];
 
 const normalizeReceiptDate = (value: unknown): string | undefined => {
@@ -431,6 +433,8 @@ export default function ChatRoomPage() {
   const lastHeartEmitRef = useRef<number>(0);
   const lastKissEmitRef = useRef<number>(0);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const socketListenersAdded = useRef(false);
+  const currentChatId = useRef<string | null>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent | TouchEvent) {
@@ -974,200 +978,6 @@ export default function ChatRoomPage() {
     [chatId, user?.id, startTyping, stopTyping],
   );
 
-  const handleChatMessage = useCallback(
-    ({
-      chatId: eventChatId,
-      message,
-    }:
-      | import("@/types/realtime-events").ChatMessageServerEvent
-      | import("@/types/realtime-events").ShareItemServerEvent) => {
-      if (eventChatId === chatId) {
-        // Normalize the incoming message and add to local state
-        // Normalize reactions timestamps
-        const normalizedReactions = message.reactions.map((reaction) => {
-          const rawCreatedAt = (
-            reaction as unknown as {
-              createdAt?: { $date: string } | Date | string;
-            }
-          ).createdAt;
-          // Handle MongoDB {$date: "iso-string"} format
-          if (
-            rawCreatedAt &&
-            typeof rawCreatedAt === "object" &&
-            "$date" in rawCreatedAt
-          ) {
-            return {
-              ...reaction,
-              createdAt: rawCreatedAt.$date,
-            };
-          }
-          // Handle Date object
-          if (
-            rawCreatedAt !== null &&
-            typeof rawCreatedAt === "object" &&
-            "toISOString" in rawCreatedAt
-          ) {
-            return {
-              ...reaction,
-              createdAt: (rawCreatedAt as Date).toISOString(),
-            };
-          }
-          // Already a string
-          return {
-            ...reaction,
-            createdAt: rawCreatedAt as string,
-          };
-        });
-
-        const normalizedReceipts = normalizeReceipts(message.receipts);
-
-        // Normalize editedAt and deletedAt if they exist
-        const normalizedEditedAt = message.editedAt
-          ? (() => {
-              const rawEditedAt =
-                (message.editedAt as unknown as { $date?: string })?.$date ||
-                message.editedAt;
-              if (
-                rawEditedAt !== null &&
-                typeof rawEditedAt === "object" &&
-                "toISOString" in rawEditedAt
-              ) {
-                return (rawEditedAt as Date).toISOString();
-              }
-              return rawEditedAt as string;
-            })()
-          : undefined;
-
-        const normalizedDeletedAt = message.deletedAt
-          ? (() => {
-              const rawDeletedAt =
-                (message.deletedAt as unknown as { $date?: string })?.$date ||
-                message.deletedAt;
-              if (
-                rawDeletedAt !== null &&
-                typeof rawDeletedAt === "object" &&
-                "toISOString" in rawDeletedAt
-              ) {
-                return (rawDeletedAt as Date).toISOString();
-              }
-              return rawDeletedAt as string;
-            })()
-          : undefined;
-
-        const normalizedMessage: Message = {
-          ...message,
-          item: normalizeShareItem(message.item),
-          replyTo: (() => {
-            const replyTo = (message as unknown as { replyTo?: ReplyToMessage })
-              .replyTo;
-            return replyTo
-              ? { ...replyTo, item: normalizeShareItem(replyTo.item) }
-              : replyTo;
-          })(),
-          id:
-            (message as unknown as { _id?: { $oid: string } })._id?.$oid ||
-            message.id,
-          chatId:
-            (message as unknown as { chatId?: { $oid: string } }).chatId
-              ?.$oid || message.chatId,
-          from:
-            (message as unknown as { from?: { $oid: string } }).from?.$oid ||
-            message.from,
-          clientMessageId: message.clientMessageId || undefined,
-          reactions: normalizedReactions,
-          receipts: normalizedReceipts,
-          editedAt: normalizedEditedAt,
-          deletedAt: normalizedDeletedAt,
-          createdAt: (() => {
-            const rawCreatedAt =
-              (message as unknown as { createdAt?: { $date: string } })
-                .createdAt?.$date || message.createdAt;
-            // If it's already a Date object, convert to ISO string
-            if (
-              rawCreatedAt &&
-              typeof rawCreatedAt === "object" &&
-              rawCreatedAt !== null &&
-              "toISOString" in rawCreatedAt
-            ) {
-              return (rawCreatedAt as Date).toISOString();
-            }
-            return rawCreatedAt as string;
-          })(),
-          updatedAt: (() => {
-            const rawUpdatedAt =
-              (message as unknown as { updatedAt?: { $date: string } })
-                .updatedAt?.$date ||
-              message.updatedAt ||
-              message.createdAt;
-            // If it's already a Date object, convert to ISO string
-            if (
-              rawUpdatedAt &&
-              typeof rawUpdatedAt === "object" &&
-              rawUpdatedAt !== null &&
-              "toISOString" in rawUpdatedAt
-            ) {
-              return (rawUpdatedAt as Date).toISOString();
-            }
-            return rawUpdatedAt as string;
-          })(),
-        };
-
-        // Add new message to React Query cache so it appears immediately (matches RealtimeListener architecture)
-        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
-          if (!prev || !Array.isArray(prev)) return [normalizedMessage];
-          const messageExists = prev.some(
-            (current) =>
-              current.id === normalizedMessage.id ||
-              (Boolean(normalizedMessage.clientMessageId) &&
-                current.clientMessageId === normalizedMessage.clientMessageId),
-          );
-          if (messageExists) {
-            return prev.map((current) =>
-              current.id === normalizedMessage.id ||
-              (Boolean(normalizedMessage.clientMessageId) &&
-                current.clientMessageId === normalizedMessage.clientMessageId)
-                ? normalizedMessage
-                : current,
-            );
-          }
-          // Messages are always added in order, no need to sort - append to end only
-          return [...prev, normalizedMessage];
-        });
-
-        if (normalizedMessage.from !== user?.id) {
-          const { accessToken } = useAuthStore.getState();
-          if (accessToken) {
-            try {
-              const socket = getSocket();
-              if (socket) {
-                socket.emit(
-                  "chat:delivered",
-                  { messageIds: [normalizedMessage.id] },
-                  () => {},
-                );
-                socket.emit(
-                  "chat:read",
-                  { messageIds: [normalizedMessage.id] },
-                  () => {},
-                );
-              }
-            } catch (error) {
-              console.error("[Chat] Failed to send receipts:", error);
-            }
-          }
-        }
-      }
-      // Only invalidate if absolutely necessary - avoid full re-renders
-      queryClient.setQueryData(["chats"], (prev: unknown) => {
-        if (!prev || !Array.isArray(prev)) return prev;
-        return prev.map((c) =>
-          c.id === chatId ? { ...c, updatedAt: new Date().toISOString() } : c,
-        );
-      });
-    },
-    [chatId, user?.id, queryClient],
-  );
-
   const handleChatReceipt = useCallback(
     ({
       chatId: eventChatId,
@@ -1415,6 +1225,32 @@ export default function ChatRoomPage() {
     const { accessToken, user } = useAuthStore.getState();
     if (!accessToken || !user?.id || !chatId) return;
 
+    // If we're switching to a different chat, clean up old listeners first
+    if (currentChatId.current && currentChatId.current !== chatId) {
+      // Cleanup previous chat's listeners if we're switching chats
+      try {
+        const socket = getSocket();
+        socket.off("chat:typing", handleChatTyping);
+        socket.off("chat:receipt", handleChatReceipt);
+        socket.off("chat:voice:listened", handleVoiceListened);
+        socket.off("chat:reaction", handleChatReaction);
+        socket.off("chat:like", handleChatLike);
+        socket.off("chat:message:edited", handleMessageEdited);
+        socket.off("chat:message:deleted", handleMessageDeleted);
+        socket.off("chat:heart", handleIncomingHeart);
+        socket.off("chat:kiss", handleIncomingKiss);
+        socket.emit("chat:leave", { chatId: currentChatId.current }, () => {});
+      } catch (e) {
+        console.warn("[Chat] Cleanup of previous chat listeners failed:", e);
+      }
+      socketListenersAdded.current = false;
+    }
+
+    // Prevent duplicate socket listener registration
+    if (socketListenersAdded.current && currentChatId.current === chatId) {
+      return;
+    }
+
     try {
       const socket = getSocket();
       if (!socket) return;
@@ -1434,10 +1270,9 @@ export default function ChatRoomPage() {
         });
       }, 25000); // Ping every 25s to stay under 30s inactivity limit
 
-      // Register only official events from REALTIME_EVENTS.md
+      // Register only chat-specific local state events from REALTIME_EVENTS.md
+      // NOTE: chat:message and share:item are handled by global RealtimeListener to avoid duplication
       socket.on("chat:typing", handleChatTyping);
-      socket.on("chat:message", handleChatMessage);
-      socket.on("share:item", handleChatMessage);
       socket.on("chat:receipt", handleChatReceipt);
       socket.on("chat:voice:listened", handleVoiceListened);
       socket.on("chat:reaction", handleChatReaction);
@@ -1447,11 +1282,13 @@ export default function ChatRoomPage() {
       socket.on("chat:heart", handleIncomingHeart);
       socket.on("chat:kiss", handleIncomingKiss);
 
+      // Mark listeners as added and track current chatId
+      socketListenersAdded.current = true;
+      currentChatId.current = chatId;
+
       return () => {
         clearInterval(chatPingInterval);
         socket.off("chat:typing", handleChatTyping);
-        socket.off("chat:message", handleChatMessage);
-        socket.off("share:item", handleChatMessage);
         socket.off("chat:receipt", handleChatReceipt);
         socket.off("chat:voice:listened", handleVoiceListened);
         socket.off("chat:reaction", handleChatReaction);
@@ -1465,6 +1302,9 @@ export default function ChatRoomPage() {
           if (response.ok) {
           }
         });
+        // Reset the flag when component unmounts or chat changes
+        socketListenersAdded.current = false;
+        currentChatId.current = null;
       };
     } catch (error) {
       console.error("[Chat] Failed to initialize socket:", error);
@@ -1476,7 +1316,6 @@ export default function ChatRoomPage() {
     startTyping,
     stopTyping,
     handleChatTyping,
-    handleChatMessage,
     handleVoiceListened,
     handleChatReceipt,
     handleChatReaction,
