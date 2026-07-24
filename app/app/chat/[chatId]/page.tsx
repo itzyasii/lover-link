@@ -952,6 +952,464 @@ export default function ChatRoomPage() {
   // Get current chat from store for pin/mute status
   const currentChat = chats.find((c) => c.id === chatId);
 
+  // Extract socket handlers to useCallback for stable references
+  const handleChatTyping = useCallback(
+    ({
+      from,
+      isTyping,
+      chatId: eventChatId,
+    }: {
+      chatId: string;
+      from: string;
+      isTyping: boolean;
+    }) => {
+      if (from !== user?.id && eventChatId === chatId) {
+        if (isTyping) {
+          startTyping(chatId, from);
+        } else {
+          stopTyping(chatId, from);
+        }
+      }
+    },
+    [chatId, user?.id, startTyping, stopTyping],
+  );
+
+  const handleChatMessage = useCallback(
+    ({
+      chatId: eventChatId,
+      message,
+    }:
+      | import("@/types/realtime-events").ChatMessageServerEvent
+      | import("@/types/realtime-events").ShareItemServerEvent) => {
+      if (eventChatId === chatId) {
+        // Normalize the incoming message and add to local state
+        // Normalize reactions timestamps
+        const normalizedReactions = message.reactions.map((reaction) => {
+          const rawCreatedAt = (
+            reaction as unknown as {
+              createdAt?: { $date: string } | Date | string;
+            }
+          ).createdAt;
+          // Handle MongoDB {$date: "iso-string"} format
+          if (
+            rawCreatedAt &&
+            typeof rawCreatedAt === "object" &&
+            "$date" in rawCreatedAt
+          ) {
+            return {
+              ...reaction,
+              createdAt: rawCreatedAt.$date,
+            };
+          }
+          // Handle Date object
+          if (
+            rawCreatedAt !== null &&
+            typeof rawCreatedAt === "object" &&
+            "toISOString" in rawCreatedAt
+          ) {
+            return {
+              ...reaction,
+              createdAt: (rawCreatedAt as Date).toISOString(),
+            };
+          }
+          // Already a string
+          return {
+            ...reaction,
+            createdAt: rawCreatedAt as string,
+          };
+        });
+
+        const normalizedReceipts = normalizeReceipts(message.receipts);
+
+        // Normalize editedAt and deletedAt if they exist
+        const normalizedEditedAt = message.editedAt
+          ? (() => {
+              const rawEditedAt =
+                (message.editedAt as unknown as { $date?: string })?.$date ||
+                message.editedAt;
+              if (
+                rawEditedAt !== null &&
+                typeof rawEditedAt === "object" &&
+                "toISOString" in rawEditedAt
+              ) {
+                return (rawEditedAt as Date).toISOString();
+              }
+              return rawEditedAt as string;
+            })()
+          : undefined;
+
+        const normalizedDeletedAt = message.deletedAt
+          ? (() => {
+              const rawDeletedAt =
+                (message.deletedAt as unknown as { $date?: string })?.$date ||
+                message.deletedAt;
+              if (
+                rawDeletedAt !== null &&
+                typeof rawDeletedAt === "object" &&
+                "toISOString" in rawDeletedAt
+              ) {
+                return (rawDeletedAt as Date).toISOString();
+              }
+              return rawDeletedAt as string;
+            })()
+          : undefined;
+
+        const normalizedMessage: Message = {
+          ...message,
+          item: normalizeShareItem(message.item),
+          replyTo: (() => {
+            const replyTo = (message as unknown as { replyTo?: ReplyToMessage })
+              .replyTo;
+            return replyTo
+              ? { ...replyTo, item: normalizeShareItem(replyTo.item) }
+              : replyTo;
+          })(),
+          id:
+            (message as unknown as { _id?: { $oid: string } })._id?.$oid ||
+            message.id,
+          chatId:
+            (message as unknown as { chatId?: { $oid: string } }).chatId
+              ?.$oid || message.chatId,
+          from:
+            (message as unknown as { from?: { $oid: string } }).from?.$oid ||
+            message.from,
+          clientMessageId: message.clientMessageId || undefined,
+          reactions: normalizedReactions,
+          receipts: normalizedReceipts,
+          editedAt: normalizedEditedAt,
+          deletedAt: normalizedDeletedAt,
+          createdAt: (() => {
+            const rawCreatedAt =
+              (message as unknown as { createdAt?: { $date: string } })
+                .createdAt?.$date || message.createdAt;
+            // If it's already a Date object, convert to ISO string
+            if (
+              rawCreatedAt &&
+              typeof rawCreatedAt === "object" &&
+              rawCreatedAt !== null &&
+              "toISOString" in rawCreatedAt
+            ) {
+              return (rawCreatedAt as Date).toISOString();
+            }
+            return rawCreatedAt as string;
+          })(),
+          updatedAt: (() => {
+            const rawUpdatedAt =
+              (message as unknown as { updatedAt?: { $date: string } })
+                .updatedAt?.$date ||
+              message.updatedAt ||
+              message.createdAt;
+            // If it's already a Date object, convert to ISO string
+            if (
+              rawUpdatedAt &&
+              typeof rawUpdatedAt === "object" &&
+              rawUpdatedAt !== null &&
+              "toISOString" in rawUpdatedAt
+            ) {
+              return (rawUpdatedAt as Date).toISOString();
+            }
+            return rawUpdatedAt as string;
+          })(),
+        };
+
+        // Add new message to React Query cache so it appears immediately (matches RealtimeListener architecture)
+        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+          if (!prev || !Array.isArray(prev)) return [normalizedMessage];
+          const messageExists = prev.some(
+            (current) =>
+              current.id === normalizedMessage.id ||
+              (Boolean(normalizedMessage.clientMessageId) &&
+                current.clientMessageId === normalizedMessage.clientMessageId),
+          );
+          if (messageExists) {
+            return prev.map((current) =>
+              current.id === normalizedMessage.id ||
+              (Boolean(normalizedMessage.clientMessageId) &&
+                current.clientMessageId === normalizedMessage.clientMessageId)
+                ? normalizedMessage
+                : current,
+            );
+          }
+          // Messages are always added in order, no need to sort - append to end only
+          return [...prev, normalizedMessage];
+        });
+
+        if (normalizedMessage.from !== user?.id) {
+          const { accessToken } = useAuthStore.getState();
+          if (accessToken) {
+            try {
+              const socket = getSocket();
+              if (socket) {
+                socket.emit(
+                  "chat:delivered",
+                  { messageIds: [normalizedMessage.id] },
+                  () => {},
+                );
+                socket.emit(
+                  "chat:read",
+                  { messageIds: [normalizedMessage.id] },
+                  () => {},
+                );
+              }
+            } catch (error) {
+              console.error("[Chat] Failed to send receipts:", error);
+            }
+          }
+        }
+      }
+      // Only invalidate if absolutely necessary - avoid full re-renders
+      queryClient.setQueryData(["chats"], (prev: unknown) => {
+        if (!prev || !Array.isArray(prev)) return prev;
+        return prev.map((c) =>
+          c.id === chatId ? { ...c, updatedAt: new Date().toISOString() } : c,
+        );
+      });
+    },
+    [chatId, user?.id, queryClient],
+  );
+
+  const handleChatReceipt = useCallback(
+    ({
+      chatId: eventChatId,
+      messageIds,
+      userId,
+      type,
+      at,
+    }: import("@/types/realtime-events").ChatReceiptServerEvent) => {
+      if (eventChatId !== chatId || userId === user?.id) return;
+      queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+        if (!prev || !Array.isArray(prev)) return prev;
+        return prev.map((message) => {
+          if (!messageIds.includes(message.id)) return message;
+          const remaining = message.receipts.filter(
+            (receipt: {
+              userId: string;
+              deliveredAt?: string;
+              readAt?: string;
+              listenedAt?: string;
+            }) => receipt.userId !== userId,
+          );
+          const current = message.receipts.find(
+            (receipt: {
+              userId: string;
+              deliveredAt?: string;
+              readAt?: string;
+              listenedAt?: string;
+            }) => receipt.userId === userId,
+          );
+          return {
+            ...message,
+            receipts: [
+              ...remaining,
+              {
+                userId,
+                deliveredAt: current?.deliveredAt || at,
+                readAt: type === "read" ? at : current?.readAt,
+                listenedAt: current?.listenedAt,
+              },
+            ],
+          };
+        });
+      });
+    },
+    [chatId, user?.id, queryClient],
+  );
+
+  const handleVoiceListened = useCallback(
+    ({
+      chatId: eventChatId,
+      messageId,
+      userId,
+      at,
+    }: import("@/types/realtime-events").ChatVoiceListenedServerEvent) => {
+      if (eventChatId !== chatId || userId === user?.id) return;
+      queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+        if (!prev || !Array.isArray(prev)) return prev;
+        return prev.map((message) =>
+          message.id !== messageId
+            ? message
+            : {
+                ...message,
+                receipts: message.receipts.map(
+                  (receipt: {
+                    userId: string;
+                    deliveredAt?: string;
+                    readAt?: string;
+                    listenedAt?: string;
+                  }) =>
+                    receipt.userId === userId
+                      ? {
+                          ...receipt,
+                          deliveredAt: receipt.deliveredAt || at,
+                          readAt: receipt.readAt || at,
+                          listenedAt: at,
+                        }
+                      : receipt,
+                ),
+              },
+        );
+      });
+    },
+    [chatId, user?.id, queryClient],
+  );
+
+  const handleChatReaction = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
+  }, [chatId, queryClient]);
+
+  const handleChatLike = useCallback(
+    (data: unknown) => {
+      // Handle socket event being wrapped in array
+      const eventData = Array.isArray(data) ? data[0] : data;
+      const {
+        chatId: eventChatId,
+        messageId,
+        userId,
+        action,
+        at,
+      } = eventData as {
+        chatId: string;
+        messageId: string;
+        userId: string;
+        action: "added" | "removed";
+        at: string;
+      };
+
+      if (eventChatId === chatId) {
+        // If a like was added and it's not from the current user, show the love animation
+        if (action === "added" && userId !== user?.id) {
+          // Show the heart animation
+          const heartId = crypto.randomUUID();
+          // Position the heart in the middle of the screen for the receiver
+          const x = window.innerWidth / 2 + Math.random() * 100 - 50;
+          const y = window.innerHeight / 2 + Math.random() * 100 - 50;
+          setMessageHearts((prev) =>
+            [...prev, { id: heartId, x, y }].slice(-10),
+          ); // Keep only last 10
+
+          setTimeout(() => {
+            setMessageHearts((prev) => prev.filter((h) => h.id !== heartId));
+          }, 2000);
+        }
+
+        // Update React Query cache (matches RealtimeListener architecture)
+        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+          if (!prev || !Array.isArray(prev)) return prev;
+          return prev.map((msg) => {
+            if (msg.id === messageId) {
+              const currentLikes = msg.likes || [];
+              if (action === "added") {
+                return {
+                  ...msg,
+                  likes: [
+                    ...currentLikes.filter(
+                      (l: { userId: string; createdAt?: string }) =>
+                        l.userId !== userId,
+                    ),
+                    { userId, createdAt: at },
+                  ],
+                };
+              } else {
+                return {
+                  ...msg,
+                  likes: currentLikes.filter(
+                    (l: { userId: string; createdAt?: string }) =>
+                      l.userId !== userId,
+                  ),
+                };
+              }
+            }
+            return msg;
+          });
+        });
+        // No need to invalidate - we already updated the cache directly
+      }
+    },
+    [chatId, user?.id, queryClient],
+  );
+
+  const handleMessageEdited = useCallback(
+    ({
+      chatId: eventChatId,
+      messageId,
+      text,
+      editedAt,
+    }: {
+      chatId: string;
+      messageId: string;
+      text: string;
+      editedAt: string;
+    }) => {
+      if (eventChatId === chatId) {
+        // Update React Query cache (matches RealtimeListener architecture)
+        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+          if (!prev || !Array.isArray(prev)) return prev;
+          return prev.map((msg) =>
+            msg.id === messageId ? { ...msg, text, editedAt: editedAt } : msg,
+          );
+        });
+        // No need to invalidate - we already updated the cache directly
+      }
+    },
+    [chatId, queryClient],
+  );
+
+  const handleMessageDeleted = useCallback(
+    ({
+      chatId: eventChatId,
+      messageId,
+      deletedAt,
+    }: {
+      chatId: string;
+      messageId: string;
+      deletedAt: string;
+    }) => {
+      if (eventChatId === chatId) {
+        // Update React Query cache (matches RealtimeListener architecture)
+        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
+          if (!prev || !Array.isArray(prev)) return prev;
+          return prev.map((msg) =>
+            msg.id === messageId
+              ? { ...msg, deletedAt: deletedAt, text: null }
+              : msg,
+          );
+        });
+        // No need to invalidate - we already updated the cache directly
+      }
+    },
+    [chatId, queryClient],
+  );
+
+  const handleIncomingHeart = useCallback(
+    (data: { from: string; chatId: string }) => {
+      if (data.from !== user?.id && data.chatId === chatId) {
+        const id = crypto.randomUUID();
+        const x = 50 + Math.random() * 100;
+        const y = window.innerHeight - 100 - Math.random() * 50;
+        setMessageHearts((prev) => [...prev, { id, x, y }].slice(-8));
+        setTimeout(() => {
+          setMessageHearts((prev) => prev.filter((h) => h.id !== id));
+        }, 2000);
+      }
+    },
+    [chatId, user?.id],
+  );
+
+  const handleIncomingKiss = useCallback(
+    (data: { from: string; chatId: string }) => {
+      if (data.from !== user?.id && data.chatId === chatId) {
+        const id = crypto.randomUUID();
+        const x = 50 + Math.random() * 100;
+        const y = window.innerHeight - 100 - Math.random() * 50;
+        setMessageKisses((prev) => [...prev, { id, x, y }].slice(-5));
+        setTimeout(() => {
+          setMessageKisses((prev) => prev.filter((k) => k.id !== id));
+        }, 3500);
+      }
+    },
+    [chatId, user?.id],
+  );
+
   // Socket event listeners - Updated to use REALTIME_EVENTS.md specification
   useEffect(() => {
     const { accessToken, user } = useAuthStore.getState();
@@ -976,411 +1434,6 @@ export default function ChatRoomPage() {
         });
       }, 25000); // Ping every 25s to stay under 30s inactivity limit
 
-      // Handle `chat:typing` events from server (REALTIME_EVENTS.md)
-      const handleChatTyping = ({
-        from,
-        isTyping,
-        chatId: eventChatId,
-      }: {
-        chatId: string;
-        from: string;
-        isTyping: boolean;
-      }) => {
-        if (from !== user?.id && eventChatId === chatId) {
-          if (isTyping) {
-            startTyping(chatId, from);
-          } else {
-            stopTyping(chatId, from);
-          }
-        }
-      };
-
-      // Handle new messages from server (REALTIME_EVENTS.md) - FIX: Update local messages state
-      const handleChatMessage = ({
-        chatId: eventChatId,
-        message,
-      }:
-        | import("@/types/realtime-events").ChatMessageServerEvent
-        | import("@/types/realtime-events").ShareItemServerEvent) => {
-        if (eventChatId === chatId) {
-          // Normalize the incoming message and add to local state
-          // Normalize reactions timestamps
-          const normalizedReactions = message.reactions.map((reaction) => {
-            const rawCreatedAt = (
-              reaction as unknown as {
-                createdAt?: { $date: string } | Date | string;
-              }
-            ).createdAt;
-            // Handle MongoDB {$date: "iso-string"} format
-            if (
-              rawCreatedAt &&
-              typeof rawCreatedAt === "object" &&
-              "$date" in rawCreatedAt
-            ) {
-              return {
-                ...reaction,
-                createdAt: rawCreatedAt.$date,
-              };
-            }
-            // Handle Date object
-            if (
-              rawCreatedAt !== null &&
-              typeof rawCreatedAt === "object" &&
-              "toISOString" in rawCreatedAt
-            ) {
-              return {
-                ...reaction,
-                createdAt: (rawCreatedAt as Date).toISOString(),
-              };
-            }
-            // Already a string
-            return {
-              ...reaction,
-              createdAt: rawCreatedAt as string,
-            };
-          });
-
-          const normalizedReceipts = normalizeReceipts(message.receipts);
-
-          // Normalize editedAt and deletedAt if they exist
-          const normalizedEditedAt = message.editedAt
-            ? (() => {
-                const rawEditedAt =
-                  (message.editedAt as unknown as { $date?: string })?.$date ||
-                  message.editedAt;
-                if (
-                  rawEditedAt !== null &&
-                  typeof rawEditedAt === "object" &&
-                  "toISOString" in rawEditedAt
-                ) {
-                  return (rawEditedAt as Date).toISOString();
-                }
-                return rawEditedAt as string;
-              })()
-            : undefined;
-
-          const normalizedDeletedAt = message.deletedAt
-            ? (() => {
-                const rawDeletedAt =
-                  (message.deletedAt as unknown as { $date?: string })?.$date ||
-                  message.deletedAt;
-                if (
-                  rawDeletedAt !== null &&
-                  typeof rawDeletedAt === "object" &&
-                  "toISOString" in rawDeletedAt
-                ) {
-                  return (rawDeletedAt as Date).toISOString();
-                }
-                return rawDeletedAt as string;
-              })()
-            : undefined;
-
-          const normalizedMessage: Message = {
-            ...message,
-            item: normalizeShareItem(message.item),
-            replyTo: (() => {
-              const replyTo = (
-                message as unknown as { replyTo?: ReplyToMessage }
-              ).replyTo;
-              return replyTo
-                ? { ...replyTo, item: normalizeShareItem(replyTo.item) }
-                : replyTo;
-            })(),
-            id:
-              (message as unknown as { _id?: { $oid: string } })._id?.$oid ||
-              message.id,
-            chatId:
-              (message as unknown as { chatId?: { $oid: string } }).chatId
-                ?.$oid || message.chatId,
-            from:
-              (message as unknown as { from?: { $oid: string } }).from?.$oid ||
-              message.from,
-            clientMessageId: message.clientMessageId || undefined,
-            reactions: normalizedReactions,
-            receipts: normalizedReceipts,
-            editedAt: normalizedEditedAt,
-            deletedAt: normalizedDeletedAt,
-            createdAt: (() => {
-              const rawCreatedAt =
-                (message as unknown as { createdAt?: { $date: string } })
-                  .createdAt?.$date || message.createdAt;
-              // If it's already a Date object, convert to ISO string
-              if (
-                rawCreatedAt &&
-                typeof rawCreatedAt === "object" &&
-                rawCreatedAt !== null &&
-                "toISOString" in rawCreatedAt
-              ) {
-                return (rawCreatedAt as Date).toISOString();
-              }
-              return rawCreatedAt as string;
-            })(),
-            updatedAt: (() => {
-              const rawUpdatedAt =
-                (message as unknown as { updatedAt?: { $date: string } })
-                  .updatedAt?.$date ||
-                message.updatedAt ||
-                message.createdAt;
-              // If it's already a Date object, convert to ISO string
-              if (
-                rawUpdatedAt &&
-                typeof rawUpdatedAt === "object" &&
-                rawUpdatedAt !== null &&
-                "toISOString" in rawUpdatedAt
-              ) {
-                return (rawUpdatedAt as Date).toISOString();
-              }
-              return rawUpdatedAt as string;
-            })(),
-          };
-
-          // Add new message to React Query cache so it appears immediately (matches RealtimeListener architecture)
-          queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
-            if (!prev || !Array.isArray(prev)) return [normalizedMessage];
-            const messageExists = prev.some(
-              (current) =>
-                current.id === normalizedMessage.id ||
-                (Boolean(normalizedMessage.clientMessageId) &&
-                  current.clientMessageId ===
-                    normalizedMessage.clientMessageId),
-            );
-            if (messageExists) {
-              return prev.map((current) =>
-                current.id === normalizedMessage.id ||
-                (Boolean(normalizedMessage.clientMessageId) &&
-                  current.clientMessageId === normalizedMessage.clientMessageId)
-                  ? normalizedMessage
-                  : current,
-              );
-            }
-            // Messages are always added in order, no need to sort - append to end only
-            return [...prev, normalizedMessage];
-          });
-
-          if (normalizedMessage.from !== user?.id) {
-            socket.emit(
-              "chat:delivered",
-              { messageIds: [normalizedMessage.id] },
-              () => {},
-            );
-            socket.emit(
-              "chat:read",
-              { messageIds: [normalizedMessage.id] },
-              () => {},
-            );
-          }
-        }
-        // Only invalidate if absolutely necessary - avoid full re-renders
-        queryClient.setQueryData(["chats"], (prev: unknown) => {
-          if (!prev || !Array.isArray(prev)) return prev;
-          return prev.map((c) =>
-            c.id === chatId ? { ...c, updatedAt: new Date().toISOString() } : c,
-          );
-        });
-      };
-
-      // Handle message receipts (REALTIME_EVENTS.md)
-      const handleChatReceipt = ({
-        chatId: eventChatId,
-        messageIds,
-        userId,
-        type,
-        at,
-      }: import("@/types/realtime-events").ChatReceiptServerEvent) => {
-        if (eventChatId !== chatId || userId === user?.id) return;
-        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
-          if (!prev || !Array.isArray(prev)) return prev;
-          return prev.map((message) => {
-            if (!messageIds.includes(message.id)) return message;
-            const remaining = message.receipts.filter(
-              (receipt: {
-                userId: string;
-                deliveredAt?: string;
-                readAt?: string;
-                listenedAt?: string;
-              }) => receipt.userId !== userId,
-            );
-            const current = message.receipts.find(
-              (receipt: {
-                userId: string;
-                deliveredAt?: string;
-                readAt?: string;
-                listenedAt?: string;
-              }) => receipt.userId === userId,
-            );
-            return {
-              ...message,
-              receipts: [
-                ...remaining,
-                {
-                  userId,
-                  deliveredAt: current?.deliveredAt || at,
-                  readAt: type === "read" ? at : current?.readAt,
-                  listenedAt: current?.listenedAt,
-                },
-              ],
-            };
-          });
-        });
-      };
-
-      const handleVoiceListened = ({
-        chatId: eventChatId,
-        messageId,
-        userId,
-        at,
-      }: import("@/types/realtime-events").ChatVoiceListenedServerEvent) => {
-        if (eventChatId !== chatId || userId === user?.id) return;
-        queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
-          if (!prev || !Array.isArray(prev)) return prev;
-          return prev.map((message) =>
-            message.id !== messageId
-              ? message
-              : {
-                  ...message,
-                  receipts: message.receipts.map(
-                    (receipt: {
-                      userId: string;
-                      deliveredAt?: string;
-                      readAt?: string;
-                      listenedAt?: string;
-                    }) =>
-                      receipt.userId === userId
-                        ? {
-                            ...receipt,
-                            deliveredAt: receipt.deliveredAt || at,
-                            readAt: receipt.readAt || at,
-                            listenedAt: at,
-                          }
-                        : receipt,
-                  ),
-                },
-          );
-        });
-      };
-
-      // Handle message reactions (REALTIME_EVENTS.md)
-      const handleChatReaction = () => {
-        queryClient.invalidateQueries({ queryKey: ["chat", chatId] });
-      };
-
-      // Handle message like event (REALTIME_EVENTS.md)
-      const handleChatLike = (data: unknown) => {
-        // Handle socket event being wrapped in array
-        const eventData = Array.isArray(data) ? data[0] : data;
-        const {
-          chatId: eventChatId,
-          messageId,
-          userId,
-          action,
-          at,
-        } = eventData as {
-          chatId: string;
-          messageId: string;
-          userId: string;
-          action: "added" | "removed";
-          at: string;
-        };
-
-        if (eventChatId === chatId) {
-          // If a like was added and it's not from the current user, show the love animation
-          if (action === "added" && userId !== user?.id) {
-            // Show the heart animation
-            const heartId = crypto.randomUUID();
-            // Position the heart in the middle of the screen for the receiver
-            const x = window.innerWidth / 2 + Math.random() * 100 - 50;
-            const y = window.innerHeight / 2 + Math.random() * 100 - 50;
-            setMessageHearts((prev) =>
-              [...prev, { id: heartId, x, y }].slice(-10),
-            ); // Keep only last 10
-
-            setTimeout(() => {
-              setMessageHearts((prev) => prev.filter((h) => h.id !== heartId));
-            }, 2000);
-          }
-
-          // Update React Query cache (matches RealtimeListener architecture)
-          queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
-            if (!prev || !Array.isArray(prev)) return prev;
-            return prev.map((msg) => {
-              if (msg.id === messageId) {
-                const currentLikes = msg.likes || [];
-                if (action === "added") {
-                  return {
-                    ...msg,
-                    likes: [
-                      ...currentLikes.filter(
-                        (l: { userId: string; createdAt?: string }) =>
-                          l.userId !== userId,
-                      ),
-                      { userId, createdAt: at },
-                    ],
-                  };
-                } else {
-                  return {
-                    ...msg,
-                    likes: currentLikes.filter(
-                      (l: { userId: string; createdAt?: string }) =>
-                        l.userId !== userId,
-                    ),
-                  };
-                }
-              }
-              return msg;
-            });
-          });
-          // No need to invalidate - we already updated the cache directly
-        }
-      };
-
-      // Handle message edited event (REALTIME_EVENTS.md)
-      const handleMessageEdited = ({
-        chatId: eventChatId,
-        messageId,
-        text,
-        editedAt,
-      }: {
-        chatId: string;
-        messageId: string;
-        text: string;
-        editedAt: string;
-      }) => {
-        if (eventChatId === chatId) {
-          // Update React Query cache (matches RealtimeListener architecture)
-          queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
-            if (!prev || !Array.isArray(prev)) return prev;
-            return prev.map((msg) =>
-              msg.id === messageId ? { ...msg, text, editedAt: editedAt } : msg,
-            );
-          });
-          // No need to invalidate - we already updated the cache directly
-        }
-      };
-
-      // Handle message deleted event (REALTIME_EVENTS.md)
-      const handleMessageDeleted = ({
-        chatId: eventChatId,
-        messageId,
-        deletedAt,
-      }: {
-        chatId: string;
-        messageId: string;
-        deletedAt: string;
-      }) => {
-        if (eventChatId === chatId) {
-          // Update React Query cache (matches RealtimeListener architecture)
-          queryClient.setQueryData(["messages", chatId], (prev: unknown) => {
-            if (!prev || !Array.isArray(prev)) return prev;
-            return prev.map((msg) =>
-              msg.id === messageId
-                ? { ...msg, deletedAt: deletedAt, text: null }
-                : msg,
-            );
-          });
-          // No need to invalidate - we already updated the cache directly
-        }
-      };
-
       // Register only official events from REALTIME_EVENTS.md
       socket.on("chat:typing", handleChatTyping);
       socket.on("chat:message", handleChatMessage);
@@ -1391,32 +1444,8 @@ export default function ChatRoomPage() {
       socket.on("chat:like", handleChatLike);
       socket.on("chat:message:edited", handleMessageEdited);
       socket.on("chat:message:deleted", handleMessageDeleted);
-
-      socket.on("chat:heart", (data) => {
-        if (data.from !== user?.id && data.chatId === chatId) {
-          // Only show animation if we're not recording voice, don't interrupt recording
-          const id = crypto.randomUUID();
-          const x = 50 + Math.random() * 100;
-          const y = window.innerHeight - 100 - Math.random() * 50;
-          setMessageHearts((prev) => [...prev, { id, x, y }].slice(-8)); // Keep only last 8
-          setTimeout(() => {
-            setMessageHearts((prev) => prev.filter((h) => h.id !== id));
-          }, 2000);
-        }
-      });
-
-      socket.on("chat:kiss", (data) => {
-        if (data.from !== user?.id && data.chatId === chatId) {
-          // Only show animation if we're not recording voice, don't interrupt recording
-          const id = crypto.randomUUID();
-          const x = 50 + Math.random() * 100;
-          const y = window.innerHeight - 100 - Math.random() * 50;
-          setMessageKisses((prev) => [...prev, { id, x, y }].slice(-5)); // Keep only last 5
-          setTimeout(() => {
-            setMessageKisses((prev) => prev.filter((k) => k.id !== id));
-          }, 3500); // Longer duration for the CAT_KISS animation to play
-        }
-      });
+      socket.on("chat:heart", handleIncomingHeart);
+      socket.on("chat:kiss", handleIncomingKiss);
 
       return () => {
         clearInterval(chatPingInterval);
@@ -1429,9 +1458,9 @@ export default function ChatRoomPage() {
         socket.off("chat:like", handleChatLike);
         socket.off("chat:message:edited", handleMessageEdited);
         socket.off("chat:message:deleted", handleMessageDeleted);
-        socket.off("chat:heart");
-        socket.off("chat:kiss");
-        // `chat:leave` - Client → Server: Notify server we've left the chat (REALTIME_EVENTS.md)
+        // Properly remove specific handlers to prevent memory leaks
+        socket.off("chat:heart", handleIncomingHeart);
+        socket.off("chat:kiss", handleIncomingKiss);
         socket.emit("chat:leave", { chatId: chatId }, (response) => {
           if (response.ok) {
           }
@@ -1440,7 +1469,23 @@ export default function ChatRoomPage() {
     } catch (error) {
       console.error("[Chat] Failed to initialize socket:", error);
     }
-  }, [chatId, user?.id, queryClient, startTyping, stopTyping]);
+  }, [
+    chatId,
+    user?.id,
+    queryClient,
+    startTyping,
+    stopTyping,
+    handleChatTyping,
+    handleChatMessage,
+    handleVoiceListened,
+    handleChatReceipt,
+    handleChatReaction,
+    handleChatLike,
+    handleMessageEdited,
+    handleMessageDeleted,
+    handleIncomingHeart,
+    handleIncomingKiss,
+  ]);
 
   // Initial fetch is handled by useQuery - no need for manual fetch
 
